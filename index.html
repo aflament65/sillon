@@ -25,6 +25,7 @@
   --accent:#e2a640; --accent-ink:#1a1206; --wave:#c9ced6; --ok:#5cc28c; --bad:#f2827a; color-scheme:dark }
 
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 html{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
 body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 var(--f-body);
   padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
@@ -83,6 +84,18 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 .files a{color:var(--ink);word-break:break-all}
 .bar{height:6px;border-radius:3px;background:var(--bg);overflow:hidden}.bar i{display:block;height:100%;width:0;background:var(--accent)}
 .err{color:var(--bad);font-size:.88rem;margin:0}
+.view{display:grid;gap:18px}
+.tabs{display:flex;gap:6px;position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);padding-block:6px}
+.tabs button{flex:1;border-radius:99px}
+.tabs button[aria-pressed=true]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.tag.ok{background:color-mix(in srgb,var(--ok) 22%,transparent)}
+.tag.todo{background:var(--bg);color:var(--muted)}
+.libList{display:grid;gap:10px}
+.libItem{display:flex;gap:12px;align-items:flex-start;padding:10px;border:1px solid var(--line);border-radius:8px}
+.libItem img,.libItem .ph{width:72px;height:72px;border-radius:5px;object-fit:cover;flex:none;background:var(--line)}
+.libItem .txt{display:grid;gap:5px;min-width:0;flex:1}
+.libItem .txt b{font-weight:600}.libItem small{color:var(--muted)}
+.libItem .row button{padding:6px 10px;font-size:.85rem}
 @media (max-width:480px){.sliders{grid-template-columns:1fr}.album img{width:84px;height:84px}}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
@@ -93,7 +106,11 @@ input[type=range]{width:100%;accent-color:var(--accent)}
   <div class="disc" aria-hidden="true"></div>
   <div><h1>Sillon</h1><p>Numérise tes vinyles, face par face, en MP3 rangés et tagués.</p></div>
 </header>
-
+<nav class="tabs" aria-label="Sections">
+  <button id="tabRec" aria-pressed="true">Numériser</button>
+  <button id="tabLib" aria-pressed="false">Ma discothèque <span id="libCount" class="mono"></span></button>
+</nav>
+<div id="viewRec" class="view">
 <!-- 1. ALBUM -->
 <section id="s1">
   <h2><span class="n">01</span>Album</h2>
@@ -121,7 +138,7 @@ input[type=range]{width:100%;accent-color:var(--accent)}
   <p class="err" id="qerr" hidden></p>
   <div class="results" id="results"></div>
   <div class="album" id="album" hidden>
-    <img id="cover" alt="Pochette">
+    <img id="cover" alt="">
     <div class="meta">
       <div class="row"><label class="grow">Artiste<input id="mArtist" type="text"></label></div>
       <div class="row"><label class="grow">Album<input id="mAlbum" type="text"></label><label style="flex:0 0 90px">Année<input id="mYear" type="text" inputmode="numeric"></label></div>
@@ -190,6 +207,24 @@ input[type=range]{width:100%;accent-color:var(--accent)}
   <p class="hint mono" id="progTxt"></p>
   <div class="files" id="files"></div>
 </section>
+</div>
+
+<div id="viewLib" class="view" hidden>
+<section>
+  <h2>Ma discothèque</h2>
+  <p class="hint" id="libStats"></p>
+  <input id="libQ" type="search" placeholder="Filtrer par artiste ou album" autocomplete="off">
+  <p class="hint" id="libEmpty">Aucun disque pour l'instant. Chaque face exportée s'ajoute ici automatiquement, avec sa pochette et ses titres.</p>
+  <div id="libList" class="libList"></div>
+</section>
+<section>
+  <h2>Sauvegarde</h2>
+  <p class="hint">La discothèque est gardée sur cet appareil. Fais une sauvegarde de temps en temps pour la retrouver sur un autre téléphone.</p>
+  <div class="row"><button id="libExport" class="main">Créer une sauvegarde</button><button id="libImportBtn">Restaurer une sauvegarde</button>
+  <input id="libImport" type="file" accept="application/json,.json" hidden></div>
+  <p class="hint" id="libMsg"></p>
+</section>
+</div>
 </main>
 
 <script src="https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js"></script>
@@ -258,6 +293,7 @@ async function discogs(path){
   if(!r.ok)throw new Error('Discogs a répondu '+r.status);
   return r.json();
 }
+const dsplit=t=>{const i=(t||'').indexOf(' - ');return i<0?['',t]:[dname(t.slice(0,i)),t.slice(i+3)]};
 const dname=s=>(s||'').replace(/\s\(\d+\)$/,'').replace(/\*$/,'');
 function card(img,title,sub,tags,onclick){
   const b=document.createElement('button');b.className='res';
@@ -304,19 +340,19 @@ async function search(){
   const box=$('#results');box.innerHTML='';
   for(const d of dcs){const v=(d.format||[]).some(f=>/vinyl/i.test(f));
     box.append(card(d.thumb||d.cover_image,d.title,`${d.year||''} ${d.country||''}${d.catno&&d.catno!=='none'?' · '+d.catno:''}${d.label?.[0]?' · '+d.label[0]:''}`,
-      `${v?'<span class="tag">Vinyle</span> ':''}<small>${esc((d.format||[]).slice(0,3).join(', '))}</small>${srcTag('Discogs')}`,()=>pickDiscogs(d.id)))}
+      `${doneTag(...dsplit(d.title))}${v?'<span class="tag">Vinyle</span> ':''}<small>${esc((d.format||[]).slice(0,3).join(', '))}</small>${srcTag('Discogs')}`,()=>pickDiscogs(d.id)))}
   for(const r of rels.slice(0,10)){
     const fmts=[...new Set((r.media||[]).map(m=>m.format).filter(Boolean))].join(', ');
     box.append(card(`https://coverartarchive.org/release/${r.id}/front-250`,r.title,
       `${credit(r['artist-credit'])} · ${(r.date||'').slice(0,4)} ${r.country||''}${r['label-info']?.[0]?.['catalog-number']?' · '+r['label-info'][0]['catalog-number']:''}`,
-      `${vin(r)?'<span class="tag">Vinyle</span> ':''}<small>${esc(fmts)} · ${r['track-count']||'?'} titres</small>${srcTag('MusicBrainz')}`,()=>pick(r.id)));
+      `${doneTag(credit(r['artist-credit']),r.title)}${vin(r)?'<span class="tag">Vinyle</span> ':''}<small>${esc(fmts)} · ${r['track-count']||'?'} titres</small>${srcTag('MusicBrainz')}`,()=>pick(r.id)));
   }
   const dzSeen=new Set();
   for(const a of dzs){if(dzSeen.has(a.id))continue;dzSeen.add(a.id);
-    box.append(card(a.cover_medium,a.title,`${a.artist?.name||''}${a.release_date?' · '+a.release_date.slice(0,4):''}`,`<small>${a.nb_tracks||'?'} titres</small>${srcTag('Deezer')}`,()=>pickDeezer(a.id)))}
+    box.append(card(a.cover_medium,a.title,`${a.artist?.name||''}${a.release_date?' · '+a.release_date.slice(0,4):''}`,`${doneTag(a.artist?.name,a.title)}<small>${a.nb_tracks||'?'} titres</small>${srcTag('Deezer')}`,()=>pickDeezer(a.id)))}
   for(const a of its){if(a.wrapperType!=='collection')continue;
     box.append(card((a.artworkUrl100||'').replace('100x100bb','250x250bb'),a.collectionName,
-      `${a.artistName} · ${(a.releaseDate||'').slice(0,4)}`,`<small>${a.trackCount||'?'} titres</small>${srcTag('iTunes')}`,()=>pickItunes(a)))}
+      `${a.artistName} · ${(a.releaseDate||'').slice(0,4)}`,`${doneTag(a.artistName,a.collectionName)}<small>${a.trackCount||'?'} titres</small>${srcTag('iTunes')}`,()=>pickItunes(a)))}
   /* Rien trouvé avec l'album : montrer la discographie de l'artiste */
   if(!box.children.length&&artist){
     box.innerHTML='<p class="hint">Recherche des albums de l\'artiste…</p>';
@@ -329,9 +365,9 @@ async function search(){
     if(rgs.length||its2.length||dz.length){const p=document.createElement('p');p.className='hint';p.textContent='Album introuvable sous ce titre. Voici les albums de '+artist+' :';box.append(p)}
     for(const g of rgs){const rid=g.releases?.[0]?.id;if(!rid)continue;
       box.append(card(`https://coverartarchive.org/release-group/${g.id}/front-250`,g.title,`${credit(g['artist-credit'])} · ${(g['first-release-date']||'').slice(0,4)}`,srcTag('MusicBrainz'),()=>pick(rid)))}
-    for(const a of dz)box.append(card(a.cover_medium,a.title,a.artist?.name||'',`<small>${a.nb_tracks||'?'} titres</small>${srcTag('Deezer')}`,()=>pickDeezer(a.id)));
+    for(const a of dz)box.append(card(a.cover_medium,a.title,a.artist?.name||'',`${doneTag(a.artist?.name,a.title)}<small>${a.nb_tracks||'?'} titres</small>${srcTag('Deezer')}`,()=>pickDeezer(a.id)));
     for(const a of its2){if(a.wrapperType!=='collection')continue;
-      box.append(card((a.artworkUrl100||'').replace('100x100bb','250x250bb'),a.collectionName,`${a.artistName} · ${(a.releaseDate||'').slice(0,4)}`,`<small>${a.trackCount||'?'} titres</small>${srcTag('iTunes')}`,()=>pickItunes(a)))}
+      box.append(card((a.artworkUrl100||'').replace('100x100bb','250x250bb'),a.collectionName,`${a.artistName} · ${(a.releaseDate||'').slice(0,4)}`,`${doneTag(a.artistName,a.collectionName)}<small>${a.trackCount||'?'} titres</small>${srcTag('iTunes')}`,()=>pickItunes(a)))}
   }
   if(!box.children.length){
     box.innerHTML='';
@@ -340,8 +376,8 @@ async function search(){
   }
 }
 /* Charge un album quelle que soit la source */
-async function loadAlbum({artist,album,year,tracks,cover}){
-  S.rel=null;S.all=[];S.range=null;const groups=new Map();
+async function loadAlbum({artist,album,year,tracks,cover,src}){
+  S.rel=null;S.src=src||null;S.all=[];S.range=null;const groups=new Map();
   const lettered=tracks.some(t=>/^[A-H]/i.test(t.number||''));
   tracks.forEach(t=>{const tr={number:t.number||String(S.all.length+1),title:t.title,length:t.length||0,artist:t.artist||artist,pos:S.all.length+1};
     S.all.push(tr);const L=/^([A-H])/i.exec(tr.number);
@@ -378,7 +414,7 @@ async function pickDiscogs(id){
     }
     if(!tracks.length)return fail('Discogs ne donne pas la liste des titres de cette édition. Essaie une autre édition.');
     const img=(d.images||[]).find(i=>i.type==='primary')||d.images?.[0];
-    await loadAlbum({artist:art,album:d.title,year:d.year?String(d.year):'',tracks,cover:img?.uri});
+    await loadAlbum({artist:art,album:d.title,year:d.year?String(d.year):'',tracks,cover:img?.uri,src:{source:'discogs',id}});
   }catch(e){fail('Album Discogs indisponible : '+e.message)}
 }
 async function pickDeezer(id){
@@ -387,7 +423,7 @@ async function pickDeezer(id){
   if(!a||a.error||!a.tracks?.data?.length)return fail('Liste des titres Deezer indisponible pour cet album.');
   await loadAlbum({artist:a.artist?.name,album:a.title,year:(a.release_date||'').slice(0,4),
     tracks:a.tracks.data.map((t,i)=>({number:String(t.track_position||i+1),title:t.title,length:(t.duration||0)*1000,artist:t.artist?.name,disc:t.disk_number})),
-    cover:a.cover_xl||a.cover_big});
+    cover:a.cover_xl||a.cover_big,src:{source:'deezer',id}});
 }
 async function pickItunes(a){
   loading();
@@ -396,7 +432,7 @@ async function pickItunes(a){
   if(!songs.length)return fail('Liste des titres indisponible pour cet album.');
   await loadAlbum({artist:a.artistName,album:a.collectionName,year:(a.releaseDate||'').slice(0,4),
     tracks:songs.map(s=>({number:String(s.trackNumber),title:s.trackName,length:s.trackTimeMillis||0,artist:s.artistName,disc:s.discNumber})),
-    cover:(a.artworkUrl100||'').replace('100x100bb','600x600bb')});
+    cover:(a.artworkUrl100||'').replace('100x100bb','600x600bb'),src:{source:'itunes',id:a.collectionId}});
 }
 /* Scan du code-barres au dos de la pochette */
 $('#scanBtn').onclick=()=>$('#scanFile').click();
@@ -417,7 +453,7 @@ async function pick(id){
   $('#results').innerHTML='<p class="hint">Chargement de l\'album…</p>';
   try{
     const r=await mb('release/'+id+'?inc=recordings+artist-credits+release-groups');
-    S.rel=r; const ra=credit(r['artist-credit']);
+    S.rel=r; S.src={source:'mb',id}; const ra=credit(r['artist-credit']);
     S.all=[]; const groups=new Map();
     for(const m of r.media||[]) for(const t of m.tracks||[]){
       const tr={number:t.number||String(t.position),title:t.title,length:t.length||t.recording?.length||0,
@@ -477,7 +513,7 @@ function parseList(txt){
 }
 $('#applyList').onclick=()=>{
   const items=parseList($('#tlist').value);if(!items.length){$('#tlist').focus();return}
-  const art=$('#mArtist').value.trim();S.rel=null;S.all=[];S.range=null;const groups=new Map();
+  const art=$('#mArtist').value.trim();S.rel=null;S.src={source:'manuel'};S.all=[];S.range=null;const groups=new Map();
   items.forEach((it,i)=>{const tr={number:it.num||String(i+1),title:it.title,length:it.len,artist:art,pos:i+1};S.all.push(tr);
     const L=/^([A-H])\d+$/.exec(tr.number),key=L?'Face '+L[1]:'Album entier';if(!groups.has(key))groups.set(key,[]);groups.get(key).push(tr)});
   S.sides=[...groups].map(([name,tracks])=>({name,tracks}));S.side=0;renderSides();pathHint();
@@ -667,6 +703,90 @@ $('#reset').onclick=()=>{stopPlay();clearAudio();hideEdit();$('#clock').textCont
 addEventListener('resize',()=>drawWave());
 matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change',()=>drawWave());
 
+/* ---------- Ma discothèque (IndexedDB, sur cet appareil) ---------- */
+let LIB=[];
+const norm=s=>(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,' ').trim();
+const albumKey=(a,b)=>norm(a)+'|'+norm(b);
+function idb(){return new Promise((res,rej)=>{const r=indexedDB.open('sillon',1);
+  r.onupgradeneeded=()=>r.result.createObjectStore('albums',{keyPath:'key'});r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)})}
+async function libTx(mode,fn){const db=await idb();return new Promise((res,rej)=>{const t=db.transaction('albums',mode),st=t.objectStore('albums');
+  let out;const q=fn(st);if(q)q.onsuccess=()=>{out=q.result};t.oncomplete=()=>res(out);t.onerror=()=>rej(t.error)})}
+async function libLoad(){try{LIB=(await libTx('readonly',st=>st.getAll()))||[]}catch(e){LIB=[]}
+  LIB.sort((a,b)=>albumKey(a.artist,a.album).localeCompare(albumKey(b.artist,b.album)));
+  $('#libCount').textContent=LIB.length?'('+LIB.length+')':'';}
+const libPut=r=>libTx('readwrite',st=>st.put(r));
+const libDel=k=>libTx('readwrite',st=>st.delete(k));
+const libFind=(artist,album)=>LIB.find(r=>r.key===albumKey(artist,album));
+function doneTag(artist,album){const r=libFind(artist,album);if(!r)return'';
+  const n=Object.keys(r.done||{}).length;return `<span class="tag ok">Déjà enregistré${n?' · '+n+' face'+(n>1?'s':''):''}</span> `}
+async function thumbOf(bytes,mime,size){
+  try{const img=new Image();img.src=URL.createObjectURL(new Blob([bytes],{type:mime}));await img.decode();
+    const c=document.createElement('canvas');c.width=c.height=size;c.getContext('2d').drawImage(img,0,0,size,size);return c.toDataURL('image/jpeg',.8)}catch(e){return ''}}
+const sideLabel=()=>{const s=S.sides[S.side];if(!s)return 'Face';return S.range?`${s.name} (titres ${S.range[0]+1} à ${S.range[1]+1})`:s.name};
+async function saveSide(nTracks){
+  const m=meta(),key=albumKey(m.artist,m.album),old=LIB.find(r=>r.key===key)||{};
+  const rec={...old,key,artist:m.artist,album:m.album,year:m.year,src:S.src||old.src||null,
+    sides:S.sides.length?S.sides:old.sides||[],created:old.created||Date.now(),updated:Date.now(),
+    done:{...(old.done||{}),[sideLabel()]:{date:Date.now(),tracks:nTracks}}};
+  if(S.cover){rec.cover=S.cover;rec.coverMime=S.coverMime;if(!old.thumb||old.cover?.length!==S.cover.length)rec.thumb=await thumbOf(S.cover,S.coverMime,160)}
+  try{await libPut(rec);await libLoad();renderLib()}catch(e){}
+}
+/* Vue discothèque */
+function showView(lib){$('#viewRec').hidden=lib;$('#viewLib').hidden=!lib;$('#tabRec').setAttribute('aria-pressed',!lib);$('#tabLib').setAttribute('aria-pressed',lib);if(lib)renderLib();scrollTo(0,0)}
+$('#tabRec').onclick=()=>showView(false);$('#tabLib').onclick=()=>showView(true);
+$('#libQ').oninput=()=>renderLib();
+function renderLib(){
+  const q=norm($('#libQ').value),box=$('#libList');box.innerHTML='';
+  const list=LIB.filter(r=>!q||norm(r.artist+' '+r.album).includes(q));
+  const faces=LIB.reduce((a,r)=>a+Object.keys(r.done||{}).length,0);
+  $('#libStats').textContent=LIB.length?`${LIB.length} album${LIB.length>1?'s':''} · ${faces} face${faces>1?'s':''} numérisée${faces>1?'s':''}`:'';
+  $('#libEmpty').hidden=LIB.length>0;
+  for(const r of list){
+    const el=document.createElement('div');el.className='libItem';
+    const all=(r.sides||[]).map(s=>s.name),doneK=Object.keys(r.done||{});
+    const chips=[...new Set([...all,...doneK])].map(n=>{const d=doneK.some(k=>k===n||k.startsWith(n+' ('));return `<span class="tag ${d?'ok':'todo'}">${esc(n.replace('Face ',''))} ${d?'✓':'·'}</span>`}).join(' ');
+    const last=Math.max(...doneK.map(k=>r.done[k].date),r.updated||0);
+    el.innerHTML=`${r.thumb?`<img alt="" src="${r.thumb}">`:'<span class="ph"></span>'}
+      <div class="txt"><b>${esc(r.album)}</b><small>${esc(r.artist)}${r.year?' · '+esc(r.year):''}</small><div class="chips">${chips}</div>
+      <small>Dernier enregistrement le ${new Date(last).toLocaleDateString('fr-FR')}</small>
+      <div class="row acts"><button class="open">Enregistrer une face</button><button class="del">Supprimer</button></div>
+      <div class="row confirm" hidden><span class="hint">Retirer cet album de la discothèque ? Les MP3 ne sont pas effacés.</span><button class="yes">Retirer</button><button class="no">Annuler</button></div></div>`;
+    el.querySelector('.open').onclick=()=>openFromLib(r);
+    el.querySelector('.del').onclick=()=>{el.querySelector('.confirm').hidden=false;el.querySelector('.acts').hidden=true};
+    el.querySelector('.no').onclick=()=>{el.querySelector('.confirm').hidden=true;el.querySelector('.acts').hidden=false};
+    el.querySelector('.yes').onclick=async()=>{await libDel(r.key);await libLoad();renderLib()};
+    box.append(el);
+  }
+}
+function openFromLib(r){
+  S.rel=null;S.src=r.src;S.sides=r.sides||[];S.all=S.sides.flatMap(s=>s.tracks);S.range=null;
+  const doneK=Object.keys(r.done||{});let i=S.sides.findIndex(s=>!doneK.includes(s.name));S.side=i<0?0:i;
+  $('#mArtist').value=r.artist;$('#mAlbum').value=r.album;$('#mYear').value=r.year||'';
+  S.cover=r.cover||null;S.coverMime=r.coverMime||'image/jpeg';
+  if(S.cover)$('#cover').src=URL.createObjectURL(new Blob([S.cover],{type:S.coverMime}));else $('#cover').removeAttribute('src');
+  $('#results').innerHTML='';$('#qerr').hidden=true;$('#album').hidden=false;renderSides();pathHint();
+  if(S.env.length)analyze();showView(false);
+}
+/* Sauvegarde / restauration */
+const b64=u8=>{let s='';for(let i=0;i<u8.length;i+=32768)s+=String.fromCharCode.apply(null,u8.subarray(i,i+32768));return btoa(s)};
+const unb64=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
+$('#libExport').onclick=async()=>{
+  const data={app:'Sillon',version:1,date:new Date().toISOString(),albums:LIB.map(r=>({...r,cover:r.cover?b64(r.cover):null}))};
+  const blob=new Blob([JSON.stringify(data)],{type:'application/json'});
+  await saveOut('Sillon - sauvegarde discothèque '+new Date().toISOString().slice(0,10)+'.json',blob,true);
+  $('#libMsg').textContent='Sauvegarde créée ('+LIB.length+' albums). Garde-la dans ton Drive ou sur ton PC.';
+};
+$('#libImportBtn').onclick=()=>$('#libImport').click();
+$('#libImport').onchange=async e=>{
+  const f=e.target.files[0];e.target.value='';if(!f)return;
+  try{const d=JSON.parse(await f.text());if(!Array.isArray(d.albums))throw new Error();
+    let n=0;for(const r of d.albums){if(!r.key)continue;const old=LIB.find(x=>x.key===r.key);
+      await libPut({...old,...r,done:{...(old?.done||{}),...(r.done||{})},cover:r.cover?unb64(r.cover):old?.cover});n++}
+    await libLoad();renderLib();$('#libMsg').textContent=n+' albums restaurés.';
+  }catch(err){$('#libMsg').textContent='Ce fichier n\'est pas une sauvegarde Sillon.'}
+};
+libLoad();
+
 /* ---------- 4. Export ---------- */
 const meta=()=>({artist:$('#mArtist').value.trim()||'Artiste inconnu',album:$('#mAlbum').value.trim()||'Album inconnu',year:$('#mYear').value.trim()});
 function folder(){const m=meta();return safe(m.artist)+'/'+safe(m.album)+(m.year?' ('+m.year+')':'')}
@@ -708,9 +828,11 @@ async function exportAll(zip){
       $('#progTxt').textContent='ZIP prêt. Ouvre-le avec l\'appli Fichiers et choisis « Extraire » pour retrouver les dossiers.';}
     else{for(const f of out){const nm=safe(m.artist)+' - '+safe(m.album)+' - '+f.name;dl(f.blob,nm);addLink(f.blob,nm);await new Promise(r=>setTimeout(r,700))}
       $('#progTxt').textContent=`${N} MP3 enregistrés dans Téléchargements. Si Chrome demande d'autoriser plusieurs téléchargements, accepte.`;}
+    await saveSide(N);$('#progTxt').textContent+=' Ajouté à ta discothèque.';
   }catch(e){$('#progTxt').textContent='Export interrompu : '+e.message}
   btns.forEach(b=>b.disabled=false);
 }
+async function saveOut(name,blob){dl(blob,name)}
 function dl(blob,name){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.append(a);a.click();a.remove()}
 function addLink(blob,name){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.textContent='↓ '+name+' ('+(blob.size/1048576).toFixed(1).replace('.',',')+' Mo)';$('#files').append(a)}
 $('#expZip').onclick=()=>exportAll(true);$('#expSep').onclick=()=>exportAll(false);
