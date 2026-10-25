@@ -98,10 +98,14 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 <section id="s1">
   <h2><span class="n">01</span>Album</h2>
   <div class="row">
-    <input id="q" class="grow" type="search" placeholder="Artiste et album, ex. Daft Punk Discovery" autocomplete="off">
-    <button id="go" class="main">Chercher</button>
+    <label class="grow">Artiste<input id="qArtist" type="search" placeholder="ex. Téléphone" autocomplete="off"></label>
+    <label class="grow">Album<input id="q" type="search" placeholder="ex. Crache ton venin" autocomplete="off"></label>
   </div>
-  <p class="hint">Recherche dans MusicBrainz. Les éditions vinyle sont listées en premier.</p>
+  <div class="row">
+    <label class="grow">Référence du disque ou code-barres (facultatif)<input id="qRef" type="search" placeholder="ex. 2C 070-14808, sur l'étiquette ou la tranche" autocomplete="off"></label>
+    <button id="go" class="main" style="align-self:end">Chercher</button>
+  </div>
+  <p class="hint">Recherche dans MusicBrainz et iTunes. Un seul champ rempli suffit, et les fautes légères sont tolérées. Les éditions vinyle sont listées en premier.</p>
   <p class="err" id="qerr" hidden></p>
   <div class="results" id="results"></div>
   <div class="album" id="album" hidden>
@@ -113,6 +117,15 @@ input[type=range]{width:100%;accent-color:var(--accent)}
   </div>
   <div id="sideBox" hidden><p class="hint" style="margin-bottom:6px">Face à enregistrer</p><div class="chips" id="sides"></div></div>
   <button id="manual" class="grow" style="justify-self:start">Saisir sans recherche</button>
+  <div id="manualBox" class="nudge" hidden>
+    <label>Liste des titres, un par ligne, durée facultative
+      <textarea id="tlist" rows="7" style="font:inherit;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:7px;padding:9px 10px;width:100%;resize:vertical" placeholder="A1 Higher 3:19&#10;A2 Rock'n'Roll Survivor 3:38&#10;B1 Spanish Rose 3:47&#10;&#10;Copie-colle depuis Wikipédia ou Discogs. A1, B1… créent les faces."></textarea></label>
+    <div class="row">
+      <button id="applyList" class="main">Utiliser cette liste</button>
+      <label class="hint" style="display:flex;gap:8px;align-items:center">Pochette : <input id="coverFile" type="file" accept="image/*"></label>
+    </div>
+    <p class="hint">Sur téléphone, le bouton Pochette permet de prendre directement la pochette en photo.</p>
+  </div>
 </section>
 
 <!-- 2. ENREGISTREMENT -->
@@ -191,25 +204,104 @@ async function mb(path){
   return r.json();
 }
 const credit=ac=>(ac||[]).map(a=>a.name+(a.joinphrase||'')).join('').trim();
+/* Recherche : MusicBrainz (requête par champs, tolérante) + iTunes en secours */
+const wait=ms=>new Promise(r=>setTimeout(r,ms));
+const luc=s=>s.replace(/[+\-&|!(){}\[\]^"~*?:\\\/]/g,' ').trim();
+const words=s=>luc(s.replace(/['’‘`´.,;]/g,' ')).split(/\s+/).filter(Boolean);
+const fz=w=>w.length>=5?w+'~1':w;
+function mbQueries(artist,album,ref){
+  const qs=[];
+  if(ref){const r=ref.replace(/\s+/g,'');
+    const q=ref.replace(/["\\]/g,'').trim(),qn=r.replace(/["\\]/g,'');
+    qs.push(/^\d{8,14}$/.test(r)?'barcode:'+r:'catno:"'+q+'" OR catno:"'+qn+'"');}
+  if(artist||album){
+    const part=(f,s)=>words(s).map(w=>f+':'+fz(w)).join(' AND ');
+    const a=artist?'('+part('artist',artist)+')':'', b=album?'('+part('release',album)+')':'';
+    qs.push([a,b].filter(Boolean).join(' AND '));
+    const all=words(artist+' '+album);
+    qs.push(all.map(w=>'(release:'+fz(w)+' OR artist:'+fz(w)+')').join(' AND '));
+    if(album)qs.push('release:"'+luc(album)+'"'+(artist?' AND artist:('+words(artist).join(' ')+')':''));
+    qs.push(all.join(' '));
+  }
+  return qs;
+}
+function itunes(term){
+  return new Promise(res=>{
+    const cb='itcb'+Date.now()+Math.floor(Math.random()*1e4),s=document.createElement('script');
+    const done=v=>{delete window[cb];s.remove();res(v)};
+    window[cb]=d=>done(d.results||[]); s.onerror=()=>done([]); setTimeout(()=>window[cb]&&done([]),8000);
+    s.src=term+'&callback='+cb;document.head.append(s);
+  });
+}
+const itunesUrl=(path)=>'https://itunes.apple.com/'+path+'&country=FR';
+function card(img,title,sub,tags,onclick){
+  const b=document.createElement('button');b.className='res';
+  b.innerHTML=`${img?`<img alt="" loading="lazy" src="${esc(img)}" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'ph'}))">`:'<span class="ph"></span>'}
+    <span class="txt"><b>${esc(title)}</b><small>${esc(sub)}</small><br>${tags}</span>`;
+  b.onclick=onclick;return b;
+}
 async function search(){
-  const q=$('#q').value.trim(); if(!q) return;
+  const artist=$('#qArtist').value.trim(),album=$('#q').value.trim(),ref=$('#qRef').value.trim();
+  if(!artist&&!album&&!ref)return;
   $('#qerr').hidden=true; $('#results').innerHTML='<p class="hint">Recherche…</p>';
-  try{
-    const d=await mb('release/?limit=20&query='+encodeURIComponent(q));
-    const rels=(d.releases||[]).map(r=>({r,vinyl:(r.media||[]).some(m=>/vinyl/i.test(m.format||''))}))
-      .sort((a,b)=>b.vinyl-a.vinyl);
-    if(!rels.length){$('#results').innerHTML='<p class="hint">Aucun résultat. Essaie avec moins de mots.</p>';return}
-    $('#results').innerHTML='';
-    for(const {r,vinyl} of rels){
-      const b=document.createElement('button'); b.className='res';
-      const fmts=[...new Set((r.media||[]).map(m=>m.format).filter(Boolean))].join(', ');
-      b.innerHTML=`<img alt="" loading="lazy" src="https://coverartarchive.org/release/${r.id}/front-250" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'ph'}))">
-        <span class="txt"><b>${esc(r.title)}</b><small>${esc(credit(r['artist-credit']))} · ${esc((r.date||'').slice(0,4))} ${esc(r.country||'')}</small><br>
-        ${vinyl?'<span class="tag">Vinyle</span> ':''}<small>${esc(fmts)} · ${r['track-count']||'?'} titres</small></span>`;
-      b.onclick=()=>pick(r.id);
-      $('#results').append(b);
-    }
-  }catch(e){$('#results').innerHTML='';$('#qerr').textContent='Recherche impossible : '+e.message+'. Vérifie la connexion.';$('#qerr').hidden=false}
+  const term=(artist+' '+album).trim();
+  const itP=term?itunes(itunesUrl('search?entity=album&limit=15&term='+encodeURIComponent(term))):Promise.resolve([]);
+  const seen=new Set(),rels=[];let mbErr=null;
+  for(const q of mbQueries(artist,album,ref)){
+    if(rels.length>=12)break;
+    try{const d=await mb('release/?limit=25&query='+encodeURIComponent(q));
+      for(const r of d.releases||[])if(!seen.has(r.id)&&(r.score??100)>=55){seen.add(r.id);rels.push(r)}}
+    catch(e){mbErr=e}
+    await wait(1100);
+  }
+  const vin=r=>(r.media||[]).some(m=>/vinyl/i.test(m.format||''));
+  rels.sort((a,b)=>vin(b)-vin(a)||(b.score||0)-(a.score||0));
+  const its=await itP;
+  const box=$('#results');box.innerHTML='';
+  for(const r of rels){
+    const fmts=[...new Set((r.media||[]).map(m=>m.format).filter(Boolean))].join(', ');
+    box.append(card(`https://coverartarchive.org/release/${r.id}/front-250`,r.title,
+      `${credit(r['artist-credit'])} · ${(r.date||'').slice(0,4)} ${r.country||''}${r['label-info']?.[0]?.['catalog-number']?' · '+r['label-info'][0]['catalog-number']:''}`,
+      `${vin(r)?'<span class="tag">Vinyle</span> ':''}<small>${esc(fmts)} · ${r['track-count']||'?'} titres · MusicBrainz</small>`,()=>pick(r.id)));
+  }
+  for(const a of its){
+    if(a.wrapperType!=='collection')continue;
+    box.append(card((a.artworkUrl100||'').replace('100x100bb','250x250bb'),a.collectionName,
+      `${a.artistName} · ${(a.releaseDate||'').slice(0,4)}`,`<small>${a.trackCount||'?'} titres · iTunes</small>`,()=>pickItunes(a)));
+  }
+  /* Rien trouvé avec l'album : montrer la discographie de l'artiste */
+  if(!box.children.length&&artist){
+    box.innerHTML='<p class="hint">Recherche des albums de l\'artiste…</p>';
+    const [d,its2]=await Promise.all([
+      mb('release-group/?limit=40&query='+encodeURIComponent('artist:('+words(artist).join(' ')+') AND primarytype:album')).catch(()=>({})),
+      itunes(itunesUrl('search?entity=album&attribute=artistTerm&limit=50&term='+encodeURIComponent(artist)))]);
+    box.innerHTML='';
+    const rgs=(d['release-groups']||[]).filter(g=>(g.score??100)>=70);
+    if(rgs.length||its2.length){const p=document.createElement('p');p.className='hint';p.textContent='Album introuvable sous ce titre. Voici les albums de '+artist+' :';box.append(p)}
+    for(const g of rgs){const rid=g.releases?.[0]?.id;if(!rid)continue;
+      box.append(card(`https://coverartarchive.org/release-group/${g.id}/front-250`,g.title,`${credit(g['artist-credit'])} · ${(g['first-release-date']||'').slice(0,4)}`,'<small>MusicBrainz</small>',()=>pick(rid)))}
+    for(const a of its2){if(a.wrapperType!=='collection')continue;
+      box.append(card((a.artworkUrl100||'').replace('100x100bb','250x250bb'),a.collectionName,`${a.artistName} · ${(a.releaseDate||'').slice(0,4)}`,`<small>${a.trackCount||'?'} titres · iTunes</small>`,()=>pickItunes(a)))}
+  }
+  if(!box.children.length){
+    box.innerHTML='';
+    $('#qerr').textContent=mbErr&&!its.length?'Recherche impossible : '+mbErr.message+'. Vérifie la connexion.':'Aucun album trouvé. Utilise « Saisir sans recherche » et colle la liste des titres (depuis Wikipédia ou Discogs).';
+    $('#qerr').hidden=false;
+  }
+}
+async function pickItunes(a){
+  $('#results').innerHTML='<p class="hint">Chargement de l\'album…</p>';
+  const list=await itunes(itunesUrl('lookup?entity=song&limit=200&id='+a.collectionId));
+  const songs=list.filter(x=>x.wrapperType==='track').sort((x,y)=>(x.discNumber-y.discNumber)||(x.trackNumber-y.trackNumber));
+  if(!songs.length){$('#results').innerHTML='';$('#qerr').textContent='Liste des titres indisponible pour cet album.';$('#qerr').hidden=false;return}
+  S.rel=null;S.all=[];const groups=new Map(),discs=new Set(songs.map(s=>s.discNumber));
+  for(const s of songs){const tr={number:String(s.trackNumber),title:s.trackName,length:s.trackTimeMillis||0,artist:s.artistName,pos:S.all.length+1};
+    S.all.push(tr);const key=discs.size>1?'Disque '+s.discNumber:'Album entier';if(!groups.has(key))groups.set(key,[]);groups.get(key).push(tr)}
+  S.sides=[...groups].map(([name,tracks])=>({name,tracks}));S.side=0;S.range=null;
+  $('#mArtist').value=a.artistName;$('#mAlbum').value=a.collectionName;$('#mYear').value=(a.releaseDate||'').slice(0,4);
+  $('#results').innerHTML='';$('#album').hidden=false;renderSides();pathHint();
+  const big=(a.artworkUrl100||'').replace('100x100bb','600x600bb');$('#cover').src=big;S.cover=null;
+  try{const r=await fetch(big);if(r.ok){const b=await r.blob();S.cover=new Uint8Array(await b.arrayBuffer());S.coverMime=b.type||'image/jpeg'}}catch(e){}
 }
 async function pick(id){
   $('#results').innerHTML='<p class="hint">Chargement de l\'album…</p>';
@@ -224,7 +316,7 @@ async function pick(id){
       const L=/^([A-Z])\d*$/i.exec(tr.number); const key=L?'Face '+L[1].toUpperCase():(r.media.length>1?'Disque '+m.position:'Album entier');
       if(!groups.has(key)) groups.set(key,[]); groups.get(key).push(tr);
     }
-    S.sides=[...groups].map(([name,tracks])=>({name,tracks})); S.side=0;
+    S.sides=[...groups].map(([name,tracks])=>({name,tracks})); S.side=0; S.range=null;
     $('#mArtist').value=ra; $('#mAlbum').value=r.title; $('#mYear').value=(r.date||'').slice(0,4);
     $('#results').innerHTML=''; $('#album').hidden=false; renderSides();
     $('#cover').src=`https://coverartarchive.org/release/${id}/front-250`;
@@ -243,13 +335,54 @@ function renderSides(){
   S.sides.forEach((s,i)=>{const b=document.createElement('button');b.className='chip';b.setAttribute('aria-pressed',i===S.side);
     const dur=s.tracks.reduce((a,t)=>a+t.length,0)/1000;
     b.textContent=`${s.name} · ${s.tracks.length} titres${dur?' · '+fmtI(dur):''}`;
-    b.onclick=()=>{S.side=i;renderSides();if(S.env.length)analyze()}; box.append(b)});
+    b.onclick=()=>{S.side=i;S.range=null;renderSides();if(S.env.length)analyze()}; box.append(b)});
+  /* Liste sans faces A/B (CD, iTunes) : choisir les pistes de la face */
+  const cur=S.sides[S.side];
+  if(cur&&!/^Face /.test(cur.name)&&cur.tracks.length>2){
+    const n=cur.tracks.length,[a,b]=S.range||[0,n-1];
+    const opts=sel=>cur.tracks.map((t,k)=>`<option value="${k}"${k===sel?' selected':''}>${k+1}. ${esc(t.title)}</option>`).join('');
+    const row=document.createElement('div');row.className='row';row.style.marginTop='8px';
+    row.innerHTML=`<label class="grow">Cette face commence à<select id="rA">${opts(a)}</select></label><label class="grow">et finit à<select id="rB">${opts(b)}</select></label>`;
+    box.append(row);
+    const upd=()=>{let x=+$('#rA').value,y=+$('#rB').value;if(y<x)y=x;S.range=[x,y];renderSides();if(S.env.length)analyze()};
+    row.querySelector('#rA').onchange=upd;row.querySelector('#rB').onchange=upd;
+  }
   $('#sideBox').hidden=!S.sides.length;
 }
-$('#go').onclick=search; $('#q').onkeydown=e=>{if(e.key==='Enter')search()};
-$('#manual').onclick=()=>{$('#album').hidden=false;$('#mArtist').focus()};
+$('#go').onclick=search; ['#q','#qArtist','#qRef'].forEach(s=>$(s).onkeydown=e=>{if(e.key==='Enter')search()});
+$('#manual').onclick=()=>{$('#album').hidden=false;$('#manualBox').hidden=false;
+  if(!$('#mArtist').value)$('#mArtist').value=$('#qArtist').value.trim();if(!$('#mAlbum').value)$('#mAlbum').value=$('#q').value.trim();$('#tlist').focus()};
+function parseList(txt){
+  const out=[];
+  for(let line of txt.split(/\r?\n/)){
+    line=line.replace(/\t/g,' ').replace(/\s+/g,' ').trim();if(!line)continue;
+    let num='',len=0,m;
+    if(m=/^([A-H])\s?(\d{1,2})[\s.\-–)]+/i.exec(line)){num=m[1].toUpperCase()+m[2];line=line.slice(m[0].length)}
+    else if(m=/^(\d{1,2})[\s.\-–)]+/.exec(line)){num=m[1];line=line.slice(m[0].length)}
+    if(m=/[\s(\-–]*\(?(\d{1,2}):(\d{2})\)?$/.exec(line)){len=(+m[1]*60+ +m[2])*1000;line=line.slice(0,m.index)}
+    line=line.replace(/^["“«]\s*|\s*["”»]$/g,'').trim();
+    if(line)out.push({num,title:line,len});
+  }
+  return out;
+}
+$('#applyList').onclick=()=>{
+  const items=parseList($('#tlist').value);if(!items.length){$('#tlist').focus();return}
+  const art=$('#mArtist').value.trim();S.rel=null;S.all=[];S.range=null;const groups=new Map();
+  items.forEach((it,i)=>{const tr={number:it.num||String(i+1),title:it.title,length:it.len,artist:art,pos:i+1};S.all.push(tr);
+    const L=/^([A-H])\d+$/.exec(tr.number),key=L?'Face '+L[1]:'Album entier';if(!groups.has(key))groups.set(key,[]);groups.get(key).push(tr)});
+  S.sides=[...groups].map(([name,tracks])=>({name,tracks}));S.side=0;renderSides();pathHint();
+  if(S.env.length)analyze();
+};
+$('#coverFile').onchange=async e=>{
+  const f=e.target.files[0];if(!f)return;
+  const img=new Image();img.src=URL.createObjectURL(f);await img.decode();
+  const s=Math.min(img.width,img.height),c=document.createElement('canvas');c.width=c.height=600;
+  c.getContext('2d').drawImage(img,(img.width-s)/2,(img.height-s)/2,s,s,0,0,600,600);
+  const b=await new Promise(r=>c.toBlob(r,'image/jpeg',.88));
+  S.cover=new Uint8Array(await b.arrayBuffer());S.coverMime='image/jpeg';$('#cover').src=URL.createObjectURL(b);
+};
 ['#mArtist','#mAlbum','#mYear'].forEach(s=>$(s).oninput=pathHint);
-const sideTracks=()=>S.side>=0&&S.sides[S.side]?S.sides[S.side].tracks:[];
+const sideTracks=()=>{const s=S.side>=0&&S.sides[S.side];if(!s)return[];return S.range?s.tracks.slice(S.range[0],S.range[1]+1):s.tracks};
 
 /* ---------- 2. Enregistrement ---------- */
 async function listDevices(){
@@ -417,7 +550,9 @@ function play(a,b){
 function stopPlay(){try{player?.stop()}catch(e){}player=null}
 $('#stopPlay').onclick=stopPlay;
 $('#reset').onclick=()=>{stopPlay();clearAudio();hideEdit();$('#clock').textContent='0:00';$('#files').innerHTML='';
-  if(S.sides.length>1&&S.side<S.sides.length-1){S.side++;renderSides()}
+  const cs=S.sides[S.side];
+  if(S.range&&cs&&S.range[1]<cs.tracks.length-1){S.range=[S.range[1]+1,cs.tracks.length-1];renderSides()}
+  else if(S.sides.length>1&&S.side<S.sides.length-1){S.side++;S.range=null;renderSides()}
   $('#recHint').textContent='Prêt pour la face suivante.';$('#s2').scrollIntoView({behavior:'smooth'})};
 addEventListener('resize',()=>drawWave());
 matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change',()=>drawWave());
