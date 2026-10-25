@@ -8,6 +8,7 @@ rm -rf www android
 mkdir -p www/lib
 cp node_modules/lamejs/lame.min.js www/lib/
 cp node_modules/jszip/dist/jszip.min.js www/lib/
+cp node_modules/@zxing/library/umd/index.min.js www/lib/zxing.min.js
 sed -e 's#https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js#lib/lame.min.js#' \
     -e 's#https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js#lib/jszip.min.js#' \
     index.html > www/index.html
@@ -22,8 +23,9 @@ cp android-src/MainActivity.java android-src/SillonPlugin.java "$JAVA_DIR/"
 
 # Permissions : micro (et réglages audio pour la carte son USB)
 MAN=android/app/src/main/AndroidManifest.xml
-sed -i 's#<application#<uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />\n\n    <application#' "$MAN"
+sed -i 's#<application#<uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />\n    <uses-permission android:name="android.permission.CAMERA" />\n\n    <application#' "$MAN"
 grep -q RECORD_AUDIO "$MAN"
+grep -q permission.CAMERA "$MAN"
 
 # Accès aux dossiers choisis + numéro de version
 GR=android/app/build.gradle

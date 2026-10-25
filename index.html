@@ -96,6 +96,12 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 .libItem .txt{display:grid;gap:5px;min-width:0;flex:1}
 .libItem .txt b{font-weight:600}.libItem small{color:var(--muted)}
 .libItem .row button{padding:6px 10px;font-size:.85rem}
+.scanner{position:fixed;inset:0;z-index:50;background:#000;display:flex;flex-direction:column}
+.scanner video{flex:1;min-height:0;width:100%;object-fit:cover}
+.scanFrame{position:absolute;left:10%;right:10%;top:32%;height:22%;border:3px solid var(--accent);border-radius:10px;box-shadow:0 0 0 100vmax rgba(0,0,0,.45);pointer-events:none}
+.scanBar{position:absolute;left:0;right:0;bottom:0;padding:16px max(16px,env(safe-area-inset-right,0px)) calc(16px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px));background:rgba(0,0,0,.7);color:#fff;display:grid;gap:10px}
+.scanBar p{margin:0}
+.scanBar .row{justify-content:flex-end}
 @media (max-width:480px){.sliders{grid-template-columns:1fr}.album img{width:84px;height:84px}}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
@@ -124,7 +130,7 @@ input[type=range]{width:100%;accent-color:var(--accent)}
   </div>
   <div class="row">
     <button id="scanBtn">Scanner le code-barres</button>
-    <input id="scanFile" type="file" accept="image/*" capture="environment" hidden>
+    <input id="scanFile" type="file" accept="image/*" hidden>
   </div>
   <p class="hint" id="apkHint" hidden>Sur Android, l'application Sillon range directement les MP3 dans le dossier de ton choix : <a href="https://github.com/aflament65/sillon/releases/download/apk/sillon.apk">télécharger l'APK</a>.</p>
   <p class="hint">Recherche dans Discogs, MusicBrainz, Deezer et iTunes. Un seul champ rempli suffit. Le code-barres au dos de la pochette donne l'édition exacte.</p>
@@ -234,6 +240,14 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 </section>
 </div>
 </main>
+<div id="scanner" class="scanner" hidden role="dialog" aria-label="Scanner le code-barres">
+  <video id="scanVideo" playsinline muted></video>
+  <div class="scanFrame" aria-hidden="true"></div>
+  <div class="scanBar">
+    <p id="scanMsg">Place le code-barres dans le cadre.</p>
+    <div class="row"><button id="scanPhoto">Depuis une photo</button><button id="scanCancel" class="main">Annuler</button></div>
+  </div>
+</div>
 
 <script src="https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -444,17 +458,62 @@ async function pickItunes(a){
     tracks:songs.map(s=>({number:String(s.trackNumber),title:s.trackName,length:s.trackTimeMillis||0,artist:s.artistName,disc:s.discNumber})),
     cover:(a.artworkUrl100||'').replace('100x100bb','600x600bb'),src:{source:'itunes',id:a.collectionId}});
 }
-/* Scan du code-barres au dos de la pochette */
-$('#scanBtn').onclick=()=>$('#scanFile').click();
-$('#scanFile').onchange=async e=>{
-  const f=e.target.files[0];e.target.value='';if(!f)return;
-  if(!('BarcodeDetector' in window)){$('#qerr').textContent='Ce navigateur ne lit pas les codes-barres. Utilise Chrome sur Android, ou tape les chiffres sous le code.';$('#qerr').hidden=false;return}
-  try{const bmp=await createImageBitmap(f);
-    const codes=await new BarcodeDetector({formats:['ean_13','ean_8','upc_a','upc_e']}).detect(bmp);
-    if(!codes.length){$('#qerr').textContent='Code-barres non lu. Reprends la photo de plus près, bien à plat et éclairée.';$('#qerr').hidden=false;return}
-    $('#qRef').value=codes[0].rawValue;search();
-  }catch(err){$('#qerr').textContent='Lecture du code-barres impossible sur cet appareil.';$('#qerr').hidden=false}
-};
+/* Scan du code-barres au dos de la pochette : caméra en direct, photo en secours */
+const BC_FORMATS=['ean_13','ean_8','upc_a','upc_e'];
+let scanStream=null,scanTimer=null,zxReader=null;
+async function nativeDetector(){
+  if(!('BarcodeDetector' in window))return null;
+  try{const f=await BarcodeDetector.getSupportedFormats();if(!f.includes('ean_13'))return null;return new BarcodeDetector({formats:BC_FORMATS.filter(x=>f.includes(x))})}catch(e){return null}
+}
+function loadZxing(){
+  if(window.ZXing)return Promise.resolve(window.ZXing);
+  return new Promise((res,rej)=>{const s=document.createElement('script');
+    s.src=NATIVE?'lib/zxing.min.js':'https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js';
+    s.onload=()=>window.ZXing?res(window.ZXing):rej(new Error('lecteur indisponible'));s.onerror=()=>rej(new Error('lecteur non chargé'));document.head.append(s)});
+}
+function zxReaderNew(Z){
+  const h=new Map();h.set(Z.DecodeHintType.POSSIBLE_FORMATS,[Z.BarcodeFormat.EAN_13,Z.BarcodeFormat.EAN_8,Z.BarcodeFormat.UPC_A,Z.BarcodeFormat.UPC_E]);
+  h.set(Z.DecodeHintType.TRY_HARDER,true);return new Z.BrowserMultiFormatReader(h);
+}
+function scanDone(code){
+  stopScan();
+  if(code){$('#qRef').value=code;$('#qArtist').value='';$('#q').value='';search()}
+}
+function stopScan(){
+  clearInterval(scanTimer);scanTimer=null;
+  try{zxReader?.reset()}catch(e){}zxReader=null;
+  scanStream?.getTracks().forEach(t=>t.stop());scanStream=null;
+  const v=$('#scanVideo');v.srcObject=null;$('#scanner').hidden=true;
+}
+async function startScan(){
+  $('#qerr').hidden=true;$('#scanMsg').textContent='Place le code-barres dans le cadre.';
+  try{scanStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}},audio:false})}
+  catch(e){$('#qerr').textContent='Caméra inaccessible. Autorise la caméra pour Sillon, ou utilise « Depuis une photo ».';$('#qerr').hidden=false;return}
+  const v=$('#scanVideo');v.srcObject=scanStream;$('#scanner').hidden=false;
+  try{await v.play()}catch(e){}
+  const det=await nativeDetector();
+  if(det){
+    scanTimer=setInterval(async()=>{if(v.readyState<2)return;
+      try{const c=await det.detect(v);if(c.length)scanDone(c[0].rawValue)}catch(e){}},200);
+    return;
+  }
+  try{const Z=await loadZxing();if(!scanStream)return;zxReader=zxReaderNew(Z);
+    const r=await zxReader.decodeOnceFromVideoElement(v);scanDone(r.getText());
+  }catch(e){if(scanStream){$('#scanMsg').textContent='Lecture impossible ici ('+e.message+'). Tape les chiffres sous le code-barres.'}}
+}
+async function scanPhoto(f){
+  try{
+    const det=await nativeDetector();
+    if(det){const c=await det.detect(await createImageBitmap(f));if(c.length)return scanDone(c[0].rawValue)}
+    else{const Z=await loadZxing(),img=new Image();img.src=URL.createObjectURL(f);await img.decode();
+      try{const r=await zxReaderNew(Z).decodeFromImageElement(img);return scanDone(r.getText())}catch(e){}}
+    stopScan();$('#qerr').textContent='Code-barres non lu sur la photo. Reprends-la de plus près, bien à plat et éclairée.';$('#qerr').hidden=false;
+  }catch(err){stopScan();$('#qerr').textContent='Lecture du code-barres impossible : '+err.message;$('#qerr').hidden=false}
+}
+$('#scanBtn').onclick=startScan;
+$('#scanCancel').onclick=stopScan;
+$('#scanPhoto').onclick=()=>$('#scanFile').click();
+$('#scanFile').onchange=e=>{const f=e.target.files[0];e.target.value='';if(f)scanPhoto(f)};
 /* Réglage du jeton Discogs */
 $('#dTok').value=getTok();
 $('#dTokSave').onclick=()=>{try{localStorage.setItem(DTOK,$('#dTok').value.trim())}catch(e){}
