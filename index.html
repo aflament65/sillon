@@ -26,6 +26,13 @@
 
 *{box-sizing:border-box}
 [hidden]{display:none!important}
+html,body{max-width:100%;overflow-x:hidden}
+main,.view,section,.nudge,.libItem .txt{grid-template-columns:minmax(0,1fr)}
+.nudge>*{min-width:0}
+input[type=range]{min-width:0;margin-inline:0}
+main>*,.view>*,section>*,.row>*,label{min-width:0}
+input[type=file]{max-width:100%;font-size:.85rem}
+canvas{max-width:100%}
 html{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
 body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 var(--f-body);
   padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
@@ -78,7 +85,7 @@ canvas{width:100%;display:block;border-radius:6px;background:var(--bg);touch-act
 .trk .d{font-size:.82rem;color:var(--muted)}
 .trk button{padding:6px 9px}
 .nudge{display:grid;gap:8px;padding:10px;border-radius:8px;background:var(--bg)}
-.sliders{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.sliders{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px}
 input[type=range]{width:100%;accent-color:var(--accent)}
 .files{display:grid;gap:4px;font-size:.88rem}
 .files a{color:var(--ink);word-break:break-all}
@@ -103,7 +110,7 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 .scanBar p{margin:0}
 .scanBar .row{justify-content:flex-end}
 .scanBar button{padding:8px 11px}
-@media (max-width:480px){.sliders{grid-template-columns:1fr}.album img{width:84px;height:84px}}
+@media (max-width:480px){.sliders{grid-template-columns:minmax(0,1fr)}.album img{width:84px;height:84px}}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
@@ -159,7 +166,7 @@ input[type=range]{width:100%;accent-color:var(--accent)}
       <textarea id="tlist" rows="7" style="font:inherit;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:7px;padding:9px 10px;width:100%;resize:vertical" placeholder="A1 Higher 3:19&#10;A2 Rock'n'Roll Survivor 3:38&#10;B1 Spanish Rose 3:47&#10;&#10;Copie-colle depuis Wikipédia ou Discogs. A1, B1… créent les faces."></textarea></label>
     <div class="row">
       <button id="applyList" class="main">Utiliser cette liste</button>
-      <label class="hint" style="display:flex;gap:8px;align-items:center">Pochette : <input id="coverFile" type="file" accept="image/*"></label>
+      <label class="hint" style="display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center">Pochette : <input id="coverFile" type="file" accept="image/*"></label>
     </div>
     <p class="hint">Sur téléphone, le bouton Pochette permet de prendre directement la pochette en photo.</p>
   </div>
@@ -178,7 +185,7 @@ input[type=range]{width:100%;accent-color:var(--accent)}
   </div>
   <div class="meter" id="meter"><i></i></div>
   <p class="hint" id="recHint">Lance l'enregistrement, puis pose le diamant. Vise un niveau vert franc sans passer au rouge.</p>
-  <div class="row"><label class="hint" style="display:flex;gap:8px;align-items:center">Ou tester avec un fichier audio : <input id="file" type="file" accept="audio/*"></label></div>
+  <div class="row"><label class="hint" style="display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center">Ou tester avec un fichier audio : <input id="file" type="file" accept="audio/*"></label></div>
 </section>
 
 <!-- 3. DÉCOUPAGE -->
