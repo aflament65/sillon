@@ -1,0 +1,8 @@
+{
+  "appId": "fr.aflament.sillon",
+  "appName": "Sillon",
+  "webDir": "www",
+  "android": {
+    "allowMixedContent": false
+  }
+}

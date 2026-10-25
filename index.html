@@ -126,6 +126,7 @@ input[type=range]{width:100%;accent-color:var(--accent)}
     <button id="scanBtn">Scanner le code-barres</button>
     <input id="scanFile" type="file" accept="image/*" capture="environment" hidden>
   </div>
+  <p class="hint" id="apkHint" hidden>Sur Android, l'application Sillon range directement les MP3 dans le dossier de ton choix : <a href="https://github.com/aflament65/sillon/releases/download/apk/sillon.apk">télécharger l'APK</a>.</p>
   <p class="hint">Recherche dans Discogs, MusicBrainz, Deezer et iTunes. Un seul champ rempli suffit. Le code-barres au dos de la pochette donne l'édition exacte.</p>
   <details id="dSet">
     <summary class="hint" style="cursor:pointer">Activer Discogs, la meilleure source pour les vinyles</summary>
@@ -198,10 +199,17 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 <!-- 4. EXPORT -->
 <section id="s4" hidden>
   <h2><span class="n">04</span>Export MP3 320 kbit/s</h2>
+  <div id="nativeBox" class="row" hidden>
+    <span class="hint grow">Dossier de sauvegarde : <b id="folderName">non choisi</b></span>
+    <button id="pickFolder">Choisir le dossier</button>
+  </div>
   <p class="hint" id="pathHint"></p>
-  <div class="row">
+  <div class="row" id="webExp">
     <button id="expZip" class="main">ZIP rangé en dossiers</button>
     <button id="expSep">Fichiers séparés</button>
+  </div>
+  <div class="row" id="natExp" hidden>
+    <button id="expNative" class="main">Enregistrer les MP3 dans le dossier</button>
   </div>
   <div class="bar"><i id="prog"></i></div>
   <p class="hint mono" id="progTxt"></p>
@@ -236,6 +244,8 @@ const S={rel:null,all:[],sides:[],side:-1,cover:null,coverMime:'image/jpeg',
   chunks:[],starts:[],frames:0,env:[],acc:0,cnt:0,bounds:[],titles:[],labels:[],sel:-1,cursor:null,
   floor:-90,peak:0,thr:-60,recording:false};
 let ctx=null, stream=null, proc=null, src=null, wake=null, player=null;
+const NATIVE=(window.Capacitor?.isNativePlatform?.()&&window.Capacitor.Plugins?.Sillon)||null;
+let FOLDER={};
 
 const fmt=t=>{t=Math.max(0,t);const m=Math.floor(t/60),s=t-m*60;return m+':'+(s<10?'0':'')+s.toFixed(t<600&&s%1?1:0).replace('.',',')};
 const fmtI=t=>{t=Math.max(0,Math.round(t));return Math.floor(t/60)+':'+String(t%60).padStart(2,'0')};
@@ -576,11 +586,13 @@ async function startRec(){
   S.recording=true; $('#recBtn').textContent='Arrêter'; $('#recBtn').className='rec';
   $('#recHint').textContent='Enregistrement… Garde l\'écran allumé. L\'arrêt est automatique après 15 s de silence en fin de face.';
   try{wake=await navigator.wakeLock?.request('screen')}catch(e){}
+  NATIVE?.keepAwake({on:true}).catch(()=>{});
 }
 function stopRec(auto){
   if(!S.recording)return; S.recording=false;
   try{proc.disconnect();src.disconnect();stream.getTracks().forEach(t=>t.stop())}catch(e){}
   try{wake?.release()}catch(e){} wake=null;
+  NATIVE?.keepAwake({on:false}).catch(()=>{});
   $('#recBtn').textContent='Enregistrer';$('#recBtn').className='main';
   $('#meter').firstElementChild.style.width='0';
   $('#recHint').textContent=(auto?'Fin de face détectée. ':'')+'Enregistré : '+fmtI(S.frames/SR)+'. Vérifie les coupures plus bas.';
@@ -790,7 +802,7 @@ libLoad();
 /* ---------- 4. Export ---------- */
 const meta=()=>({artist:$('#mArtist').value.trim()||'Artiste inconnu',album:$('#mAlbum').value.trim()||'Album inconnu',year:$('#mYear').value.trim()});
 function folder(){const m=meta();return safe(m.artist)+'/'+safe(m.album)+(m.year?' ('+m.year+')':'')}
-function pathHint(){$('#pathHint').textContent='Rangement : '+folder()+'/01 - Titre.mp3. Pochette et tags intégrés dans chaque fichier.'}
+function pathHint(){$('#pathHint').textContent='Rangement : '+(NATIVE?(FOLDER.name||'dossier à choisir')+'/':'')+folder()+'/01 - Titre.mp3. Pochette et tags intégrés dans chaque fichier.'}
 function trackNo(i){const tr=sideTracks()[i];return tr?tr.pos:i+1}
 function totalNo(){return S.all.length||S.bounds.length-1}
 function txtFrame(id,str){const d=new Uint8Array(3+str.length*2+2);d[0]=1;d[1]=0xFF;d[2]=0xFE;for(let i=0;i<str.length;i++){const c=str.charCodeAt(i);d[3+2*i]=c&255;d[4+2*i]=c>>8}return frame(id,d)}
@@ -832,10 +844,45 @@ async function exportAll(zip){
   }catch(e){$('#progTxt').textContent='Export interrompu : '+e.message}
   btns.forEach(b=>b.disabled=false);
 }
-async function saveOut(name,blob){dl(blob,name)}
+async function saveOut(name,blob){
+  if(NATIVE){if(!FOLDER.uri&&!(await chooseFolder()))throw new Error('aucun dossier choisi');await writeNative(safe(name.replace(/\.json$/,''))+'.json',blob);return}
+  dl(blob,name)}
+/* ---------- Application Android (APK) ---------- */
+async function writeNative(rel,blob){
+  const buf=new Uint8Array(await blob.arrayBuffer()),CH=786432;let o=0;
+  do{await NATIVE.writeFile({path:rel,data:b64(buf.subarray(o,o+CH)),append:o>0,mime:blob.type||'application/octet-stream'});o+=CH}while(o<buf.length);
+}
+async function chooseFolder(){
+  try{FOLDER=await NATIVE.pickFolder();$('#folderName').textContent=FOLDER.name||'dossier choisi';pathHint();return true}
+  catch(e){$('#progTxt').textContent='Aucun dossier choisi. Choisis par exemple le dossier Music.';return false}
+}
+async function exportNative(){
+  if(typeof lamejs==='undefined'){$('#progTxt').textContent='Encodeur MP3 non chargé.';return}
+  if(!FOLDER.uri&&!(await chooseFolder()))return;
+  const b=$('#expNative');b.disabled=true;$('#files').innerHTML='';
+  const N=S.bounds.length-1,dir=folder();
+  try{
+    if(S.cover)await writeNative(dir+'/folder.jpg',new Blob([S.cover],{type:S.coverMime}));
+    for(let i=0;i<N;i++){
+      const blob=await encode(i,p=>{$('#prog').style.width=((i+p)/N*100)+'%';$('#progTxt').textContent=`Encodage ${i+1}/${N} · ${S.titles[i]}`});
+      $('#progTxt').textContent=`Enregistrement ${i+1}/${N} · ${S.titles[i]}`;
+      await writeNative(dir+'/'+fileName(i),blob);
+      const d=document.createElement('div');d.textContent='✓ '+fileName(i);$('#files').append(d);
+    }
+    $('#prog').style.width='100%';
+    $('#progTxt').textContent=`${N} MP3 enregistrés dans ${FOLDER.name}/${dir}.`;
+    await saveSide(N);$('#progTxt').textContent+=' Ajouté à ta discothèque.';
+  }catch(e){$('#progTxt').textContent='Enregistrement interrompu : '+e.message}
+  b.disabled=false;
+}
 function dl(blob,name){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.append(a);a.click();a.remove()}
 function addLink(blob,name){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.textContent='↓ '+name+' ('+(blob.size/1048576).toFixed(1).replace('.',',')+' Mo)';$('#files').append(a)}
 $('#expZip').onclick=()=>exportAll(true);$('#expSep').onclick=()=>exportAll(false);
+if(NATIVE){
+  $('#nativeBox').hidden=false;$('#natExp').hidden=false;$('#webExp').hidden=true;
+  $('#pickFolder').onclick=chooseFolder;$('#expNative').onclick=exportNative;
+  NATIVE.getFolder().then(f=>{FOLDER=f||{};$('#folderName').textContent=FOLDER.name||'non choisi';pathHint()}).catch(()=>{});
+}else if(/Android/i.test(navigator.userAgent))$('#apkHint').hidden=false;
 pathHint();
 if(!navigator.mediaDevices?.getUserMedia){$('#recHint').textContent='Ce navigateur ne permet pas d\'enregistrer ici. Ouvre la page dans Chrome, via une adresse https.';$('#recBtn').disabled=true}
 </script>

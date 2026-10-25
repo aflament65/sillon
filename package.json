@@ -1,0 +1,13 @@
+{
+  "name": "sillon",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Numérise tes vinyles en MP3 rangés et tagués",
+  "dependencies": {
+    "@capacitor/android": "6.2.0",
+    "@capacitor/cli": "6.2.0",
+    "@capacitor/core": "6.2.0",
+    "jszip": "3.10.1",
+    "lamejs": "1.2.1"
+  }
+}
