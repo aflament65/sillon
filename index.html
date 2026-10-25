@@ -105,7 +105,19 @@ input[type=range]{width:100%;accent-color:var(--accent)}
     <label class="grow">Référence du disque ou code-barres (facultatif)<input id="qRef" type="search" placeholder="ex. 2C 070-14808, sur l'étiquette ou la tranche" autocomplete="off"></label>
     <button id="go" class="main" style="align-self:end">Chercher</button>
   </div>
-  <p class="hint">Recherche dans MusicBrainz et iTunes. Un seul champ rempli suffit, et les fautes légères sont tolérées. Les éditions vinyle sont listées en premier.</p>
+  <div class="row">
+    <button id="scanBtn">Scanner le code-barres</button>
+    <input id="scanFile" type="file" accept="image/*" capture="environment" hidden>
+  </div>
+  <p class="hint">Recherche dans Discogs, MusicBrainz, Deezer et iTunes. Un seul champ rempli suffit. Le code-barres au dos de la pochette donne l'édition exacte.</p>
+  <details id="dSet">
+    <summary class="hint" style="cursor:pointer">Activer Discogs, la meilleure source pour les vinyles</summary>
+    <div class="nudge" style="margin-top:8px">
+      <p class="hint">Crée un compte gratuit sur discogs.com, puis va dans Paramètres → Développeurs → « Générer un nouveau jeton ». Colle-le ici. Il reste sur cet appareil.</p>
+      <div class="row"><input id="dTok" class="grow" type="text" placeholder="Jeton Discogs" autocomplete="off" spellcheck="false"><button id="dTokSave" class="main">Enregistrer</button></div>
+      <p class="hint" id="dTokState"></p>
+    </div>
+  </details>
   <p class="err" id="qerr" hidden></p>
   <div class="results" id="results"></div>
   <div class="album" id="album" hidden>
@@ -225,84 +237,182 @@ function mbQueries(artist,album,ref){
   }
   return qs;
 }
-function itunes(term){
+function jsonp(url){
   return new Promise(res=>{
-    const cb='itcb'+Date.now()+Math.floor(Math.random()*1e4),s=document.createElement('script');
+    const cb='jp'+Date.now()+Math.floor(Math.random()*1e5),s=document.createElement('script');
     const done=v=>{delete window[cb];s.remove();res(v)};
-    window[cb]=d=>done(d.results||[]); s.onerror=()=>done([]); setTimeout(()=>window[cb]&&done([]),8000);
-    s.src=term+'&callback='+cb;document.head.append(s);
+    window[cb]=d=>done(d); s.onerror=()=>done(null); setTimeout(()=>window[cb]&&done(null),9000);
+    s.src=url+(url.includes('?')?'&':'?')+'callback='+cb;document.head.append(s);
   });
 }
+const itunes=async u=>((await jsonp(u))?.results)||[];
 const itunesUrl=(path)=>'https://itunes.apple.com/'+path+'&country=FR';
+const deezer=p=>jsonp('https://api.deezer.com/'+p+(p.includes('?')?'&':'?')+'output=jsonp');
+/* Discogs : jeton personnel facultatif, gardé sur cet appareil */
+const DTOK='sillon.discogs';
+const getTok=()=>{try{return localStorage.getItem(DTOK)||''}catch(e){return ''}};
+async function discogs(path){
+  const t=getTok();if(!t)return null;
+  const r=await fetch('https://api.discogs.com/'+path+(path.includes('?')?'&':'?')+'token='+encodeURIComponent(t));
+  if(r.status===401)throw new Error('jeton Discogs refusé');
+  if(!r.ok)throw new Error('Discogs a répondu '+r.status);
+  return r.json();
+}
+const dname=s=>(s||'').replace(/\s\(\d+\)$/,'').replace(/\*$/,'');
 function card(img,title,sub,tags,onclick){
   const b=document.createElement('button');b.className='res';
   b.innerHTML=`${img?`<img alt="" loading="lazy" src="${esc(img)}" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'ph'}))">`:'<span class="ph"></span>'}
     <span class="txt"><b>${esc(title)}</b><small>${esc(sub)}</small><br>${tags}</span>`;
   b.onclick=onclick;return b;
 }
+const srcTag=n=>`<small> · ${n}</small>`;
+async function searchDiscogs(artist,album,ref){
+  if(!getTok())return [];
+  const base='database/search?type=release&per_page=15';const r=ref.replace(/\s+/g,'');
+  const tries=[];
+  if(ref)tries.push(base+(/^\d{8,14}$/.test(r)?'&barcode='+r:'&catno='+encodeURIComponent(ref)));
+  if(artist||album){
+    const f=(artist?'&artist='+encodeURIComponent(artist):'')+(album?'&release_title='+encodeURIComponent(album):'');
+    tries.push(base+'&format=Vinyl'+f, base+f, base+'&q='+encodeURIComponent((artist+' '+album).trim()));
+  }
+  for(const t of tries){const d=await discogs(t);if(d?.results?.length)return d.results}
+  return [];
+}
 async function search(){
   const artist=$('#qArtist').value.trim(),album=$('#q').value.trim(),ref=$('#qRef').value.trim();
   if(!artist&&!album&&!ref)return;
-  $('#qerr').hidden=true; $('#results').innerHTML='<p class="hint">Recherche…</p>';
-  const term=(artist+' '+album).trim();
-  const itP=term?itunes(itunesUrl('search?entity=album&limit=15&term='+encodeURIComponent(term))):Promise.resolve([]);
-  const seen=new Set(),rels=[];let mbErr=null;
+  $('#qerr').hidden=true; $('#results').innerHTML='<p class="hint">Recherche dans Discogs, MusicBrainz, Deezer et iTunes…</p>';
+  const term=(artist+' '+album).trim(),rb=ref.replace(/\s+/g,''),isUpc=/^\d{8,14}$/.test(rb);
+  const errs=[];
+  const dcP=searchDiscogs(artist,album,ref).catch(e=>{errs.push(e.message);return []});
+  const dzP=(async()=>{const out=[];
+    if(isUpc){const a=await deezer('album/upc:'+rb);if(a&&a.id)out.push(a)}
+    if(term){const d=await deezer('search/album?limit=12&q='+encodeURIComponent(term));if(d?.data)out.push(...d.data)}
+    return out})();
+  const itP=term?itunes(itunesUrl('search?entity=album&limit=12&term='+encodeURIComponent(term))):Promise.resolve([]);
+  const seen=new Set(),rels=[];
   for(const q of mbQueries(artist,album,ref)){
-    if(rels.length>=12)break;
+    if(rels.length>=10)break;
     try{const d=await mb('release/?limit=25&query='+encodeURIComponent(q));
       for(const r of d.releases||[])if(!seen.has(r.id)&&(r.score??100)>=55){seen.add(r.id);rels.push(r)}}
-    catch(e){mbErr=e}
+    catch(e){errs.push(e.message)}
     await wait(1100);
   }
   const vin=r=>(r.media||[]).some(m=>/vinyl/i.test(m.format||''));
   rels.sort((a,b)=>vin(b)-vin(a)||(b.score||0)-(a.score||0));
-  const its=await itP;
+  const [dcs,dzs,its]=await Promise.all([dcP,dzP,itP]);
   const box=$('#results');box.innerHTML='';
-  for(const r of rels){
+  for(const d of dcs){const v=(d.format||[]).some(f=>/vinyl/i.test(f));
+    box.append(card(d.thumb||d.cover_image,d.title,`${d.year||''} ${d.country||''}${d.catno&&d.catno!=='none'?' · '+d.catno:''}${d.label?.[0]?' · '+d.label[0]:''}`,
+      `${v?'<span class="tag">Vinyle</span> ':''}<small>${esc((d.format||[]).slice(0,3).join(', '))}</small>${srcTag('Discogs')}`,()=>pickDiscogs(d.id)))}
+  for(const r of rels.slice(0,10)){
     const fmts=[...new Set((r.media||[]).map(m=>m.format).filter(Boolean))].join(', ');
     box.append(card(`https://coverartarchive.org/release/${r.id}/front-250`,r.title,
       `${credit(r['artist-credit'])} · ${(r.date||'').slice(0,4)} ${r.country||''}${r['label-info']?.[0]?.['catalog-number']?' · '+r['label-info'][0]['catalog-number']:''}`,
-      `${vin(r)?'<span class="tag">Vinyle</span> ':''}<small>${esc(fmts)} · ${r['track-count']||'?'} titres · MusicBrainz</small>`,()=>pick(r.id)));
+      `${vin(r)?'<span class="tag">Vinyle</span> ':''}<small>${esc(fmts)} · ${r['track-count']||'?'} titres</small>${srcTag('MusicBrainz')}`,()=>pick(r.id)));
   }
-  for(const a of its){
-    if(a.wrapperType!=='collection')continue;
+  const dzSeen=new Set();
+  for(const a of dzs){if(dzSeen.has(a.id))continue;dzSeen.add(a.id);
+    box.append(card(a.cover_medium,a.title,`${a.artist?.name||''}${a.release_date?' · '+a.release_date.slice(0,4):''}`,`<small>${a.nb_tracks||'?'} titres</small>${srcTag('Deezer')}`,()=>pickDeezer(a.id)))}
+  for(const a of its){if(a.wrapperType!=='collection')continue;
     box.append(card((a.artworkUrl100||'').replace('100x100bb','250x250bb'),a.collectionName,
-      `${a.artistName} · ${(a.releaseDate||'').slice(0,4)}`,`<small>${a.trackCount||'?'} titres · iTunes</small>`,()=>pickItunes(a)));
-  }
+      `${a.artistName} · ${(a.releaseDate||'').slice(0,4)}`,`<small>${a.trackCount||'?'} titres</small>${srcTag('iTunes')}`,()=>pickItunes(a)))}
   /* Rien trouvé avec l'album : montrer la discographie de l'artiste */
   if(!box.children.length&&artist){
     box.innerHTML='<p class="hint">Recherche des albums de l\'artiste…</p>';
-    const [d,its2]=await Promise.all([
+    const [d,its2,dz2]=await Promise.all([
       mb('release-group/?limit=40&query='+encodeURIComponent('artist:('+words(artist).join(' ')+') AND primarytype:album')).catch(()=>({})),
-      itunes(itunesUrl('search?entity=album&attribute=artistTerm&limit=50&term='+encodeURIComponent(artist)))]);
+      itunes(itunesUrl('search?entity=album&attribute=artistTerm&limit=50&term='+encodeURIComponent(artist))),
+      deezer('search/album?limit=40&q='+encodeURIComponent('artist:"'+artist.replace(/"/g,'')+'"'))]);
     box.innerHTML='';
-    const rgs=(d['release-groups']||[]).filter(g=>(g.score??100)>=70);
-    if(rgs.length||its2.length){const p=document.createElement('p');p.className='hint';p.textContent='Album introuvable sous ce titre. Voici les albums de '+artist+' :';box.append(p)}
+    const rgs=(d['release-groups']||[]).filter(g=>(g.score??100)>=70),dz=dz2?.data||[];
+    if(rgs.length||its2.length||dz.length){const p=document.createElement('p');p.className='hint';p.textContent='Album introuvable sous ce titre. Voici les albums de '+artist+' :';box.append(p)}
     for(const g of rgs){const rid=g.releases?.[0]?.id;if(!rid)continue;
-      box.append(card(`https://coverartarchive.org/release-group/${g.id}/front-250`,g.title,`${credit(g['artist-credit'])} · ${(g['first-release-date']||'').slice(0,4)}`,'<small>MusicBrainz</small>',()=>pick(rid)))}
+      box.append(card(`https://coverartarchive.org/release-group/${g.id}/front-250`,g.title,`${credit(g['artist-credit'])} · ${(g['first-release-date']||'').slice(0,4)}`,srcTag('MusicBrainz'),()=>pick(rid)))}
+    for(const a of dz)box.append(card(a.cover_medium,a.title,a.artist?.name||'',`<small>${a.nb_tracks||'?'} titres</small>${srcTag('Deezer')}`,()=>pickDeezer(a.id)));
     for(const a of its2){if(a.wrapperType!=='collection')continue;
-      box.append(card((a.artworkUrl100||'').replace('100x100bb','250x250bb'),a.collectionName,`${a.artistName} · ${(a.releaseDate||'').slice(0,4)}`,`<small>${a.trackCount||'?'} titres · iTunes</small>`,()=>pickItunes(a)))}
+      box.append(card((a.artworkUrl100||'').replace('100x100bb','250x250bb'),a.collectionName,`${a.artistName} · ${(a.releaseDate||'').slice(0,4)}`,`<small>${a.trackCount||'?'} titres</small>${srcTag('iTunes')}`,()=>pickItunes(a)))}
   }
   if(!box.children.length){
     box.innerHTML='';
-    $('#qerr').textContent=mbErr&&!its.length?'Recherche impossible : '+mbErr.message+'. Vérifie la connexion.':'Aucun album trouvé. Utilise « Saisir sans recherche » et colle la liste des titres (depuis Wikipédia ou Discogs).';
+    $('#qerr').textContent=errs.length?'Aucun album trouvé ('+[...new Set(errs)].join(', ')+').':'Aucun album trouvé. Essaie seulement l\'artiste, ou utilise « Saisir sans recherche ».';
     $('#qerr').hidden=false;
   }
 }
+/* Charge un album quelle que soit la source */
+async function loadAlbum({artist,album,year,tracks,cover}){
+  S.rel=null;S.all=[];S.range=null;const groups=new Map();
+  const lettered=tracks.some(t=>/^[A-H]/i.test(t.number||''));
+  tracks.forEach(t=>{const tr={number:t.number||String(S.all.length+1),title:t.title,length:t.length||0,artist:t.artist||artist,pos:S.all.length+1};
+    S.all.push(tr);const L=/^([A-H])/i.exec(tr.number);
+    const key=lettered&&L?'Face '+L[1].toUpperCase():t.disc>1||tracks.some(x=>x.disc>1)?'Disque '+(t.disc||1):'Album entier';
+    if(!groups.has(key))groups.set(key,[]);groups.get(key).push(tr)});
+  S.sides=[...groups].map(([name,tracks])=>({name,tracks}));S.side=0;
+  $('#mArtist').value=artist||'';$('#mAlbum').value=album||'';$('#mYear').value=year||'';
+  $('#results').innerHTML='';$('#album').hidden=false;renderSides();pathHint();
+  S.cover=null;$('#cover').removeAttribute('src');
+  if(cover){$('#cover').src=cover;await grabCover(cover)}
+  if(S.env.length)analyze();
+}
+async function grabCover(url){
+  try{const r=await fetch(url);if(r.ok){const b=await r.blob();if(b.type.startsWith('image/')){S.cover=new Uint8Array(await b.arrayBuffer());S.coverMime=b.type;return true}}}catch(e){}
+  try{const img=new Image();img.crossOrigin='anonymous';img.src=url;await img.decode();
+    const c=document.createElement('canvas'),s=Math.min(img.width,img.height,800);c.width=c.height=s;
+    c.getContext('2d').drawImage(img,0,0,s,s);const b=await new Promise(r=>c.toBlob(r,'image/jpeg',.9));
+    S.cover=new Uint8Array(await b.arrayBuffer());S.coverMime='image/jpeg';return true}catch(e){}
+  $('#qerr').textContent='Pochette affichée mais pas intégrable aux MP3 : prends-la en photo avec « Saisir sans recherche » → Pochette.';$('#qerr').hidden=false;
+  return false;
+}
+const loading=()=>{$('#qerr').hidden=true;$('#results').innerHTML='<p class="hint">Chargement de l\'album…</p>'};
+const fail=m=>{$('#results').innerHTML='';$('#qerr').textContent=m;$('#qerr').hidden=false};
+const dur=s=>{const p=String(s||'').split(':').map(Number);return p.length>1&&p.every(n=>!isNaN(n))?p.reduce((a,n)=>a*60+n,0)*1000:0};
+async function pickDiscogs(id){
+  loading();
+  try{const d=await discogs('releases/'+id);
+    const art=(d.artists||[]).map(a=>dname(a.anv||a.name)+(a.join?' '+a.join+' ':'')).join('').replace(/\s+,/g,',').trim();
+    const tracks=[];
+    for(const t of d.tracklist||[]){
+      if(t.type_==='heading')continue;
+      const list=t.type_==='index'&&t.sub_tracks?.length?t.sub_tracks:[t];
+      for(const x of list)tracks.push({number:x.position||'',title:x.title,length:dur(x.duration),artist:x.artists?.length?x.artists.map(a=>dname(a.anv||a.name)).join(', '):''});
+    }
+    if(!tracks.length)return fail('Discogs ne donne pas la liste des titres de cette édition. Essaie une autre édition.');
+    const img=(d.images||[]).find(i=>i.type==='primary')||d.images?.[0];
+    await loadAlbum({artist:art,album:d.title,year:d.year?String(d.year):'',tracks,cover:img?.uri});
+  }catch(e){fail('Album Discogs indisponible : '+e.message)}
+}
+async function pickDeezer(id){
+  loading();
+  const a=await deezer('album/'+id);
+  if(!a||a.error||!a.tracks?.data?.length)return fail('Liste des titres Deezer indisponible pour cet album.');
+  await loadAlbum({artist:a.artist?.name,album:a.title,year:(a.release_date||'').slice(0,4),
+    tracks:a.tracks.data.map((t,i)=>({number:String(t.track_position||i+1),title:t.title,length:(t.duration||0)*1000,artist:t.artist?.name,disc:t.disk_number})),
+    cover:a.cover_xl||a.cover_big});
+}
 async function pickItunes(a){
-  $('#results').innerHTML='<p class="hint">Chargement de l\'album…</p>';
+  loading();
   const list=await itunes(itunesUrl('lookup?entity=song&limit=200&id='+a.collectionId));
   const songs=list.filter(x=>x.wrapperType==='track').sort((x,y)=>(x.discNumber-y.discNumber)||(x.trackNumber-y.trackNumber));
-  if(!songs.length){$('#results').innerHTML='';$('#qerr').textContent='Liste des titres indisponible pour cet album.';$('#qerr').hidden=false;return}
-  S.rel=null;S.all=[];const groups=new Map(),discs=new Set(songs.map(s=>s.discNumber));
-  for(const s of songs){const tr={number:String(s.trackNumber),title:s.trackName,length:s.trackTimeMillis||0,artist:s.artistName,pos:S.all.length+1};
-    S.all.push(tr);const key=discs.size>1?'Disque '+s.discNumber:'Album entier';if(!groups.has(key))groups.set(key,[]);groups.get(key).push(tr)}
-  S.sides=[...groups].map(([name,tracks])=>({name,tracks}));S.side=0;S.range=null;
-  $('#mArtist').value=a.artistName;$('#mAlbum').value=a.collectionName;$('#mYear').value=(a.releaseDate||'').slice(0,4);
-  $('#results').innerHTML='';$('#album').hidden=false;renderSides();pathHint();
-  const big=(a.artworkUrl100||'').replace('100x100bb','600x600bb');$('#cover').src=big;S.cover=null;
-  try{const r=await fetch(big);if(r.ok){const b=await r.blob();S.cover=new Uint8Array(await b.arrayBuffer());S.coverMime=b.type||'image/jpeg'}}catch(e){}
+  if(!songs.length)return fail('Liste des titres indisponible pour cet album.');
+  await loadAlbum({artist:a.artistName,album:a.collectionName,year:(a.releaseDate||'').slice(0,4),
+    tracks:songs.map(s=>({number:String(s.trackNumber),title:s.trackName,length:s.trackTimeMillis||0,artist:s.artistName,disc:s.discNumber})),
+    cover:(a.artworkUrl100||'').replace('100x100bb','600x600bb')});
 }
+/* Scan du code-barres au dos de la pochette */
+$('#scanBtn').onclick=()=>$('#scanFile').click();
+$('#scanFile').onchange=async e=>{
+  const f=e.target.files[0];e.target.value='';if(!f)return;
+  if(!('BarcodeDetector' in window)){$('#qerr').textContent='Ce navigateur ne lit pas les codes-barres. Utilise Chrome sur Android, ou tape les chiffres sous le code.';$('#qerr').hidden=false;return}
+  try{const bmp=await createImageBitmap(f);
+    const codes=await new BarcodeDetector({formats:['ean_13','ean_8','upc_a','upc_e']}).detect(bmp);
+    if(!codes.length){$('#qerr').textContent='Code-barres non lu. Reprends la photo de plus près, bien à plat et éclairée.';$('#qerr').hidden=false;return}
+    $('#qRef').value=codes[0].rawValue;search();
+  }catch(err){$('#qerr').textContent='Lecture du code-barres impossible sur cet appareil.';$('#qerr').hidden=false}
+};
+/* Réglage du jeton Discogs */
+$('#dTok').value=getTok();
+$('#dTokSave').onclick=()=>{try{localStorage.setItem(DTOK,$('#dTok').value.trim())}catch(e){}
+  $('#dTokState').textContent=$('#dTok').value.trim()?'Jeton enregistré sur cet appareil.':'Jeton effacé.'};
 async function pick(id){
   $('#results').innerHTML='<p class="hint">Chargement de l\'album…</p>';
   try{
