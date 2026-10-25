@@ -18,6 +18,9 @@ import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import com.google.mlkit.vision.barcode.common.Barcode;
+import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions;
+import com.google.mlkit.vision.codescanner.GmsBarcodeScanning;
 
 import java.io.OutputStream;
 import java.util.HashMap;
@@ -175,5 +178,22 @@ public class SillonPlugin extends Plugin {
             else getActivity().getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
             call.resolve();
         });
+    }
+
+    /** Scanner de codes-barres de Google Play Services : bonne caméra, mise au point et zoom automatiques. */
+    @PluginMethod
+    public void scanBarcode(PluginCall call) {
+        GmsBarcodeScannerOptions opts = new GmsBarcodeScannerOptions.Builder()
+                .setBarcodeFormats(Barcode.FORMAT_EAN_13, Barcode.FORMAT_EAN_8, Barcode.FORMAT_UPC_A, Barcode.FORMAT_UPC_E)
+                .enableAutoZoom()
+                .build();
+        GmsBarcodeScanning.getClient(getActivity(), opts).startScan()
+                .addOnSuccessListener(b -> {
+                    JSObject o = new JSObject();
+                    o.put("value", b.getRawValue());
+                    call.resolve(o);
+                })
+                .addOnCanceledListener(() -> call.reject("Scan annulé", "CANCELED"))
+                .addOnFailureListener(e -> call.reject(e.getMessage() != null ? e.getMessage() : "Scanner indisponible", "FAILED"));
     }
 }

@@ -102,6 +102,7 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 .scanBar{position:absolute;left:0;right:0;bottom:0;padding:16px max(16px,env(safe-area-inset-right,0px)) calc(16px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px));background:rgba(0,0,0,.7);color:#fff;display:grid;gap:10px}
 .scanBar p{margin:0}
 .scanBar .row{justify-content:flex-end}
+.scanBar button{padding:8px 11px}
 @media (max-width:480px){.sliders{grid-template-columns:1fr}.album img{width:84px;height:84px}}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
@@ -245,7 +246,7 @@ input[type=range]{width:100%;accent-color:var(--accent)}
   <div class="scanFrame" aria-hidden="true"></div>
   <div class="scanBar">
     <p id="scanMsg">Place le code-barres dans le cadre.</p>
-    <div class="row"><button id="scanPhoto">Depuis une photo</button><button id="scanCancel" class="main">Annuler</button></div>
+    <div class="row"><button id="scanSwitch" hidden>Changer de caméra</button><button id="scanTorch" hidden>Lampe</button><button id="scanPhoto">Depuis une photo</button><button id="scanCancel" class="main">Annuler</button></div>
   </div>
 </div>
 
@@ -458,9 +459,10 @@ async function pickItunes(a){
     tracks:songs.map(s=>({number:String(s.trackNumber),title:s.trackName,length:s.trackTimeMillis||0,artist:s.artistName,disc:s.discNumber})),
     cover:(a.artworkUrl100||'').replace('100x100bb','600x600bb'),src:{source:'itunes',id:a.collectionId}});
 }
-/* Scan du code-barres au dos de la pochette : caméra en direct, photo en secours */
+/* Scan du code-barres au dos de la pochette : scanner Google dans l'APK, sinon caméra en direct, photo en secours */
 const BC_FORMATS=['ean_13','ean_8','upc_a','upc_e'];
-let scanStream=null,scanTimer=null,zxReader=null;
+const CAMK='sillon.camera';
+let scanStream=null,scanTimer=null,zxReader=null,scanCams=[],scanCamIdx=0,torchOn=false;
 async function nativeDetector(){
   if(!('BarcodeDetector' in window))return null;
   try{const f=await BarcodeDetector.getSupportedFormats();if(!f.includes('ean_13'))return null;return new BarcodeDetector({formats:BC_FORMATS.filter(x=>f.includes(x))})}catch(e){return null}
@@ -479,19 +481,37 @@ function scanDone(code){
   stopScan();
   if(code){$('#qRef').value=code;$('#qArtist').value='';$('#q').value='';search()}
 }
-function stopScan(){
+function stopCamera(){
   clearInterval(scanTimer);scanTimer=null;
   try{zxReader?.reset()}catch(e){}zxReader=null;
   scanStream?.getTracks().forEach(t=>t.stop());scanStream=null;
-  const v=$('#scanVideo');v.srcObject=null;$('#scanner').hidden=true;
+  $('#scanVideo').srcObject=null;
 }
-async function startScan(){
-  $('#qerr').hidden=true;$('#scanMsg').textContent='Place le code-barres dans le cadre.';
-  try{scanStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}},audio:false})}
-  catch(e){$('#qerr').textContent='Caméra inaccessible. Autorise la caméra pour Sillon, ou utilise « Depuis une photo ».';$('#qerr').hidden=false;return}
-  const v=$('#scanVideo');v.srcObject=scanStream;$('#scanner').hidden=false;
-  try{await v.play()}catch(e){}
-  const det=await nativeDetector();
+function stopScan(){stopCamera();$('#scanner').hidden=true}
+const camTrack=()=>scanStream?.getVideoTracks()[0];
+const camCaps=()=>{try{return camTrack()?.getCapabilities?.()||{}}catch(e){return {}}};
+const hasAF=c=>(c.focusMode||[]).includes('continuous');
+async function openCamera(deviceId){
+  stopCamera();
+  const v={width:{ideal:1920},height:{ideal:1080}};
+  if(deviceId)v.deviceId={exact:deviceId};else v.facingMode={ideal:'environment'};
+  scanStream=await navigator.mediaDevices.getUserMedia({video:v,audio:false});
+  const t=camTrack(),c=camCaps(),adv={};
+  if(hasAF(c))adv.focusMode='continuous';
+  if(c.zoom&&c.zoom.max>=2)adv.zoom=Math.min(2,c.zoom.max);
+  if(Object.keys(adv).length)try{await t.applyConstraints({advanced:[adv]})}catch(e){}
+  $('#scanTorch').hidden=!c.torch;torchOn=false;
+  const vid=$('#scanVideo');vid.srcObject=scanStream;try{await vid.play()}catch(e){}
+  return c;
+}
+/* Caméras arrière : on garde celle qui fait la mise au point automatique */
+async function listBackCams(){
+  const all=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==='videoinput');
+  const back=all.filter(d=>!/front|avant|user|selfie/i.test(d.label));
+  return back.length?back:all;
+}
+async function startDecoding(){
+  const v=$('#scanVideo'),det=await nativeDetector();
   if(det){
     scanTimer=setInterval(async()=>{if(v.readyState<2)return;
       try{const c=await det.detect(v);if(c.length)scanDone(c[0].rawValue)}catch(e){}},200);
@@ -499,15 +519,51 @@ async function startScan(){
   }
   try{const Z=await loadZxing();if(!scanStream)return;zxReader=zxReaderNew(Z);
     const r=await zxReader.decodeOnceFromVideoElement(v);scanDone(r.getText());
-  }catch(e){if(scanStream){$('#scanMsg').textContent='Lecture impossible ici ('+e.message+'). Tape les chiffres sous le code-barres.'}}
+  }catch(e){if(scanStream)$('#scanMsg').textContent='Lecture impossible ici ('+e.message+'). Tape les chiffres sous le code-barres.'}
 }
+async function startScan(){
+  $('#qerr').hidden=true;
+  /* Dans l'APK : scanner de Google, qui choisit la bonne caméra et fait le point */
+  if(NATIVE?.scanBarcode){
+    try{const r=await NATIVE.scanBarcode();if(r?.value)return scanDone(r.value);}
+    catch(e){if(e?.code==='CANCELED'||/annul/i.test(e?.message||''))return;}
+  }
+  $('#scanMsg').textContent='Tiens le disque à 20 cm, le code-barres dans le cadre. Touche l\'image pour refaire le point.';
+  $('#scanner').hidden=false;
+  try{
+    let saved='';try{saved=localStorage.getItem(CAMK)||''}catch(e){}
+    let caps;
+    try{caps=await openCamera(saved||null)}catch(e){if(!saved)throw e;caps=await openCamera(null)}
+    scanCams=await listBackCams();
+    const curId=camTrack()?.getSettings?.().deviceId;scanCamIdx=Math.max(0,scanCams.findIndex(d=>d.deviceId===curId));
+    $('#scanSwitch').hidden=scanCams.length<2;
+    /* Pas d'autofocus sur cette caméra : on essaie les autres une fois, puis on retient la bonne */
+    if(!saved&&!hasAF(caps)&&scanCams.length>1){
+      for(const d of scanCams){if(d.deviceId===curId)continue;
+        try{const c=await openCamera(d.deviceId);if(hasAF(c)){scanCamIdx=scanCams.indexOf(d);try{localStorage.setItem(CAMK,d.deviceId)}catch(e){}break}}catch(e){}}
+      if(!hasAF(camCaps()))await openCamera(curId);
+    }
+    startDecoding();
+  }catch(e){stopScan();$('#qerr').textContent='Caméra inaccessible. Autorise la caméra, ou utilise « Depuis une photo ».';$('#qerr').hidden=false}
+}
+$('#scanSwitch').onclick=async()=>{
+  if(!scanCams.length)return;scanCamIdx=(scanCamIdx+1)%scanCams.length;const d=scanCams[scanCamIdx];
+  try{await openCamera(d.deviceId);try{localStorage.setItem(CAMK,d.deviceId)}catch(e){}
+    $('#scanMsg').textContent='Caméra '+(scanCamIdx+1)+'/'+scanCams.length+(hasAF(camCaps())?' · mise au point auto':' · sans mise au point auto, essaie la suivante');startDecoding()}
+  catch(e){$('#scanMsg').textContent='Cette caméra ne s\'ouvre pas, essaie la suivante.'}
+};
+$('#scanTorch').onclick=async()=>{torchOn=!torchOn;try{await camTrack().applyConstraints({advanced:[{torch:torchOn}]})}catch(e){}};
+$('#scanVideo').onclick=async()=>{const t=camTrack(),c=camCaps();if(!t)return;
+  const fm=c.focusMode||[];try{
+    if(fm.includes('single-shot'))await t.applyConstraints({advanced:[{focusMode:'single-shot'}]});
+    if(fm.includes('continuous'))await t.applyConstraints({advanced:[{focusMode:'continuous'}]});}catch(e){}};
 async function scanPhoto(f){
   try{
     const det=await nativeDetector();
     if(det){const c=await det.detect(await createImageBitmap(f));if(c.length)return scanDone(c[0].rawValue)}
     else{const Z=await loadZxing(),img=new Image();img.src=URL.createObjectURL(f);await img.decode();
       try{const r=await zxReaderNew(Z).decodeFromImageElement(img);return scanDone(r.getText())}catch(e){}}
-    stopScan();$('#qerr').textContent='Code-barres non lu sur la photo. Reprends-la de plus près, bien à plat et éclairée.';$('#qerr').hidden=false;
+    stopScan();$('#qerr').textContent='Code-barres non lu sur la photo. Reprends-la à 20 cm, bien à plat et éclairée.';$('#qerr').hidden=false;
   }catch(err){stopScan();$('#qerr').textContent='Lecture du code-barres impossible : '+err.message;$('#qerr').hidden=false}
 }
 $('#scanBtn').onclick=startScan;

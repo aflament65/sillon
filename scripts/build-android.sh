@@ -29,9 +29,10 @@ grep -q permission.CAMERA "$MAN"
 
 # Accès aux dossiers choisis + numéro de version
 GR=android/app/build.gradle
-sed -i '0,/^dependencies {/s//dependencies {\n    implementation "androidx.documentfile:documentfile:1.1.0"/' "$GR"
+sed -i '0,/^dependencies {/s//dependencies {\n    implementation "androidx.documentfile:documentfile:1.1.0"\n    implementation "com.google.android.gms:play-services-code-scanner:16.1.0"/' "$GR"
 sed -i -E "s/versionCode [0-9]+/versionCode ${RUN}/; s/versionName \"[^\"]*\"/versionName \"1.${RUN}\"/" "$GR"
 grep -q documentfile "$GR"
+grep -q code-scanner "$GR"
 
 npx cap sync android
 
