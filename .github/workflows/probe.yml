@@ -13,18 +13,26 @@ jobs:
         run: |
           set +e
           exec > out.txt 2>&1
-          mkdir p && cd p && npm init -y >/dev/null
-          for pkg in rusty-chromaprint-wasm chromaprint-fixed chromaprint.js; do
-            echo "===== $pkg"; npm view $pkg version time.modified description --json
-            rm -rf x && mkdir x && npm pack $pkg --pack-destination x >/dev/null && tar xzf x/*.tgz -C x && find x/package -type f | head -30 && cat x/package/package.json
-          done
-          npm i rusty-chromaprint-wasm chromaprint-fixed >/dev/null 2>&1
-          echo "===== heads"
-          for f in node_modules/rusty-chromaprint-wasm/*.js node_modules/chromaprint-fixed/*.js node_modules/chromaprint-fixed/dist/*.js; do [ -f "$f" ] && { echo "--- $f ($(wc -c <"$f") o)"; head -c 1200 "$f"; echo; }; done
-          echo "===== AcoustID"
-          curl -s -D - -o body.txt -H "Origin: https://aflament65.github.io" "https://api.acoustid.org/v2/lookup?client=8XaBELgH&duration=10&fingerprint=AQAAA&format=json" | head -20; cat body.txt; echo
-          curl -s "https://api.acoustid.org/v2/lookup?client=8XaBELgH&duration=10&fingerprint=AQAAA&format=jsonp&jsoncallback=cb" | head -c 400; echo
-          curl -s -D - -o /dev/null -X OPTIONS -H "Origin: https://localhost" -H "Access-Control-Request-Method: POST" https://api.acoustid.org/v2/lookup | head -20
+          sudo apt-get install -y -qq libchromaprint-tools ffmpeg >/dev/null 2>&1; which fpcalc
+          mkdir p && cd p && npm init -y >/dev/null && npm i rusty-chromaprint-wasm@0.1.5 >/dev/null 2>&1
+          D=node_modules/rusty-chromaprint-wasm/dist
+          echo "===== d.ts"; cat $D/rusty_chromaprint_wasm.d.ts; echo "===== wasm.js"; cat $D/rusty_chromaprint_wasm.js; echo "===== bg.js head"; head -c 2500 $D/rusty_chromaprint_wasm_bg.js; echo; grep -n "^export function\|^export class\|__wbg_set_wasm" $D/rusty_chromaprint_wasm_bg.js | head -40
+          # signal musical de test : 40 s
+          ffmpeg -loglevel error -f lavfi -i "sine=f=220:d=40" -f lavfi -i "sine=f=330:d=40" -f lavfi -i "anoisesrc=d=40:a=0.05" -filter_complex "[0][1][2]amix=3,volume=3,aecho=0.8:0.8:300:0.4,tremolo=f=3" -ar 44100 -ac 2 t.wav
+          ffmpeg -loglevel error -i t.wav -f s16le -ar 44100 -ac 2 t.raw
+          echo "===== fpcalc"; fpcalc -raw t.wav | head -c 300; echo; fpcalc t.wav | head -c 200; echo
+          cat > t.mjs <<'JS'
+          import * as bg from './node_modules/rusty-chromaprint-wasm/dist/rusty_chromaprint_wasm_bg.js';
+          import fs from 'fs';
+          const bytes=fs.readFileSync('./node_modules/rusty-chromaprint-wasm/dist/rusty_chromaprint_wasm_bg.wasm');
+          const {instance}=await WebAssembly.instantiate(bytes,{'./rusty_chromaprint_wasm_bg.js':bg});
+          bg.__wbg_set_wasm(instance.exports); if(instance.exports.__wbindgen_start)instance.exports.__wbindgen_start();
+          const raw=fs.readFileSync('t.raw');const s=new Int16Array(raw.buffer,raw.byteOffset,raw.length/2);
+          const r=bg.fingerprintFromSamples(44100,2,s);
+          console.log('RAW',Array.from(r.raw.slice(0,12)).join(','),'len',r.raw.length);
+          console.log('COMP',r.compressed.slice(0,120));
+          JS
+          node t.mjs
           true
       - name: Publier le résultat
         run: |
