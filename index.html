@@ -1461,8 +1461,10 @@ $('#updGo').onclick=()=>{
   openExt(LATEST?.url||APK_URL)};
 $('#updLater').onclick=()=>{$('#updBanner').hidden=true;if(LATEST)ls(SKIPK,String(LATEST.build))};
 $('#updCheck').onclick=()=>checkUpdate(true);
-$('#appVer').textContent=NATIVE?`Version installée : 1.${APP_BUILD||'?'}. Sillon vérifie les nouvelles versions au démarrage, une fois par jour au plus.`:'Version web : toujours à jour, il suffit de recharger la page. Sur Android, l\'application installée (APK) range les MP3 directement dans le dossier de ton choix.';
-if(NATIVE){const last=+(ls(UPDK)||0);if(Date.now()-last>20*3600e3)setTimeout(()=>checkUpdate(false),3000)}
+$('#appVer').textContent=NATIVE?`Version installée : 1.${APP_BUILD||'?'}. Sillon vérifie les nouvelles versions à chaque ouverture.`:'Version web : toujours à jour, il suffit de recharger la page. Sur Android, l\'application installée (APK) range les MP3 directement dans le dossier de ton choix.';
+/* vérification à chaque ouverture de l'app (et au retour dans l'app), au plus une fois toutes les 15 minutes */
+function autoCheck(){if(!NATIVE)return;const last=+(ls(UPDK)||0);if(Date.now()-last>15*60e3)checkUpdate(false)}
+if(NATIVE){setTimeout(autoCheck,2500);document.addEventListener('visibilitychange',()=>{if(!document.hidden)autoCheck()})}
 
 setMode((()=>{try{return localStorage.getItem(MODEK)||'vinyle'}catch(e){return 'vinyle'}})(),true);
 pathHint();
