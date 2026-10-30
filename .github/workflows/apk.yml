@@ -50,7 +50,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release delete apk --yes --cleanup-tag || true
-          gh release create apk sillon.apk \
-            --title "Sillon pour Android (version 1.${{ github.run_number }})" \
-            --notes "Télécharge sillon.apk sur ton téléphone Android et ouvre-le pour l'installer ou le mettre à jour. Tes réglages et ta discothèque sont conservés."
+          set +e
+          TITLE="Sillon pour Android (version 1.${{ github.run_number }})"
+          NOTES="Télécharge sillon.apk sur ton téléphone Android et ouvre-le pour l'installer ou le mettre à jour. Tes réglages et ta discothèque sont conservés."
+          if gh release view apk >/dev/null 2>&1; then
+            gh release upload apk sillon.apk --clobber > log.txt 2>&1 && gh release edit apk --title "$TITLE" --notes "$NOTES" >> log.txt 2>&1
+          else
+            gh release create apk sillon.apk --title "$TITLE" --notes "$NOTES" > log.txt 2>&1
+          fi
+          rc=$?
+          if [ $rc -ne 0 ]; then echo "::error::$(tr '\n' ' ' < log.txt)"; exit 1; fi
