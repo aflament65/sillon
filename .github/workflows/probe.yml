@@ -1,0 +1,24 @@
+name: Sonde (temporaire)
+on: workflow_dispatch
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - name: Paquets d'empreinte
+        run: |
+          mkdir p && cd p && npm init -y >/dev/null
+          for pkg in rusty-chromaprint-wasm chromaprint-fixed chromaprint.js; do
+            echo "===== $pkg"; npm view $pkg version dist-tags time.modified --json 2>&1 | head -20
+            npm pack $pkg >/dev/null 2>&1 && f=$(ls ${pkg//./-}*.tgz ${pkg}*.tgz 2>/dev/null | head -1) && mkdir -p x_$pkg && tar xzf "$f" -C x_$pkg && find x_$pkg -type f | head -30 && cat x_$pkg/package/package.json
+          done
+      - name: Test empreinte (rusty-chromaprint-wasm)
+        run: |
+          cd p && npm i rusty-chromaprint-wasm >/dev/null 2>&1; ls node_modules/rusty-chromaprint-wasm
+          for f in node_modules/rusty-chromaprint-wasm/*.js; do echo "--- $f"; head -c 1500 "$f"; echo; done
+      - name: AcoustID (CORS / JSONP)
+        run: |
+          curl -s -D - -o body.txt -H "Origin: https://aflament65.github.io" "https://api.acoustid.org/v2/lookup?client=8XaBELgH&duration=10&fingerprint=AQAAA&format=json" | head -20; cat body.txt; echo
+          curl -s "https://api.acoustid.org/v2/lookup?client=8XaBELgH&duration=10&fingerprint=AQAAA&format=jsonp&jsoncallback=cb" | head -c 400; echo
+          curl -s -D - -o /dev/null -X OPTIONS -H "Origin: https://localhost" -H "Access-Control-Request-Method: POST" https://api.acoustid.org/v2/lookup | head -20
