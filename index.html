@@ -163,6 +163,7 @@ button.big{padding:13px 16px;font-size:1rem}
 <div class="modeSw" role="group" aria-label="Source">
   <button id="modeVinyl" aria-pressed="true">Vinyle</button>
   <button id="modeOther" aria-pressed="false">Autre source</button>
+  <button id="modeTel" aria-pressed="false" hidden>Son du téléphone</button>
 </div>
 <p class="hint" id="otherHint" hidden>Radio, CD, cassette, téléphone ou ordinateur branché sur l'entrée : Sillon découpe aux silences, reconnaît chaque morceau et le range dans son dossier Artiste/Album.</p>
 <!-- 1. ALBUM -->
@@ -217,7 +218,8 @@ button.big{padding:13px 16px;font-size:1rem}
 <!-- 2. ENREGISTREMENT -->
 <section id="s2">
   <h2><span class="n">02</span>Enregistrement <span id="recSide" class="tag" hidden></span></h2>
-  <label>Entrée audio<select id="dev"><option value="">Entrée par défaut</option></select></label>
+  <p class="hint" id="telHint" hidden>Sillon enregistre ce que joue le téléphone, en numérique, sans câble. Touche « Enregistrer », accepte l'avertissement d'Android, puis lance la lecture dans l'autre appli et reviens ici. Le volume du téléphone n'a pas d'effet. Les applis de streaming qui interdisent la capture (souvent YouTube, Spotify, Netflix) donnent du silence.</p>
+  <label id="devRow">Entrée audio<select id="dev"><option value="">Entrée par défaut</option></select></label>
   <div class="row" style="justify-content:space-between">
     <span class="clock mono" id="clock">0:00</span>
     <div class="row">
@@ -230,7 +232,7 @@ button.big{padding:13px 16px;font-size:1rem}
     <div class="scale mono" aria-hidden="true"><span style="left:0">-48</span><span style="left:50%">-24</span><span style="left:75%">-12</span><span style="left:87.5%">-6</span><span style="left:100%">0 dB</span></div>
     <p class="lvlTxt" id="lvlTxt" aria-live="polite">Niveau : —</p>
   </div>
-  <div class="row"><button id="lvlBtn">Régler le niveau</button><span class="hint grow">Écoute la source sans enregistrer.</span></div>
+  <div class="row" id="lvlRow"><button id="lvlBtn">Régler le niveau</button><span class="hint grow">Écoute la source sans enregistrer.</span></div>
   <details id="lvlHelp">
     <summary class="hint" style="cursor:pointer">Comment bien régler le volume</summary>
     <div class="nudge" style="margin-top:8px" id="lvlHelpBody"></div>
@@ -782,7 +784,7 @@ function renderSides(){
   updSideTags();
 }
 function updSideTags(){
-  if(S.mode==='autre'){for(const id of ['#recSide','#cutSide'])$(id).hidden=true;const n=Math.max(0,S.bounds.length-1);$('#validate').textContent=n?`Valider et convertir les ${n} morceaux`:'Valider';return}
+  if(freeMode()){for(const id of ['#recSide','#cutSide'])$(id).hidden=true;const n=Math.max(0,S.bounds.length-1);$('#validate').textContent=n?`Valider et convertir les ${n} morceaux`:'Valider';return}
   const has=S.sides.length>0,l=sideLabel();
   for(const id of ['#recSide','#cutSide']){$(id).hidden=!has;$(id).textContent=l}
   $('#validate').textContent=has?'Valider la '+l:'Valider la face';
@@ -822,7 +824,8 @@ $('#coverFile').onchange=async e=>{
   S.cover=new Uint8Array(await b.arrayBuffer());S.coverMime='image/jpeg';$('#cover').src=URL.createObjectURL(b);
 };
 ['#mArtist','#mAlbum','#mYear'].forEach(s=>$(s).oninput=pathHint);
-const sideTracks=()=>{if(S.mode==='autre')return[];const s=S.side>=0&&S.sides[S.side];if(!s)return[];return S.range?s.tracks.slice(S.range[0],S.range[1]+1):s.tracks};
+const freeMode=()=>S.mode!=='vinyle';
+const sideTracks=()=>{if(freeMode())return[];const s=S.side>=0&&S.sides[S.side];if(!s)return[];return S.range?s.tracks.slice(S.range[0],S.range[1]+1):s.tracks};
 
 /* ---------- 2. Enregistrement ---------- */
 async function listDevices(){
@@ -879,7 +882,7 @@ const HELP={
 <li>Désactive sur la source l'égaliseur, le « bass boost » et la normalisation du volume, et active « Ne pas déranger » pour qu'aucune notification ne s'enregistre.</li>
 <li>Sur un ordinateur : laisse le lecteur à 100 % et règle avec le volume général.</li>
 <li>Une fois réglé, ne touche plus au volume pendant l'enregistrement : tous les morceaux garderont le même niveau.</li></ol>`};
-function renderLvlHelp(){$('#lvlHelpBody').innerHTML=HELP[S.mode==='autre'?'autre':'vinyle']}
+function renderLvlHelp(){$('#lvlHelpBody').innerHTML=HELP[freeMode()?'autre':'vinyle']}
 let mon=null;
 async function startMonitor(){
   try{const dev=$('#dev').value;
@@ -892,8 +895,43 @@ async function startMonitor(){
 }
 function stopMonitor(){if(!mon)return;try{mon.pr.disconnect();mon.sn.disconnect();mon.st.getTracks().forEach(t=>t.stop())}catch(e){}mon=null;$('#lvlBtn').textContent='Régler le niveau'}
 $('#lvlBtn').onclick=()=>mon?stopMonitor():startMonitor();
+/* Traitement commun d'un bloc audio enregistré (entrée audio ou son du téléphone) */
+const REC={liveMed:-40,last:0};
+function onBlock(L,R){
+  pushAudio(L,R); lvlFeed(L,R);
+  const t=S.frames/SR; if(t-REC.last>=.25){REC.last=t;$('#clock').textContent=fmtI(t)}
+  const n=S.env.length;
+  if(n%200===0&&n>0){const s=S.env.filter((_,i)=>i%5===0).sort((a,b)=>a-b);REC.liveMed=s[Math.floor(s.length*.6)]}
+  if($('#autostop').checked&&t>90){const w=Math.round(15/HS);let quiet=true;for(let i=n-w;i<n;i++)if(S.env[i]>REC.liveMed-28){quiet=false;break}
+    if(quiet)stopRec(true)}
+}
+async function recStarted(msg){
+  S.recording=true; $('#recBtn').textContent='Arrêter'; $('#recBtn').className='rec';
+  $('#recHint').textContent=msg||'Enregistrement… Garde l\'écran allumé. L\'arrêt est automatique après 15 s de silence en fin de face.';
+  try{wake=await navigator.wakeLock?.request('screen')}catch(e){}
+  NATIVE?.keepAwake({on:true}).catch(()=>{});
+}
+/* Son du téléphone : flux PCM 16 bits stéréo envoyé par le module Android par blocs de 100 ms */
+let telSubs=[];
+function telBlock(b64){
+  const raw=atob(b64),n=raw.length>>2,L=new Float32Array(n),R=new Float32Array(n);
+  for(let k=0,j=0;k<n;k++,j+=4){let l=raw.charCodeAt(j)|raw.charCodeAt(j+1)<<8,r=raw.charCodeAt(j+2)|raw.charCodeAt(j+3)<<8;
+    if(l>32767)l-=65536;if(r>32767)r-=65536;L[k]=l/32768;R[k]=r/32768}
+  if(S.recording&&n)onBlock(L,R);
+}
+async function telCleanup(){for(const h of telSubs)try{await h.remove()}catch(e){}telSubs=[]}
+async function startTel(){
+  stopPlay(); clearAudio(); hideEdit(); lvlReset(); REC.liveMed=-40; REC.last=0;
+  await telCleanup();
+  telSubs.push(await NATIVE.addListener('pcm',e=>telBlock(e.data)));
+  telSubs.push(await NATIVE.addListener('captureStopped',e=>{if(S.recording){stopRec(false);$('#recHint').textContent='Capture arrêtée : '+(e.reason||'')+'. '+$('#recHint').textContent}else{$('#recHint').textContent='Capture impossible : '+(e.reason||'erreur inconnue')+'.';telCleanup()}}));
+  try{await NATIVE.startCapture()}
+  catch(e){await telCleanup();$('#recHint').textContent=e?.code==='DENIED'?'Capture refusée. Pour enregistrer le son du téléphone, accepte l\'avertissement d\'Android (et l\'accès au micro).':e?.code==='UNSUPPORTED'?e.message+'.':'Capture impossible : '+(e?.message||e)+'.';return}
+  recStarted('Enregistrement du son du téléphone… Lance la lecture dans l\'autre appli. Si le vumètre reste vide, cette appli interdit la capture. Reviens ici pour arrêter.');
+}
 async function startRec(){
   stopMonitor();
+  if(S.mode==='tel')return startTel();
   try{
     const dev=$('#dev').value;
     stream=await navigator.mediaDevices.getUserMedia({audio:{deviceId:dev?{exact:dev}:undefined,echoCancellation:false,noiseSuppression:false,autoGainControl:false,channelCount:{ideal:2}}});
@@ -901,32 +939,23 @@ async function startRec(){
   listDevices(); stopPlay(); clearAudio(); hideEdit(); lvlReset();
   const c=getCtx(); await c.resume();
   src=c.createMediaStreamSource(stream); proc=c.createScriptProcessor(4096,2,2);
-  let liveMed=-40, last=0;
-  proc.onaudioprocess=e=>{
-    const ib=e.inputBuffer,L=ib.getChannelData(0),R=ib.numberOfChannels>1?ib.getChannelData(1):L;
-    pushAudio(L,R); lvlFeed(L,R);
-    const t=S.frames/SR; if(t-last>=.25){last=t;$('#clock').textContent=fmtI(t)}
-    const n=S.env.length;
-    if(n%200===0&&n>0){const s=S.env.filter((_,i)=>i%5===0).sort((a,b)=>a-b);liveMed=s[Math.floor(s.length*.6)]}
-    if($('#autostop').checked&&t>90){const w=Math.round(15/HS);let quiet=true;for(let i=n-w;i<n;i++)if(S.env[i]>liveMed-28){quiet=false;break}
-      if(quiet)stopRec(true)}
-  };
+  REC.liveMed=-40; REC.last=0;
+  proc.onaudioprocess=e=>{const ib=e.inputBuffer;onBlock(ib.getChannelData(0),ib.numberOfChannels>1?ib.getChannelData(1):ib.getChannelData(0))};
   src.connect(proc);proc.connect(c.destination);
-  S.recording=true; $('#recBtn').textContent='Arrêter'; $('#recBtn').className='rec';
-  $('#recHint').textContent='Enregistrement… Garde l\'écran allumé. L\'arrêt est automatique après 15 s de silence en fin de face.';
-  try{wake=await navigator.wakeLock?.request('screen')}catch(e){}
-  NATIVE?.keepAwake({on:true}).catch(()=>{});
+  recStarted();
 }
 function stopRec(auto){
   if(!S.recording)return; S.recording=false;
-  try{proc.disconnect();src.disconnect();stream.getTracks().forEach(t=>t.stop())}catch(e){}
+  if(S.mode==='tel'){NATIVE?.stopCapture().catch(()=>{});telCleanup()}
+  else try{proc.disconnect();src.disconnect();stream.getTracks().forEach(t=>t.stop())}catch(e){}
   try{wake?.release()}catch(e){} wake=null;
   NATIVE?.keepAwake({on:false}).catch(()=>{});
   $('#recBtn').textContent='Enregistrer';$('#recBtn').className='main';
   $('#meter').firstElementChild.style.width='0';
   const pkDb=Math.round(20*Math.log10(LV.maxPk+1e-9));
   const bilan=LV.clips?` Attention : ${LV.clips} saturation${LV.clips>1?'s':''} (crête ${pkDb} dB). Si tu entends des craquements durs, baisse le volume de la source et recommence.`
-    :pkDb<-24?` Niveau faible (crête ${pkDb} dB) : Sillon remontera le volume à la conversion, mais pour la prochaine fois monte un peu la source.`
+    :S.mode==='tel'&&LV.maxPk<0.001?' Aucun son capturé : l\'appli utilisée interdit sans doute la capture.'
+    :pkDb<-24?` Niveau faible (crête ${pkDb} dB) : Sillon remontera le volume à la conversion${S.mode==='tel'?'.':', mais pour la prochaine fois monte un peu la source.'}`
     :` Niveau correct (crête ${pkDb} dB).`;
   $('#recHint').textContent=(auto?'Fin de face détectée. ':'')+'Enregistré : '+fmtI(S.frames/SR)+'.'+bilan+' Vérifie les coupures plus bas.';
   if(S.frames>SR*5){analyze();autoIdentify()}
@@ -973,7 +1002,7 @@ function analyze(){
   const oldB=S.bounds0||[],oldM=S.segMeta||[],oldT=S.titles||[];
   const keep=i=>oldB.findIndex(b=>Math.abs(b-S.bounds[i])<2);
   S.segMeta=Array.from({length:segs},(_,i)=>{const j=keep(i);return j>=0&&j<oldM.length&&oldM[j]?oldM[j]:{}});
-  S.titles=Array.from({length:segs},(_,i)=>{if(S.mode==='autre'){const j=keep(i);if(j>=0&&S.segMeta[i].status==='ok'&&oldT[j])return oldT[j]}return tr[i]?.title||'Piste '+(i+1)});
+  S.titles=Array.from({length:segs},(_,i)=>{if(freeMode()){const j=keep(i);if(j>=0&&S.segMeta[i].status==='ok'&&oldT[j])return oldT[j]}return tr[i]?.title||'Piste '+(i+1)});
   S.bounds0=S.bounds.slice();
   S.labels=Array.from({length:segs},(_,i)=>tr[i]?.number||String(i+1));
   S.sel=-1;S.cursor=null;
@@ -1056,7 +1085,7 @@ function renderTracks(){
     row.querySelector('input').oninput=e=>{S.titles[i]=e.target.value;S.edited=true};
     row.querySelector('button[aria-label="Écouter le début"]').onclick=()=>play(S.bounds[i],S.bounds[i]+10);
     row.querySelector('.merge')?.addEventListener('click',()=>mergeNext(i));
-    if(S.mode==='autre'){const sm=S.segMeta[i]||(S.segMeta[i]={}),sub=document.createElement('div');sub.className='sub';
+    if(freeMode()){const sm=S.segMeta[i]||(S.segMeta[i]={}),sub=document.createElement('div');sub.className='sub';
       const st=sm.status==='ok'?'<span class="tag ok">reconnu</span>':sm.status==='busy'?'<span class="tag">…</span>':sm.status==='no'?'<span class="tag todo">inconnu</span>':'';
       sub.innerHTML=`<input type="text" placeholder="Artiste" value="${esc(sm.artist||'')}" aria-label="Artiste de la piste ${i+1}"><input type="text" placeholder="Album" value="${esc(sm.album||'')}" aria-label="Album de la piste ${i+1}">${st}`;
       const [ia,ib]=sub.querySelectorAll('input');ia.oninput=e=>{sm.artist=e.target.value};ib.oninput=e=>{sm.album=e.target.value};
@@ -1097,7 +1126,7 @@ function doneTag(artist,album){const r=libFind(artist,album);if(!r)return'';
 async function thumbOf(bytes,mime,size){
   try{const img=new Image();img.src=URL.createObjectURL(new Blob([bytes],{type:mime}));await img.decode();
     const c=document.createElement('canvas');c.width=c.height=size;c.getContext('2d').drawImage(img,0,0,size,size);return c.toDataURL('image/jpeg',.8)}catch(e){return ''}}
-const sideLabel=()=>{if(S.mode==='autre')return 'Enregistrement du '+new Date().toLocaleDateString('fr-FR')+' '+new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});const s=S.sides[S.side];if(!s)return 'face';return S.range?`${s.name} (titres ${S.range[0]+1} à ${S.range[1]+1})`:s.name};
+const sideLabel=()=>{if(freeMode())return 'Enregistrement du '+new Date().toLocaleDateString('fr-FR')+' '+new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});const s=S.sides[S.side];if(!s)return 'face';return S.range?`${s.name} (titres ${S.range[0]+1} à ${S.range[1]+1})`:s.name};
 /* Vue discothèque */
 function showView(lib){$('#viewRec').hidden=lib;$('#viewLib').hidden=!lib;$('#tabRec').setAttribute('aria-pressed',!lib);$('#tabLib').setAttribute('aria-pressed',lib);if(lib)renderLib();scrollTo(0,0)}
 $('#tabRec').onclick=()=>showView(false);$('#tabLib').onclick=()=>showView(true);
@@ -1285,7 +1314,7 @@ async function identifyTracks(){
   const N=S.bounds.length-1;
   idMsg(`${ok} morceau${ok>1?'x':''} reconnu${ok>1?'s':''} sur ${N}${merged?` · ${merged} coupure${merged>1?'s':''} en trop supprimée${merged>1?'s':''} grâce à la durée connue`:''}. Pour les autres, « Fusionner avec le suivant » recolle un morceau coupé à tort.`);
 }
-function identify(){return S.mode==='autre'?identifyTracks():identifyAlbum()}
+function identify(){return freeMode()?identifyTracks():identifyAlbum()}
 /* Réglages */
 $('#aKey').value=getAKey();
 $('#aKeySave').onclick=()=>{try{localStorage.setItem(AKEY,$('#aKey').value.trim())}catch(e){}
@@ -1295,9 +1324,12 @@ $('#identify').onclick=()=>identify();
 /* ---------- Mode d'enregistrement : vinyle ou autre source ---------- */
 const MODEK='sillon.mode';
 function setMode(m,init){
+  if(m==='tel'&&!NATIVE?.startCapture)m='autre';
   S.mode=m;try{localStorage.setItem(MODEK,m)}catch(e){}
-  const other=m==='autre';
-  $('#modeVinyl').setAttribute('aria-pressed',!other);$('#modeOther').setAttribute('aria-pressed',other);
+  const other=m!=='vinyle',tel=m==='tel';
+  $('#modeVinyl').setAttribute('aria-pressed',m==='vinyle');$('#modeOther').setAttribute('aria-pressed',m==='autre');$('#modeTel').setAttribute('aria-pressed',tel);
+  $('#telHint').hidden=!tel;$('#devRow').hidden=tel;$('#lvlRow').hidden=tel;$('#lvlHelp').hidden=tel;
+  $('#otherHint').textContent=tel?'Le son des applis du téléphone (radio, podcasts, fichiers audio, navigateur…) : Sillon découpe aux silences, reconnaît chaque morceau et le range dans son dossier Artiste/Album.':'Radio, CD, cassette, téléphone ou ordinateur branché sur l\'entrée : Sillon découpe aux silences, reconnaît chaque morceau et le range dans son dossier Artiste/Album.';
   $('#s1').hidden=other;$('#otherHint').hidden=!other;
   const nums=other?['','01','02','03']:['01','02','03','04'];
   ['#s1','#s2','#s3','#s4'].forEach((id,k)=>{const n=document.querySelector(id+' h2 .n');if(n)n.textContent=nums[k]});
@@ -1307,20 +1339,21 @@ function setMode(m,init){
   $('#reset').textContent=other?'Recommencer':'Recommencer cette face';
   $('#bgHint').textContent=other?'La conversion en MP3 se fait en arrière-plan : tu peux lancer un autre enregistrement tout de suite.':'La conversion en MP3 se fait en arrière-plan : tu peux enregistrer la face suivante tout de suite.';
   if(!init){clearAudio();hideEdit();idMsg('');$('#clock').textContent='0:00';
-    $('#recHint').textContent=other?'Branche l\'appareil sur l\'entrée audio, lance l\'enregistrement puis la lecture.':'Lance l\'enregistrement, puis pose le diamant. Vise un niveau vert franc sans passer au rouge.'}
+    $('#recHint').textContent=tel?'Touche « Enregistrer », accepte l\'avertissement d\'Android, puis lance la lecture.':other?'Branche l\'appareil sur l\'entrée audio, lance l\'enregistrement puis la lecture.':'Lance l\'enregistrement, puis pose le diamant. Vise un niveau vert franc sans passer au rouge.'}
   updSideTags();pathHint();
 }
-$('#modeVinyl').onclick=()=>setMode('vinyle');$('#modeOther').onclick=()=>setMode('autre');
+$('#modeVinyl').onclick=()=>setMode('vinyle');$('#modeOther').onclick=()=>setMode('autre');$('#modeTel').onclick=()=>setMode('tel');
+if(NATIVE?.startCapture)$('#modeTel').hidden=false;
 
 function autoIdentify(){
   if(!getAKey())return;
-  if(S.mode==='autre')identifyTracks();
+  if(freeMode())identifyTracks();
   else if(!S.all.length)identifyAlbum();
 }
 /* ---------- 4. Export ---------- */
 const meta=()=>({artist:$('#mArtist').value.trim()||'Artiste inconnu',album:$('#mAlbum').value.trim()||'Album inconnu',year:$('#mYear').value.trim()});
 function folder(){const m=meta();return safe(m.artist)+'/'+safe(m.album)+(m.year?' ('+m.year+')':'')}
-function pathHint(){if(S.mode==='autre'){$('#pathHint').textContent='Rangement : '+(NATIVE?(FOLDER.name||'dossier à choisir')+'/':'')+'Artiste/Album/01 - Titre.mp3 pour chaque morceau reconnu, Divers/ pour les autres.';return}
+function pathHint(){if(freeMode()){$('#pathHint').textContent='Rangement : '+(NATIVE?(FOLDER.name||'dossier à choisir')+'/':'')+'Artiste/Album/01 - Titre.mp3 pour chaque morceau reconnu, Divers/ pour les autres.';return}
   $('#pathHint').textContent='Rangement : '+(NATIVE?(FOLDER.name||'dossier à choisir')+'/':'')+folder()+'/01 - Titre.mp3. Pochette et tags intégrés dans chaque fichier.'}
 function trackNo(i){const tr=sideTracks()[i];return tr?tr.pos:i+1}
 function totalNo(){return S.all.length||S.bounds.length-1}
@@ -1381,7 +1414,7 @@ async function validateSide(){
   const tracks=[];for(let i=0;i<N;i++){
     const t={title:(S.titles[i]||'Piste '+(i+1)).trim(),artist:tr[i]?.artist||m.artist,no:tr[i]?.pos||i+1,total};
     t.id3=id3For(m,t,cover,coverMime);t.start=Math.round(S.bounds[i]*SR)-a0;t.end=Math.min(len,Math.round(S.bounds[i+1]*SR)-a0);tracks.push(t)}
-  const other=S.mode==='autre',stamp=new Date().toISOString().slice(0,10);
+  const other=freeMode(),stamp=new Date().toISOString().slice(0,10);
   if(other)tracks.forEach((t,i)=>{const sm=S.segMeta[i]||{},ar=(sm.artist||'').trim(),al=(sm.album||'').trim();
     const tm={artist:ar||'Artiste inconnu',album:al||'Divers',year:sm.year||''};
     t.artist=tm.artist;t.no=sm.no||i+1;t.total=sm.total||N;
@@ -1390,7 +1423,7 @@ async function validateSide(){
     t.id3=id3For(tm,t,t.cover,t.coverMime)});
   const folders=other?[...new Map(tracks.filter(t=>t.cover).map(t=>[t.dir,{dir:t.dir,cover:t.cover,coverMime:t.coverMime}])).values()]:(cover?[{dir:folder(),cover,coverMime}]:[]);
   if(!other)tracks.forEach(t=>{t.dir=folder()});
-  const job={id:++jobSeq,gain,kind:other?'autre':'vinyle',folders,label,meta:other?{artist:N+' morceaux',album:'Autre source',year:''}:m,dir:folder(),cover,coverMime,src:S.src,sides:JSON.parse(JSON.stringify(S.sides)),
+  const job={id:++jobSeq,gain,kind:other?'autre':'vinyle',folders,label,meta:other?{artist:N+' morceaux',album:S.mode==='tel'?'Son du téléphone':'Autre source',year:''}:m,dir:folder(),cover,coverMime,src:S.src,sides:JSON.parse(JSON.stringify(S.sides)),
     key:albumKey(m.artist,m.album),tracks,pcm,status:'attente',done:0,p:0,outputs:[],msg:''};
   JOBS.push(job);
   clearAudio();hideEdit();$('#clock').textContent='0:00';

@@ -1,23 +1,30 @@
 package fr.aflament.sillon;
 
+import android.Manifest;
 import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.UriPermission;
+import android.media.projection.MediaProjectionManager;
 import android.net.Uri;
+import android.os.Build;
 import android.util.Base64;
 import android.view.WindowManager;
 
 import androidx.activity.result.ActivityResult;
+import androidx.core.content.ContextCompat;
 import androidx.documentfile.provider.DocumentFile;
 
 import com.getcapacitor.JSObject;
+import com.getcapacitor.PermissionState;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import com.getcapacitor.annotation.Permission;
+import com.getcapacitor.annotation.PermissionCallback;
 import com.google.mlkit.vision.barcode.common.Barcode;
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions;
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning;
@@ -30,8 +37,19 @@ import java.util.Map;
  * Pont natif de Sillon : choix du dossier de sauvegarde (Music par exemple),
  * écriture des MP3 dans des sous-dossiers Artiste/Album, écran allumé pendant l'enregistrement.
  */
-@CapacitorPlugin(name = "Sillon")
+@CapacitorPlugin(
+        name = "Sillon",
+        permissions = {@Permission(alias = "microphone", strings = {Manifest.permission.RECORD_AUDIO})}
+)
 public class SillonPlugin extends Plugin {
+
+    /** Instance active, utilisée par CaptureService pour transmettre le son capturé. */
+    static volatile SillonPlugin instance;
+
+    @Override
+    public void load() {
+        instance = this;
+    }
 
     private static final String PREFS = "sillon";
     private static final String KEY_URI = "folderUri";
@@ -213,5 +231,71 @@ public class SillonPlugin extends Plugin {
         } catch (Exception e) {
             call.reject("Aucun navigateur pour ouvrir ce lien");
         }
+    }
+
+    /* ---------- Capture du son joué par le téléphone (Android 10+) ---------- */
+
+    @PluginMethod
+    public void startCapture(PluginCall call) {
+        if (Build.VERSION.SDK_INT < 29) {
+            call.reject("Il faut Android 10 ou plus pour enregistrer le son du téléphone", "UNSUPPORTED");
+            return;
+        }
+        if (getPermissionState("microphone") != PermissionState.GRANTED) {
+            requestPermissionForAlias("microphone", call, "micPermResult");
+            return;
+        }
+        askProjection(call);
+    }
+
+    @PermissionCallback
+    private void micPermResult(PluginCall call) {
+        if (getPermissionState("microphone") == PermissionState.GRANTED) askProjection(call);
+        else call.reject("Autorisation d'enregistrer l'audio refusée", "DENIED");
+    }
+
+    private void askProjection(PluginCall call) {
+        MediaProjectionManager mpm = (MediaProjectionManager) getContext().getSystemService(Context.MEDIA_PROJECTION_SERVICE);
+        startActivityForResult(call, mpm.createScreenCaptureIntent(), "projectionResult");
+    }
+
+    @ActivityCallback
+    private void projectionResult(PluginCall call, ActivityResult result) {
+        if (call == null) return;
+        if (result.getResultCode() != Activity.RESULT_OK || result.getData() == null) {
+            call.reject("Capture refusée", "DENIED");
+            return;
+        }
+        Intent i = new Intent(getContext(), CaptureService.class);
+        i.putExtra("code", result.getResultCode());
+        i.putExtra("data", result.getData());
+        try {
+            ContextCompat.startForegroundService(getContext(), i);
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("Démarrage de la capture impossible : " + e.getMessage(), "FAILED");
+        }
+    }
+
+    @PluginMethod
+    public void stopCapture(PluginCall call) {
+        getContext().stopService(new Intent(getContext(), CaptureService.class));
+        call.resolve();
+    }
+
+    void emitPcm(byte[] buf, int len) {
+        JSObject o = new JSObject();
+        o.put("data", Base64.encodeToString(buf, 0, len, Base64.NO_WRAP));
+        notifyListeners("pcm", o);
+    }
+
+    void emitCaptureStarted() {
+        notifyListeners("captureStarted", new JSObject());
+    }
+
+    void emitCaptureStopped(String reason) {
+        JSObject o = new JSObject();
+        o.put("reason", reason);
+        notifyListeners("captureStopped", o);
     }
 }
