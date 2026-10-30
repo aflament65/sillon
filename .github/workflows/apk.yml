@@ -49,10 +49,14 @@ jobs:
       - name: Publier la version à télécharger
         env:
           GH_TOKEN: ${{ github.token }}
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
         run: |
           set +e
+          FIRST=$(printf '%s' "$COMMIT_MSG" | head -n 1)
           TITLE="Sillon pour Android (version 1.${{ github.run_number }})"
-          NOTES="Télécharge sillon.apk sur ton téléphone Android et ouvre-le pour l'installer ou le mettre à jour. Tes réglages et ta discothèque sont conservés."
+          NOTES="${FIRST:-Améliorations diverses}
+
+          Télécharge sillon.apk sur ton téléphone Android et ouvre-le pour l'installer ou le mettre à jour. Tes réglages et ta discothèque sont conservés."
           if gh release view apk >/dev/null 2>&1; then
             gh release upload apk sillon.apk --clobber > log.txt 2>&1 && gh release edit apk --title "$TITLE" --notes "$NOTES" >> log.txt 2>&1
           else

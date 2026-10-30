@@ -121,6 +121,9 @@ button.big{padding:13px 16px;font-size:1rem}
 .job small{color:var(--muted)}
 .job.fini .bar i{background:var(--ok)}.job.erreur .bar i{background:var(--bad)}
 .lib-sides{display:flex;flex-wrap:wrap;gap:6px}
+.updBanner{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:12px 14px;border-radius:10px;border:1px solid var(--accent);background:color-mix(in srgb,var(--accent) 14%,var(--surface))}
+.updBanner small{display:block;color:var(--muted);font-size:.82rem}
+.btnlink{font:500 .92rem var(--f-body);border-radius:7px;border:1px solid var(--line);background:var(--bg);color:var(--ink);padding:9px 13px;text-decoration:none;display:inline-block}
 .modeSw{display:flex;gap:0;border:1px solid var(--line);border-radius:99px;padding:3px;background:var(--surface)}
 .modeSw button{flex:1;border:none;border-radius:99px;background:none}
 .modeSw button[aria-pressed=true]{background:var(--accent);color:var(--accent-ink);font-weight:600}
@@ -133,6 +136,10 @@ button.big{padding:13px 16px;font-size:1rem}
 </head>
 <body>
 <main>
+<div id="updBanner" class="updBanner" role="status" hidden>
+  <div class="grow"><b id="updTitle">Nouvelle version disponible</b><small id="updNotes"></small></div>
+  <div class="row"><button id="updGo" class="main">Mettre à jour</button><button id="updLater">Plus tard</button></div>
+</div>
 <header>
   <div class="disc" aria-hidden="true"></div>
   <div><h1>Sillon</h1><p>Numérise tes vinyles, face par face, en MP3 rangés et tagués.</p></div>
@@ -275,6 +282,16 @@ button.big{padding:13px 16px;font-size:1rem}
   <div class="row"><button id="libExport" class="main">Créer une sauvegarde</button><button id="libImportBtn">Restaurer une sauvegarde</button>
   <input id="libImport" type="file" accept="application/json,.json" hidden></div>
   <p class="hint" id="libMsg"></p>
+</section>
+<section id="appSec">
+  <h2>Application</h2>
+  <p class="hint" id="appVer"></p>
+  <div class="row">
+    <button id="updCheck" class="main">Vérifier les mises à jour</button>
+    <a class="btnlink" href="https://github.com/aflament65/sillon" target="_blank" rel="noopener" data-ext>Dépôt GitHub</a>
+    <a class="btnlink" href="https://github.com/aflament65/sillon/releases/tag/apk" target="_blank" rel="noopener" data-ext>Page de téléchargement</a>
+  </div>
+  <p class="hint" id="updState"></p>
 </section>
 </div>
 </main>
@@ -1380,6 +1397,43 @@ if(NATIVE){
   NATIVE.getFolder().then(f=>{FOLDER=f||{};$('#folderName').textContent=FOLDER.name||'non choisi';pathHint();renderJobs()}).catch(()=>{});
 }else if(/Android/i.test(navigator.userAgent))$('#apkHint').hidden=false;
 renderJobs();
+
+/* ---------- Mises à jour (APK) : la version publiée sur GitHub est comparée à celle installée ---------- */
+const APP_BUILD=0; /* remplacé par le numéro de version lors de la fabrication de l'APK */
+const REPO='aflament65/sillon',APK_URL='https://github.com/'+REPO+'/releases/download/apk/sillon.apk';
+const UPDK='sillon.updcheck',SKIPK='sillon.updskip';
+const ls=(k,v)=>{try{if(v===undefined)return localStorage.getItem(k);localStorage.setItem(k,v)}catch(e){return null}};
+function openExt(url){if(NATIVE?.openUrl)return NATIVE.openUrl({url}).catch(()=>{location.href=url});window.open(url,'_blank','noopener')||(location.href=url)}
+document.querySelectorAll('a[data-ext]').forEach(a=>a.onclick=e=>{if(NATIVE){e.preventDefault();openExt(a.href)}});
+let LATEST=null;
+async function checkUpdate(manual){
+  if(!NATIVE){$('#updState').textContent=manual?'Sur le site web, la dernière version se charge toute seule : recharge simplement la page.':'';return}
+  if(manual)$('#updState').textContent='Vérification…';
+  try{
+    const r=await fetch('https://api.github.com/repos/'+REPO+'/releases/tags/apk',{headers:{Accept:'application/vnd.github+json'},cache:'no-store'});
+    if(!r.ok)throw new Error(r.status===403?'trop de vérifications, réessaie dans une heure':'GitHub a répondu '+r.status);
+    const d=await r.json(),m=/version\s+1\.(\d+)/i.exec(d.name||''),n=m?+m[1]:0;
+    ls(UPDK,String(Date.now()));
+    LATEST={build:n,notes:(d.body||'').split('\n').map(x=>x.trim()).filter(Boolean)[0]||'',url:(d.assets||[]).find(a=>/\.apk$/.test(a.name))?.browser_download_url||APK_URL};
+    if(n>APP_BUILD){
+      if(manual||ls(SKIPK)!==String(n))showUpdate();
+      if(manual)$('#updState').textContent=`La version 1.${n} est disponible.`;
+    }else if(manual)$('#updState').textContent='Sillon est à jour.';
+  }catch(e){if(manual)$('#updState').textContent='Vérification impossible : '+e.message+'.'}
+}
+function showUpdate(){
+  $('#updTitle').textContent=`Nouvelle version 1.${LATEST.build} disponible (tu as la 1.${APP_BUILD})`;
+  $('#updNotes').textContent=LATEST.notes&&!/^Télécharge sillon\.apk/.test(LATEST.notes)?'Nouveautés : '+LATEST.notes:'Le téléchargement s\'ouvre dans le navigateur, puis touche le fichier pour l\'installer par-dessus. Ta discothèque est conservée.';
+  $('#updBanner').hidden=false;
+}
+$('#updGo').onclick=()=>{
+  if(JOBS.some(j=>j.status==='attente'||j.status==='conversion')){$('#updNotes').textContent='Attends la fin des conversions en cours avant de mettre à jour, sinon elles seraient perdues.';return}
+  openExt(LATEST?.url||APK_URL)};
+$('#updLater').onclick=()=>{$('#updBanner').hidden=true;if(LATEST)ls(SKIPK,String(LATEST.build))};
+$('#updCheck').onclick=()=>checkUpdate(true);
+$('#appVer').textContent=NATIVE?`Version installée : 1.${APP_BUILD||'?'}. Sillon vérifie les nouvelles versions au démarrage, une fois par jour au plus.`:'Version web : toujours à jour, il suffit de recharger la page. Sur Android, l\'application installée (APK) range les MP3 directement dans le dossier de ton choix.';
+if(NATIVE){const last=+(ls(UPDK)||0);if(Date.now()-last>20*3600e3)setTimeout(()=>checkUpdate(false),3000)}
+
 setMode((()=>{try{return localStorage.getItem(MODEK)||'vinyle'}catch(e){return 'vinyle'}})(),true);
 pathHint();
 if(!navigator.mediaDevices?.getUserMedia){$('#recHint').textContent='Ce navigateur ne permet pas d\'enregistrer ici. Ouvre la page dans Chrome, via une adresse https.';$('#recBtn').disabled=true}

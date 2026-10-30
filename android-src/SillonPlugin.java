@@ -196,4 +196,22 @@ public class SillonPlugin extends Plugin {
                 .addOnCanceledListener(() -> call.reject("Scan annulé", "CANCELED"))
                 .addOnFailureListener(e -> call.reject(e.getMessage() != null ? e.getMessage() : "Scanner indisponible", "FAILED"));
     }
+
+    /** Ouvre un lien (dépôt GitHub, téléchargement de la mise à jour) dans le navigateur du téléphone. */
+    @PluginMethod
+    public void openUrl(PluginCall call) {
+        String url = call.getString("url");
+        if (url == null || !url.startsWith("https://")) {
+            call.reject("Lien invalide");
+            return;
+        }
+        try {
+            Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getActivity().startActivity(i);
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("Aucun navigateur pour ouvrir ce lien");
+        }
+    }
 }

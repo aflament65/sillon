@@ -16,6 +16,8 @@ sed -e 's#https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js#lib/lame.min.js#
     index.html > www/index.html
 grep -q 'lib/lame.min.js' www/index.html
 grep -q 'lib/jszip.min.js' www/index.html
+sed -i "s/const APP_BUILD=0;/const APP_BUILD=${RUN};/" www/index.html
+grep -q "const APP_BUILD=${RUN};" www/index.html
 
 # 2. Projet Android généré par Capacitor
 npx cap add android
