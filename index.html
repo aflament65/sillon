@@ -71,9 +71,19 @@ button.rec{background:var(--bad);border-color:var(--bad);color:#fff;font-weight:
 .chips{display:flex;gap:6px;flex-wrap:wrap}
 .chip{padding:6px 12px;border-radius:99px;font-size:.85rem}
 .chip[aria-pressed=true]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
-.meter{height:12px;border-radius:6px;background:var(--bg);border:1px solid var(--line);overflow:hidden}
-.meter i{display:block;height:100%;width:0;background:var(--ok);transition:width .08s}
-.meter.hot i{background:var(--bad)}
+.lvl{display:grid;gap:4px}
+.meter{position:relative;height:16px;border-radius:6px;border:1px solid var(--line);overflow:hidden;
+  background:linear-gradient(90deg,var(--bg) 0 50%,color-mix(in srgb,var(--ok) 16%,var(--bg)) 50% 87.5%,color-mix(in srgb,var(--accent) 20%,var(--bg)) 87.5% 97.9%,color-mix(in srgb,var(--bad) 22%,var(--bg)) 97.9%)}
+.meter i{position:absolute;left:0;top:0;bottom:0;width:0;background:var(--muted);transition:width .08s}
+.meter.good i{background:var(--ok)}.meter.warn i{background:var(--accent)}.meter.hot i{background:var(--bad)}
+.meter b{position:absolute;top:0;bottom:0;width:2px;left:0;background:var(--ink);opacity:0}
+.scale{position:relative;height:14px;font-size:.66rem;color:var(--muted)}
+.scale span{position:absolute;transform:translateX(-50%);white-space:nowrap}
+.scale span:first-child{transform:none}.scale span:last-child{transform:translateX(-100%)}
+.lvlTxt{margin:0;font-weight:600;font-size:.9rem}
+.lvlTxt.good{color:var(--ok)}.lvlTxt.hot{color:var(--bad)}
+#lvlHelpBody ol{margin:0;padding-left:1.2em;display:grid;gap:6px;font-size:.88rem}
+#lvlHelpBody p{margin:0;font-size:.88rem}
 .clock{font-size:1.9rem;font-weight:500}
 canvas{width:100%;display:block;border-radius:6px;background:var(--bg);touch-action:manipulation}
 #wave{height:120px}#detail{height:90px}
@@ -215,8 +225,17 @@ button.big{padding:13px 16px;font-size:1rem}
       <label class="row" style="display:flex;font-size:.82rem;color:var(--muted)"><input id="autostop" type="checkbox" checked> <span id="autostopL">Arrêt auto en fin de face</span></label>
     </div>
   </div>
-  <div class="meter" id="meter"><i></i></div>
-  <p class="hint" id="recHint">Lance l'enregistrement, puis pose le diamant. Vise un niveau vert franc sans passer au rouge.</p>
+  <div class="lvl">
+    <div class="meter" id="meter" aria-hidden="true"><i></i><b id="peakMark"></b></div>
+    <div class="scale mono" aria-hidden="true"><span style="left:0">-48</span><span style="left:50%">-24</span><span style="left:75%">-12</span><span style="left:87.5%">-6</span><span style="left:100%">0 dB</span></div>
+    <p class="lvlTxt" id="lvlTxt" aria-live="polite">Niveau : —</p>
+  </div>
+  <div class="row"><button id="lvlBtn">Régler le niveau</button><span class="hint grow">Écoute la source sans enregistrer.</span></div>
+  <details id="lvlHelp">
+    <summary class="hint" style="cursor:pointer">Comment bien régler le volume</summary>
+    <div class="nudge" style="margin-top:8px" id="lvlHelpBody"></div>
+  </details>
+  <p class="hint" id="recHint">Règle d'abord le niveau, puis lance l'enregistrement et pose le diamant.</p>
   <details id="aSet">
     <summary class="hint" style="cursor:pointer">Réglages de reconnaissance (AcoustID, gratuit)</summary>
     <div class="nudge" style="margin-top:8px">
@@ -251,6 +270,7 @@ button.big{padding:13px 16px;font-size:1rem}
   <div class="tracks" id="tracks"></div>
   <div class="validate">
     <p class="hint" id="pathHint"></p>
+    <label class="row" style="display:flex;font-size:.85rem;color:var(--muted)"><input id="normOpt" type="checkbox" checked> Remonter le volume si l'enregistrement est trop faible</label>
     <button id="validate" class="main big">Valider la face</button>
     <p class="hint" id="bgHint">La conversion en MP3 se fait en arrière-plan : tu peux enregistrer la face suivante tout de suite.</p>
     <div class="row"><button id="stopPlay">Arrêter la lecture</button><button id="reset">Recommencer cette face</button></div>
@@ -827,19 +847,64 @@ function getFrames(a,b){
     for(let k=Math.max(0,a+o-st);k<len&&o<n;k++,o++){L[o]=ch[2*k]/32768;R[o]=ch[2*k+1]/32768}}
   return {L,R};
 }
+/* ---------- Niveau d'entrée : vumètre, conseils, réglage sans enregistrer ---------- */
+const LV={hold:-99,holdT:0,win:[],clips:0,maxPk:0};
+const dbx=db=>Math.max(0,Math.min(100,(db+48)/48*100));
+function lvlReset(){LV.hold=-99;LV.win=[];LV.clips=0;LV.maxPk=0;const m=$('#meter');m.className='meter';m.firstElementChild.style.width='0';$('#peakMark').style.opacity=0;$('#lvlTxt').className='lvlTxt';$('#lvlTxt').textContent='Niveau : —'}
+function lvlFeed(L,R){
+  let pk=0,clip=false;for(let k=0;k<L.length;k++){const a=Math.abs(L[k]),b=Math.abs(R[k]);if(a>pk)pk=a;if(b>pk)pk=b;if(a>=.999||b>=.999)clip=true}
+  if(clip)LV.clips++;if(pk>LV.maxPk)LV.maxPk=pk;
+  const db=20*Math.log10(pk+1e-9),now=performance.now();
+  LV.win.push([now,db]);while(LV.win.length&&now-LV.win[0][0]>3000)LV.win.shift();
+  const recent=Math.max(...LV.win.map(x=>x[1]));
+  if(db>LV.hold||now-LV.holdT>2000){LV.hold=db;LV.holdT=now}
+  const m=$('#meter'),cls=clip||recent>=-1?'hot':recent>=-3?'warn':recent>=-24?'good':'';
+  m.className='meter '+cls;m.firstElementChild.style.width=dbx(db)+'%';
+  const pm=$('#peakMark');pm.style.left='calc('+dbx(LV.hold)+'% - 1px)';pm.style.opacity=1;
+  const t=$('#lvlTxt');
+  const [txt,c]=clip||recent>=-1?['Saturation ! Baisse le volume de la source.','hot']:recent>=-3?['Limite : baisse un peu le volume.','']:recent>=-12?['Bon niveau.','good']:recent>=-24?['Un peu faible : monte le volume si tu peux.','']:recent>-60?['Trop faible : monte le volume de la source.','']:['Aucun son détecté.',''];
+  t.className='lvlTxt '+c;t.textContent=`${txt} Crête : ${recent>-90?Math.round(recent):'—'} dB${LV.clips?` · ${LV.clips} saturation${LV.clips>1?'s':''}`:''}`;
+  return pk;
+}
+const HELP={
+  vinyle:`<p>Choisis le passage le plus fort du disque (un refrain, un final), touche « Régler le niveau » et regarde les crêtes.</p>
+<ol><li><b>Vise la zone verte</b> : des crêtes entre −12 et −3 dB. Le repère noir garde la crête la plus haute des 2 dernières secondes.</li>
+<li><b>Jamais de rouge</b> : une saturation est définitive, elle s'entend comme un craquement dur. Un niveau un peu faible, lui, se rattrape : Sillon remonte le volume à la conversion.</li>
+<li>Avec une platine à préampli intégré (Denon DP-300F : interrupteur EQ sur ON) et la carte son sur <b>LINE</b>, le niveau est fixe et en général correct : il n'y a rien à tourner.</li>
+<li>Si c'est trop faible malgré tout : mets l'EQ de la platine sur <b>OFF</b> et la carte son sur <b>PHONO</b>. Ne mets jamais les deux préamplis à la fois (EQ ON + PHONO) : ça sature.</li>
+<li>Le volume de l'ampli et celui du téléphone n'agissent pas sur l'enregistrement.</li></ol>`,
+  autre:`<p>Lance la lecture du passage le plus fort, touche « Régler le niveau » et ajuste le volume <b>de l'appareil source</b>.</p>
+<ol><li><b>Vise la zone verte</b> : des crêtes entre −12 et −3 dB, jamais de rouge.</li>
+<li>Règle le volume de la source vers <b>70 à 80 %</b>. Évite 100 % : beaucoup de téléphones et d'ordinateurs déforment le son au maximum.</li>
+<li>Désactive sur la source l'égaliseur, le « bass boost » et la normalisation du volume, et active « Ne pas déranger » pour qu'aucune notification ne s'enregistre.</li>
+<li>Sur un ordinateur : laisse le lecteur à 100 % et règle avec le volume général.</li>
+<li>Une fois réglé, ne touche plus au volume pendant l'enregistrement : tous les morceaux garderont le même niveau.</li></ol>`};
+function renderLvlHelp(){$('#lvlHelpBody').innerHTML=HELP[S.mode==='autre'?'autre':'vinyle']}
+let mon=null;
+async function startMonitor(){
+  try{const dev=$('#dev').value;
+    const st=await navigator.mediaDevices.getUserMedia({audio:{deviceId:dev?{exact:dev}:undefined,echoCancellation:false,noiseSuppression:false,autoGainControl:false,channelCount:{ideal:2}}});
+    const c=getCtx();await c.resume();const sn=c.createMediaStreamSource(st),pr=c.createScriptProcessor(2048,2,2);
+    pr.onaudioprocess=e=>{const ib=e.inputBuffer;lvlFeed(ib.getChannelData(0),ib.numberOfChannels>1?ib.getChannelData(1):ib.getChannelData(0))};
+    sn.connect(pr);pr.connect(c.destination);mon={st,sn,pr};lvlReset();listDevices();
+    $('#lvlBtn').textContent='Arrêter l\'écoute';$('#lvlHelp').open=true;
+  }catch(e){$('#lvlTxt').textContent='Accès à l\'entrée audio refusé. Autorise le micro, puis réessaie.'}
+}
+function stopMonitor(){if(!mon)return;try{mon.pr.disconnect();mon.sn.disconnect();mon.st.getTracks().forEach(t=>t.stop())}catch(e){}mon=null;$('#lvlBtn').textContent='Régler le niveau'}
+$('#lvlBtn').onclick=()=>mon?stopMonitor():startMonitor();
 async function startRec(){
+  stopMonitor();
   try{
     const dev=$('#dev').value;
     stream=await navigator.mediaDevices.getUserMedia({audio:{deviceId:dev?{exact:dev}:undefined,echoCancellation:false,noiseSuppression:false,autoGainControl:false,channelCount:{ideal:2}}});
   }catch(e){$('#recHint').textContent='Accès au micro refusé ou entrée introuvable. Autorise le micro pour ce site, puis réessaie.';return}
-  listDevices(); stopPlay(); clearAudio(); hideEdit();
+  listDevices(); stopPlay(); clearAudio(); hideEdit(); lvlReset();
   const c=getCtx(); await c.resume();
   src=c.createMediaStreamSource(stream); proc=c.createScriptProcessor(4096,2,2);
   let liveMed=-40, last=0;
   proc.onaudioprocess=e=>{
     const ib=e.inputBuffer,L=ib.getChannelData(0),R=ib.numberOfChannels>1?ib.getChannelData(1):L;
-    const pk=pushAudio(L,R); const db=20*Math.log10(pk+1e-9);
-    const m=$('#meter'); m.firstElementChild.style.width=Math.max(0,Math.min(100,(db+60)/60*100))+'%'; m.classList.toggle('hot',db>-1);
+    pushAudio(L,R); lvlFeed(L,R);
     const t=S.frames/SR; if(t-last>=.25){last=t;$('#clock').textContent=fmtI(t)}
     const n=S.env.length;
     if(n%200===0&&n>0){const s=S.env.filter((_,i)=>i%5===0).sort((a,b)=>a-b);liveMed=s[Math.floor(s.length*.6)]}
@@ -859,7 +924,11 @@ function stopRec(auto){
   NATIVE?.keepAwake({on:false}).catch(()=>{});
   $('#recBtn').textContent='Enregistrer';$('#recBtn').className='main';
   $('#meter').firstElementChild.style.width='0';
-  $('#recHint').textContent=(auto?'Fin de face détectée. ':'')+'Enregistré : '+fmtI(S.frames/SR)+'. Vérifie les coupures plus bas.';
+  const pkDb=Math.round(20*Math.log10(LV.maxPk+1e-9));
+  const bilan=LV.clips?` Attention : ${LV.clips} saturation${LV.clips>1?'s':''} (crête ${pkDb} dB). Si tu entends des craquements durs, baisse le volume de la source et recommence.`
+    :pkDb<-24?` Niveau faible (crête ${pkDb} dB) : Sillon remontera le volume à la conversion, mais pour la prochaine fois monte un peu la source.`
+    :` Niveau correct (crête ${pkDb} dB).`;
+  $('#recHint').textContent=(auto?'Fin de face détectée. ':'')+'Enregistré : '+fmtI(S.frames/SR)+'.'+bilan+' Vérifie les coupures plus bas.';
   if(S.frames>SR*5){analyze();autoIdentify()}
 }
 $('#recBtn').onclick=()=>S.recording?stopRec(false):startRec();
@@ -1233,6 +1302,7 @@ function setMode(m,init){
   const nums=other?['','01','02','03']:['01','02','03','04'];
   ['#s1','#s2','#s3','#s4'].forEach((id,k)=>{const n=document.querySelector(id+' h2 .n');if(n)n.textContent=nums[k]});
   $('#identify').textContent=other?'Reconnaître les morceaux':'Reconnaître l\'album';
+  renderLvlHelp();stopMonitor();
   $('#autostopL').textContent=other?'Arrêt auto après 15 s de silence':'Arrêt auto en fin de face';
   $('#reset').textContent=other?'Recommencer':'Recommencer cette face';
   $('#bgHint').textContent=other?'La conversion en MP3 se fait en arrière-plan : tu peux lancer un autre enregistrement tout de suite.':'La conversion en MP3 se fait en arrière-plan : tu peux enregistrer la face suivante tout de suite.';
@@ -1272,12 +1342,12 @@ const LAME_URL=NATIVE?new URL('lib/lame.min.js',location.href).href:'https://cdn
 const WORKER_SRC=`
 let ok=true;try{importScripts(${JSON.stringify(LAME_URL)})}catch(e){ok=false}
 onmessage=e=>{
-  const {pcm,tracks}=e.data;
+  const {pcm,tracks,gain}=e.data;const G=gain||1;
   if(!ok||typeof lamejs==='undefined'){postMessage({type:'error',message:'encodeur MP3 non chargé'});return}
   try{
     tracks.forEach((t,ti)=>{
       const n=t.end-t.start,fade=Math.min(n>>2,1323),l=new Int16Array(n),r=new Int16Array(n);
-      for(let k=0;k<n;k++){const g=k<fade?k/fade:k>n-fade?(n-k)/fade:1,p=2*(t.start+k);l[k]=pcm[p]*g;r[k]=pcm[p+1]*g}
+      for(let k=0;k<n;k++){const g=k<fade?k/fade:k>n-fade?(n-k)/fade:1,p=2*(t.start+k);const x=pcm[p]*g*G,y=pcm[p+1]*g*G;l[k]=x>32767?32767:x<-32768?-32768:x;r[k]=y>32767?32767:y<-32768?-32768:y}
       const enc=new lamejs.Mp3Encoder(2,${SR},320),parts=[t.id3],B=1152;let size=t.id3.length;
       for(let o=0,c=0;o<n;o+=B,c++){const out=enc.encodeBuffer(l.subarray(o,o+B),r.subarray(o,o+B));if(out.length){const u=new Uint8Array(out);parts.push(u);size+=u.length}
         if(c%400===0)postMessage({type:'progress',track:ti,p:o/n})}
@@ -1303,6 +1373,10 @@ async function validateSide(){
     if(st+cl<=a0){S.chunks[c]=null;continue}
     const from=Math.max(0,a0-st),to=Math.min(cl,a1-st);if(to>from){pcm.set(ch.subarray(from*2,to*2),o*2);o+=to-from}
     S.chunks[c]=null}
+  /* remontée du volume si l'enregistrement est faible (crête visée : −1 dB, +18 dB au plus) */
+  let peak=0;for(let k=0;k<pcm.length;k+=2){const a=Math.abs(pcm[k]),b=Math.abs(pcm[k+1]);if(a>peak)peak=a;if(b>peak)peak=b}
+  const gain=$('#normOpt').checked&&peak>0&&peak<0.7*32767?Math.min(8,0.89*32767/peak):1;
+  try{localStorage.setItem('sillon.norm',$('#normOpt').checked?'1':'0')}catch(e){}
   const cover=S.cover,coverMime=S.coverMime;
   const tracks=[];for(let i=0;i<N;i++){
     const t={title:(S.titles[i]||'Piste '+(i+1)).trim(),artist:tr[i]?.artist||m.artist,no:tr[i]?.pos||i+1,total};
@@ -1316,7 +1390,7 @@ async function validateSide(){
     t.id3=id3For(tm,t,t.cover,t.coverMime)});
   const folders=other?[...new Map(tracks.filter(t=>t.cover).map(t=>[t.dir,{dir:t.dir,cover:t.cover,coverMime:t.coverMime}])).values()]:(cover?[{dir:folder(),cover,coverMime}]:[]);
   if(!other)tracks.forEach(t=>{t.dir=folder()});
-  const job={id:++jobSeq,kind:other?'autre':'vinyle',folders,label,meta:other?{artist:N+' morceaux',album:'Autre source',year:''}:m,dir:folder(),cover,coverMime,src:S.src,sides:JSON.parse(JSON.stringify(S.sides)),
+  const job={id:++jobSeq,gain,kind:other?'autre':'vinyle',folders,label,meta:other?{artist:N+' morceaux',album:'Autre source',year:''}:m,dir:folder(),cover,coverMime,src:S.src,sides:JSON.parse(JSON.stringify(S.sides)),
     key:albumKey(m.artist,m.album),tracks,pcm,status:'attente',done:0,p:0,outputs:[],msg:''};
   JOBS.push(job);
   clearAudio();hideEdit();$('#clock').textContent='0:00';
@@ -1353,7 +1427,7 @@ function runJobs(){
     else if(d.type==='error')finish(d.message)};
   w.onerror=e=>finish(e.message||'erreur de conversion');
   const pcm=job.pcm;
-  w.postMessage({pcm,tracks:job.tracks.map(t=>({start:t.start,end:t.end,id3:t.id3}))},[pcm.buffer]);
+  w.postMessage({pcm,gain:job.gain,tracks:job.tracks.map(t=>({start:t.start,end:t.end,id3:t.id3}))},[pcm.buffer]);
 }
 function updJob(job){const el=document.getElementById('job'+job.id);if(!el)return renderJobs();
   el.querySelector('.bar i').style.width=Math.round(job.p*100)+'%';
@@ -1370,7 +1444,7 @@ function renderJobs(){
   for(const j of [...JOBS].reverse()){
     const el=document.createElement('div');el.className='job '+j.status;el.id='job'+j.id;
     el.innerHTML=`<div class="row" style="justify-content:space-between"><b>${esc(j.meta.album)} · ${esc(j.label)}</b><span class="tag ${j.status==='fini'?'ok':j.status==='erreur'?'bad':''}">${j.status==='fini'?'Terminé':j.status==='erreur'?'Erreur':j.status==='conversion'?'En cours':'En attente'}</span></div>
-      <small>${esc(j.meta.artist)} · ${j.tracks.length} titres</small>
+      <small>${esc(j.meta.artist)} · ${j.tracks.length} titres${j.gain>1.05?` · volume remonté de +${Math.round(20*Math.log10(j.gain))} dB`:''}</small>
       <div class="bar"><i style="width:${Math.round((j.status==='fini'?1:j.p)*100)}%"></i></div><small class="st">${esc(jobText(j))}</small>`;
     if(j.status==='fini'&&!NATIVE&&j.outputs.length){
       const r=document.createElement('div');r.className='row';
@@ -1466,6 +1540,7 @@ $('#appVer').textContent=NATIVE?`Version installée : 1.${APP_BUILD||'?'}. Sillo
 function autoCheck(){if(!NATIVE)return;const last=+(ls(UPDK)||0);if(Date.now()-last>15*60e3)checkUpdate(false)}
 if(NATIVE){setTimeout(autoCheck,2500);document.addEventListener('visibilitychange',()=>{if(!document.hidden)autoCheck()})}
 
+try{if(localStorage.getItem('sillon.norm')==='0')$('#normOpt').checked=false}catch(e){}
 setMode((()=>{try{return localStorage.getItem(MODEK)||'vinyle'}catch(e){return 'vinyle'}})(),true);
 pathHint();
 if(!navigator.mediaDevices?.getUserMedia){$('#recHint').textContent='Ce navigateur ne permet pas d\'enregistrer ici. Ouvre la page dans Chrome, via une adresse https.';$('#recBtn').disabled=true}
