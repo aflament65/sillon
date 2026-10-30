@@ -127,6 +127,7 @@ button.big{padding:13px 16px;font-size:1rem}
 .modeSw{display:flex;gap:0;border:1px solid var(--line);border-radius:99px;padding:3px;background:var(--surface)}
 .modeSw button{flex:1;border:none;border-radius:99px;background:none}
 .modeSw button[aria-pressed=true]{background:var(--accent);color:var(--accent-ink);font-weight:600}
+.trk .merge{grid-column:2/-1;justify-self:start;padding:3px 9px;font-size:.78rem;color:var(--muted);background:none;border-style:dashed}
 .trk .sub{grid-column:1/-1;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:6px;align-items:center;padding-left:2.6em}
 .trk .sub input{padding:5px 7px;font-size:.82rem}
 .trk .sub .tag{white-space:nowrap}
@@ -877,11 +878,16 @@ function analyze(){
   const env=S.env,n=env.length; if(n<40)return;
   const sorted=Float32Array.from(env).sort();
   S.floor=sorted[Math.floor(n*.08)]; S.peak=sorted[Math.floor(n*.995)];
+  /* vrai bruit de fond : la demi-seconde la plus calme (souffle du sillon entre deux morceaux) */
+  {const w=10;let acc=0,mn=Infinity;for(let j=0;j<n;j++){acc+=env[j];if(j>=w)acc-=env[j-w];if(j>=w-1&&j>w&&j<n-w)mn=Math.min(mn,acc/w)}S.floor0=isFinite(mn)?mn:S.floor}
   const med=sorted[Math.floor(n*.6)], k=+$('#sens').value; S.thr=S.floor+(med-S.floor)*k;
   let first=env.findIndex(v=>v>S.thr), last=n-1; while(last>0&&env[last]<=S.thr)last--;
   if(first<0){first=0;last=n-1}
   const minRun=Math.round(+$('#minsil').value/HS), cands=[]; let rs=-1;
-  for(let i=first;i<=last;i++){if(env[i]<S.thr){if(rs<0)rs=i}else{if(rs>=0&&i-rs>=minRun){let mi=rs;for(let j=rs;j<i;j++)if(env[j]<env[mi])mi=j;cands.push({t:(rs+i)/2*HS,len:i-rs})}rs=-1}}
+  const W=Math.round(15/HS),avg=(a,b)=>{a=Math.max(0,a);b=Math.min(n,b);let x=0,k=0;for(let j=a;j<b;j++){x+=env[j];k++}return k?x/k:S.floor};
+  for(let i=first;i<=last;i++){if(env[i]<S.thr){if(rs<0)rs=i}else{if(rs>=0&&i-rs>=minRun){let mi=rs;for(let j=rs;j<i;j++)if(env[j]<env[mi])mi=j;
+    /* profondeur du silence : niveau de la musique autour comparé au creux */
+    const around=Math.min(avg(rs-W,rs),avg(i,i+W));cands.push({t:(rs+i)/2*HS,len:i-rs,min:env[mi],depth:around-env[mi]})}rs=-1}}
   const startT=Math.max(0,first*HS-.3), endT=Math.min(S.frames/SR,(last+1)*HS+.8);
   const tr=sideTracks(); let cuts;
   if(tr.length>1&&tr.every(t=>t.length>0)){
@@ -892,7 +898,7 @@ function analyze(){
       const cut=best??Math.max(b,prev+5);cuts.push(cut);prev=cut}
   }else if(tr.length>1&&cands.length>=tr.length-1){
     cuts=[...cands].sort((a,b)=>b.len-a.len).slice(0,tr.length-1).map(c=>c.t).sort((a,b)=>a-b);
-  }else cuts=cands.map(c=>c.t);
+  }else cuts=freeCuts(cands,startT,endT);
   S.bounds=[startT,...cuts.filter(c=>c>startT+1&&c<endT-1),endT];
   const segs=S.bounds.length-1;
   const oldB=S.bounds0||[],oldM=S.segMeta||[],oldT=S.titles||[];
@@ -904,6 +910,24 @@ function analyze(){
   S.sel=-1;S.cursor=null;
   $('#s3').hidden=false; $('#nudge').hidden=true;S.edited=false;updSideTags();
   renderTracks();drawWave();pathHint();
+}
+/* Sans liste de titres : on ne garde que les vrais blancs entre morceaux.
+   Un passage calme au milieu d'un morceau (break, fondu, intro douce) n'est pas assez profond ni assez proche du bruit de fond. */
+function freeCuts(cands,startT,endT){
+  const k=+$("#sens").value,MINT=25;
+  const good=cands.filter(c=>c.min<=S.floor0+6+k*20&&c.depth>=Math.max(10,24-k*30));
+  good.sort((a,b)=>b.len*b.depth-a.len*a.depth);
+  const acc=[];
+  for(const c of good)if(c.t-startT>=MINT&&endT-c.t>=MINT&&acc.every(a=>Math.abs(a-c.t)>=MINT))acc.push(c.t);
+  return acc.sort((a,b)=>a-b);
+}
+/* Fusionne le morceau i avec le suivant (supprime la coupure entre les deux) */
+function mergeNext(i){
+  if(i<0||i>=S.bounds.length-2)return;
+  S.bounds.splice(i+1,1);S.titles.splice(i+1,1);S.labels.splice(i+1,1);S.segMeta.splice(i+1,1);
+  const tr=sideTracks();S.labels=S.labels.map((l,k)=>tr[k]?.number||String(k+1));
+  S.titles=S.titles.map((t,k)=>/^Piste \d+$/.test(t)?'Piste '+(k+1):t);
+  S.bounds0=S.bounds.slice();S.edited=true;S.sel=-1;$('#nudge').hidden=true;updSideTags();renderTracks();drawWave();
 }
 $('#sens').oninput=analyze;
 $('#minsil').oninput=()=>{$('#minsilV').textContent=(+$('#minsil').value).toFixed(1).replace('.',',')+' s';analyze()};
@@ -958,10 +982,11 @@ function renderTracks(){
   const box=$('#tracks');box.innerHTML='';
   for(let i=0;i<S.bounds.length-1;i++){
     const row=document.createElement('div');row.className='trk'+(S.sel===i?' sel':'');
-    row.innerHTML=`<button class="no" title="Régler le début">${esc(S.labels[i])}</button><input type="text" id="t${i}" value="${esc(S.titles[i])}" aria-label="Titre de la piste ${i+1}"><span class="d mono">${fmtI(S.bounds[i+1]-S.bounds[i])}</span><button aria-label="Écouter le début">▶</button>`;
+    row.innerHTML=`<button class="no" title="Régler le début">${esc(S.labels[i])}</button><input type="text" id="t${i}" value="${esc(S.titles[i])}" aria-label="Titre de la piste ${i+1}"><span class="d mono">${fmtI(S.bounds[i+1]-S.bounds[i])}</span><button aria-label="Écouter le début">▶</button>${i<S.bounds.length-2?`<button class="merge" title="Fusionner avec le morceau suivant">Fusionner avec le suivant ↓</button>`:''}`;
     row.querySelector('.no').onclick=()=>selectB(i);
     row.querySelector('input').oninput=e=>{S.titles[i]=e.target.value;S.edited=true};
-    row.querySelector('button:last-child').onclick=()=>play(S.bounds[i],S.bounds[i]+10);
+    row.querySelector('button[aria-label="Écouter le début"]').onclick=()=>play(S.bounds[i],S.bounds[i]+10);
+    row.querySelector('.merge')?.addEventListener('click',()=>mergeNext(i));
     if(S.mode==='autre'){const sm=S.segMeta[i]||(S.segMeta[i]={}),sub=document.createElement('div');sub.className='sub';
       const st=sm.status==='ok'?'<span class="tag ok">reconnu</span>':sm.status==='busy'?'<span class="tag">…</span>':sm.status==='no'?'<span class="tag todo">inconnu</span>':'';
       sub.innerHTML=`<input type="text" placeholder="Artiste" value="${esc(sm.artist||'')}" aria-label="Artiste de la piste ${i+1}"><input type="text" placeholder="Album" value="${esc(sm.album||'')}" aria-label="Album de la piste ${i+1}">${st}`;
@@ -1099,7 +1124,7 @@ function recCands(results){
     const artist=(rec.artists||[]).map(a=>a.name+(a.joinphrase||'')).join('').trim();
     const rgs=rec.releasegroups||[];
     const rels=[...(rec.releases||[]).map(r=>({...r,_rg:null})),...rgs.flatMap(g=>(g.releases||[]).map(r=>({...r,_rg:g})))];
-    out.push({score:res.score||0,id:rec.id,title:rec.title,artist,rgs,rels});
+    out.push({score:res.score||0,id:rec.id,title:rec.title,artist,duration:rec.duration||0,rgs,rels});
   }
   return out.sort((a,b)=>b.score-a.score);
 }
@@ -1162,8 +1187,9 @@ async function coverForRelease(relId,artist,album){
 }
 async function identifyTracks(){
   if(!getAKey()){idMsg('Pour reconnaître les morceaux, ajoute ta clé AcoustID gratuite dans « Réglages de reconnaissance ».');return}
-  const tok=++IDRUN,N=S.bounds.length-1;let ok=0;
-  for(let i=0;i<N;i++){
+  const tok=++IDRUN;let ok=0,merged=0;
+  for(let i=0;i<S.bounds.length-1;i++){
+    const N=S.bounds.length-1;
     if(S.segMeta[i]?.status==='ok')continue;
     idMsg(`Reconnaissance des morceaux… ${i+1}/${N}`);
     S.segMeta[i]={...S.segMeta[i],status:'busy'};renderTracks();
@@ -1174,6 +1200,9 @@ async function identifyTracks(){
         const cov=await coverForRelease(rel?.id,top.artist,album);
         S.segMeta[i]={status:'ok',artist:top.artist,album,year,no:pos?.no||0,total:pos?.total||0,cover:cov?.bytes||null,coverMime:cov?.mime||'image/jpeg',score:top.score};
         S.titles[i]=top.title;ok++;
+        /* durée connue du morceau : on recolle les bouts coupés à tort à l'intérieur */
+        const d=top.duration;
+        if(d>30)while(i<S.bounds.length-2&&S.bounds[i+1]-S.bounds[i]<d-8&&S.bounds[i+2]-S.bounds[i]<=d+15){mergeNext(i);merged++}
       }else S.segMeta[i]={...S.segMeta[i],status:'no'};
     }catch(e){S.segMeta[i]={...S.segMeta[i],status:'no'};idMsg('Reconnaissance interrompue : '+e.message+'.');renderTracks();return}
     renderTracks();await wait(400);
@@ -1184,7 +1213,8 @@ async function identifyTracks(){
   for(const ms of groups.values()){const ys=ms.map(m=>+m.year).filter(Boolean),y=ys.length?String(Math.min(...ys)):'',c=ms.find(m=>m.cover);
     for(const m of ms){m.year=y;m.album=ms[0].album;m.artist=ms[0].artist;if(!m.cover&&c){m.cover=c.cover;m.coverMime=c.coverMime}}}
   renderTracks();
-  idMsg(`${ok} morceau${ok>1?'x':''} reconnu${ok>1?'s':''} sur ${N}. Complète à la main ceux qui restent, ou laisse-les dans « Divers ».`);
+  const N=S.bounds.length-1;
+  idMsg(`${ok} morceau${ok>1?'x':''} reconnu${ok>1?'s':''} sur ${N}${merged?` · ${merged} coupure${merged>1?'s':''} en trop supprimée${merged>1?'s':''} grâce à la durée connue`:''}. Pour les autres, « Fusionner avec le suivant » recolle un morceau coupé à tort.`);
 }
 function identify(){return S.mode==='autre'?identifyTracks():identifyAlbum()}
 /* Réglages */
