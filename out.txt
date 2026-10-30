@@ -1,0 +1,188 @@
+/usr/bin/fpcalc
+===== d.ts
+/* tslint:disable */
+/* eslint-disable */
+
+/**
+ * Result of one-shot fingerprint: raw u32 array and base64 compressed string.
+ */
+export class FingerprintFromSamplesResult {
+    private constructor();
+    free(): void;
+    [Symbol.dispose](): void;
+    compressed: string;
+    raw: Uint32Array;
+}
+
+/**
+ * Create a new fingerprinter. Uses the default preset (compatible with AcoustID).
+ */
+export class Fingerprinter {
+    free(): void;
+    [Symbol.dispose](): void;
+    /**
+     * Feed interleaved i16 samples (e.g. from decodeAudioData → getChannelData → convert to i16).
+     * Pass an Int16Array from JS.
+     */
+    consume(samples: Int16Array): void;
+    /**
+     * Call when all samples have been fed.
+     */
+    finish(): void;
+    /**
+     * Compressed fingerprint as base64 (AcoustID/fpcalc format). Only valid after finish().
+     */
+    getCompressedFingerprint(): string;
+    /**
+     * Raw fingerprint (u32 array). Only valid after finish().
+     */
+    getFingerprint(): Uint32Array;
+    constructor();
+    /**
+     * Start fingerprinting. Call with your audio's sample rate (e.g. 44100) and channel count (1 or 2).
+     */
+    start(sample_rate: number, channels: number): void;
+}
+
+/**
+ * Result of matching two fingerprints.
+ */
+export class MatchFingerprintsResult {
+    private constructor();
+    free(): void;
+    [Symbol.dispose](): void;
+    segments: MatchSegment[];
+}
+
+/**
+ * A matched segment between two fingerprints.
+ */
+export class MatchSegment {
+    private constructor();
+    free(): void;
+    [Symbol.dispose](): void;
+    readonly duration: number;
+    readonly end1: number;
+    readonly end2: number;
+    readonly score: number;
+    readonly start1: number;
+    readonly start2: number;
+}
+
+/**
+ * One-shot: compute fingerprint from interleaved i16 samples.
+ */
+export function fingerprintFromSamples(sample_rate: number, channels: number, samples: Int16Array): FingerprintFromSamplesResult;
+
+/**
+ * Match two raw fingerprints (u32 arrays). Returns segments of similar audio.
+ */
+export function matchFingerprints(raw1: Uint32Array, raw2: Uint32Array): MatchFingerprintsResult;
+===== wasm.js
+/* @ts-self-types="./rusty_chromaprint_wasm.d.ts" */
+
+import * as wasm from "./rusty_chromaprint_wasm_bg.wasm";
+import { __wbg_set_wasm } from "./rusty_chromaprint_wasm_bg.js";
+__wbg_set_wasm(wasm);
+wasm.__wbindgen_start();
+export {
+    FingerprintFromSamplesResult, Fingerprinter, MatchFingerprintsResult, MatchSegment, fingerprintFromSamples, matchFingerprints
+} from "./rusty_chromaprint_wasm_bg.js";
+===== bg.js head
+/**
+ * Result of one-shot fingerprint: raw u32 array and base64 compressed string.
+ */
+export class FingerprintFromSamplesResult {
+    static __wrap(ptr) {
+        ptr = ptr >>> 0;
+        const obj = Object.create(FingerprintFromSamplesResult.prototype);
+        obj.__wbg_ptr = ptr;
+        FingerprintFromSamplesResultFinalization.register(obj, obj.__wbg_ptr, obj);
+        return obj;
+    }
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        FingerprintFromSamplesResultFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_fingerprintfromsamplesresult_free(ptr, 0);
+    }
+    /**
+     * @returns {string}
+     */
+    get compressed() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.__wbg_get_fingerprintfromsamplesresult_compressed(this.__wbg_ptr);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
+     * @returns {Uint32Array}
+     */
+    get raw() {
+        const ret = wasm.__wbg_get_fingerprintfromsamplesresult_raw(this.__wbg_ptr);
+        var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @param {string} arg0
+     */
+    set compressed(arg0) {
+        const ptr0 = passStringToWasm0(arg0, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.__wbg_set_fingerprintfromsamplesresult_compressed(this.__wbg_ptr, ptr0, len0);
+    }
+    /**
+     * @param {Uint32Array} arg0
+     */
+    set raw(arg0) {
+        const ptr0 = passArray32ToWasm0(arg0, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.__wbg_set_fingerprintfromsamplesresult_raw(this.__wbg_ptr, ptr0, len0);
+    }
+}
+if (Symbol.dispose) FingerprintFromSamplesResult.prototype[Symbol.dispose] = FingerprintFromSamplesResult.prototype.free;
+
+/**
+ * Create a new fingerprinter. Uses the default preset (compatible with AcoustID).
+ */
+export class Fingerprinter {
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        FingerprinterFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm._
+4:export class FingerprintFromSamplesResult {
+68:export class Fingerprinter {
+147:export class MatchFingerprintsResult {
+188:export class MatchSegment {
+264:export function fingerprintFromSamples(sample_rate, channels, samples) {
+280:export function matchFingerprints(raw1, raw2) {
+291:export function __wbg_Error_83742b46f01ce22d(arg0, arg1) {
+295:export function __wbg___wbindgen_throw_6ddd609b62940d55(arg0, arg1) {
+298:export function __wbg_matchsegment_new(arg0) {
+302:export function __wbg_matchsegment_unwrap(arg0) {
+306:export function __wbindgen_init_externref_table() {
+485:export function __wbg_set_wasm(val) {
+===== fpcalc
+DURATION=40
+FINGERPRINT=558758263,558758263,558758263,558758263,558758263,558758263,558758263,558758263,558758263,558758263,558758263,558758263,558758263,558758263,558758263,558758263,558758263,558758263,558758263,558758263,558758263,558758263,558758263,558758263,558758263,558758263,558758263,558758
+DURATION=40
+FINGERPRINT=AQABMEmUaEkSZSoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+
+RAW 558758263,558758263,558758263,558758263,558758263,558758263,558758263,558758263,558758263,558758263,558758263,558758263 len 304
+COMP AQABMEmUaEkSZSoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
