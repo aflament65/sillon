@@ -9,6 +9,8 @@ mkdir -p www/lib
 cp node_modules/lamejs/lame.min.js www/lib/
 cp node_modules/jszip/dist/jszip.min.js www/lib/
 cp node_modules/@zxing/library/umd/index.min.js www/lib/zxing.min.js
+mkdir -p www/lib/chromaprint
+cp node_modules/rusty-chromaprint-wasm/dist/rusty_chromaprint_wasm_bg.js node_modules/rusty-chromaprint-wasm/dist/rusty_chromaprint_wasm_bg.wasm www/lib/chromaprint/
 sed -e 's#https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js#lib/lame.min.js#' \
     -e 's#https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js#lib/jszip.min.js#' \
     index.html > www/index.html

@@ -9,6 +9,7 @@
     "@capacitor/core": "6.2.0",
     "@zxing/library": "0.21.3",
     "jszip": "3.10.1",
-    "lamejs": "1.2.1"
+    "lamejs": "1.2.1",
+    "rusty-chromaprint-wasm": "0.1.5"
   }
 }

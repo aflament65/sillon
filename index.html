@@ -39,7 +39,7 @@ body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 var(--f-body);
 main{max-width:720px;margin:0 auto;padding-block:20px 60px;display:grid;gap:18px}
 h1,h2{font-family:var(--f-display);margin:0;text-wrap:balance}
 h1{font-size:2rem;font-weight:800;letter-spacing:-.02em}
-h2{font-size:1.15rem;font-weight:600;display:flex;gap:10px;align-items:baseline}
+h2{font-size:1.15rem;font-weight:600;display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline}
 h2 .n{font-family:var(--f-mono);font-size:.8rem;color:var(--accent);letter-spacing:.06em}
 header{display:flex;align-items:center;gap:14px;padding-block:6px}
 .disc{width:48px;height:48px;border-radius:50%;flex:none;
@@ -121,6 +121,12 @@ button.big{padding:13px 16px;font-size:1rem}
 .job small{color:var(--muted)}
 .job.fini .bar i{background:var(--ok)}.job.erreur .bar i{background:var(--bad)}
 .lib-sides{display:flex;flex-wrap:wrap;gap:6px}
+.modeSw{display:flex;gap:0;border:1px solid var(--line);border-radius:99px;padding:3px;background:var(--surface)}
+.modeSw button{flex:1;border:none;border-radius:99px;background:none}
+.modeSw button[aria-pressed=true]{background:var(--accent);color:var(--accent-ink);font-weight:600}
+.trk .sub{grid-column:1/-1;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:6px;align-items:center;padding-left:2.6em}
+.trk .sub input{padding:5px 7px;font-size:.82rem}
+.trk .sub .tag{white-space:nowrap}
 @media (max-width:480px){.sliders{grid-template-columns:minmax(0,1fr)}.album img{width:84px;height:84px}}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
@@ -136,6 +142,11 @@ button.big{padding:13px 16px;font-size:1rem}
   <button id="tabLib" aria-pressed="false">Ma discothèque <span id="libCount" class="mono"></span></button>
 </nav>
 <div id="viewRec" class="view">
+<div class="modeSw" role="group" aria-label="Source">
+  <button id="modeVinyl" aria-pressed="true">Vinyle</button>
+  <button id="modeOther" aria-pressed="false">Autre source</button>
+</div>
+<p class="hint" id="otherHint" hidden>Radio, CD, cassette, téléphone ou ordinateur branché sur l'entrée : Sillon découpe aux silences, reconnaît chaque morceau et le range dans son dossier Artiste/Album.</p>
 <!-- 1. ALBUM -->
 <section id="s1">
   <h2><span class="n">01</span>Album</h2>
@@ -193,11 +204,19 @@ button.big{padding:13px 16px;font-size:1rem}
     <span class="clock mono" id="clock">0:00</span>
     <div class="row">
       <button id="recBtn" class="main">Enregistrer</button>
-      <label class="row" style="display:flex;font-size:.82rem;color:var(--muted)"><input id="autostop" type="checkbox" checked> Arrêt auto en fin de face</label>
+      <label class="row" style="display:flex;font-size:.82rem;color:var(--muted)"><input id="autostop" type="checkbox" checked> <span id="autostopL">Arrêt auto en fin de face</span></label>
     </div>
   </div>
   <div class="meter" id="meter"><i></i></div>
   <p class="hint" id="recHint">Lance l'enregistrement, puis pose le diamant. Vise un niveau vert franc sans passer au rouge.</p>
+  <details id="aSet">
+    <summary class="hint" style="cursor:pointer">Réglages de reconnaissance (AcoustID, gratuit)</summary>
+    <div class="nudge" style="margin-top:8px">
+      <p class="hint">Sillon reconnaît les morceaux à leur empreinte sonore grâce à AcoustID. Crée une clé gratuite : connecte-toi sur acoustid.org, puis « Applications » → « Register a new application » (nom : Sillon). Colle la clé « API key » ici.</p>
+      <div class="row"><input id="aKey" class="grow" type="text" placeholder="Clé AcoustID" autocomplete="off" spellcheck="false"><button id="aKeySave" class="main">Enregistrer</button></div>
+      <p class="hint" id="aKeyState"></p>
+    </div>
+  </details>
   <div class="row"><label class="hint" style="display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center">Ou tester avec un fichier audio : <input id="file" type="file" accept="audio/*"></label></div>
 </section>
 
@@ -219,11 +238,13 @@ button.big{padding:13px 16px;font-size:1rem}
       <button id="addCut" hidden>Couper ici</button>
     </div>
   </div>
+  <div class="row"><button id="identify">Reconnaître l'album</button></div>
+  <p class="hint" id="idMsg" hidden></p>
   <div class="tracks" id="tracks"></div>
   <div class="validate">
     <p class="hint" id="pathHint"></p>
     <button id="validate" class="main big">Valider la face</button>
-    <p class="hint">La conversion en MP3 se fait en arrière-plan : tu peux enregistrer la face suivante tout de suite.</p>
+    <p class="hint" id="bgHint">La conversion en MP3 se fait en arrière-plan : tu peux enregistrer la face suivante tout de suite.</p>
     <div class="row"><button id="stopPlay">Arrêter la lecture</button><button id="reset">Recommencer cette face</button></div>
   </div>
 </section>
@@ -273,7 +294,7 @@ const $=s=>document.querySelector(s);
 const SR=44100, HOP=Math.round(SR*0.05), HS=HOP/SR;
 const S={rel:null,all:[],sides:[],side:-1,cover:null,coverMime:'image/jpeg',
   chunks:[],starts:[],frames:0,env:[],acc:0,cnt:0,bounds:[],titles:[],labels:[],sel:-1,cursor:null,
-  floor:-90,peak:0,thr:-60,recording:false};
+  floor:-90,peak:0,thr:-60,recording:false,mode:'vinyle',segMeta:[]};
 let ctx=null, stream=null, proc=null, src=null, wake=null, player=null;
 const NATIVE=(window.Capacitor?.isNativePlatform?.()&&window.Capacitor.Plugins?.Sillon)||null;
 let FOLDER={};
@@ -433,15 +454,16 @@ async function loadAlbum({artist,album,year,tracks,cover,src}){
   if(S.env.length)analyze();
   enrich();
 }
-async function grabCover(url){
-  if(!url)return false;
-  try{const r=await fetch(url);if(r.ok){const b=await r.blob();if(b.type.startsWith('image/')&&b.size>2000){S.cover=new Uint8Array(await b.arrayBuffer());S.coverMime=b.type;return true}}}catch(e){}
+async function fetchImage(url){
+  if(!url)return null;
+  try{const r=await fetch(url);if(r.ok){const b=await r.blob();if(b.type.startsWith('image/')&&b.size>2000)return {bytes:new Uint8Array(await b.arrayBuffer()),mime:b.type}}}catch(e){}
   try{const img=new Image();img.crossOrigin='anonymous';img.src=url;await img.decode();
     const c=document.createElement('canvas'),s=Math.min(img.width,img.height,800);c.width=c.height=s;
     c.getContext('2d').drawImage(img,0,0,s,s);const b=await new Promise(r=>c.toBlob(r,'image/jpeg',.9));
-    S.cover=new Uint8Array(await b.arrayBuffer());S.coverMime='image/jpeg';return true}catch(e){}
-  return false;
+    return {bytes:new Uint8Array(await b.arrayBuffer()),mime:'image/jpeg'}}catch(e){}
+  return null;
 }
+async function grabCover(url){const c=await fetchImage(url);if(!c)return false;S.cover=c.bytes;S.coverMime=c.mime;return true}
 /* ---------- Recoupement des sources : pochette, durées, titres et faces A/B ---------- */
 const wset=s=>new Set(norm(s).split(' ').filter(w=>w.length>1||/\d/.test(w)));
 function sim(a,b){const A=wset(a),B=wset(b);if(!A.size||!B.size)return 0;let n=0;for(const w of A)if(B.has(w))n++;return n/Math.max(A.size,B.size)}
@@ -722,6 +744,7 @@ function renderSides(){
   updSideTags();
 }
 function updSideTags(){
+  if(S.mode==='autre'){for(const id of ['#recSide','#cutSide'])$(id).hidden=true;const n=Math.max(0,S.bounds.length-1);$('#validate').textContent=n?`Valider et convertir les ${n} morceaux`:'Valider';return}
   const has=S.sides.length>0,l=sideLabel();
   for(const id of ['#recSide','#cutSide']){$(id).hidden=!has;$(id).textContent=l}
   $('#validate').textContent=has?'Valider la '+l:'Valider la face';
@@ -761,7 +784,7 @@ $('#coverFile').onchange=async e=>{
   S.cover=new Uint8Array(await b.arrayBuffer());S.coverMime='image/jpeg';$('#cover').src=URL.createObjectURL(b);
 };
 ['#mArtist','#mAlbum','#mYear'].forEach(s=>$(s).oninput=pathHint);
-const sideTracks=()=>{const s=S.side>=0&&S.sides[S.side];if(!s)return[];return S.range?s.tracks.slice(S.range[0],S.range[1]+1):s.tracks};
+const sideTracks=()=>{if(S.mode==='autre')return[];const s=S.side>=0&&S.sides[S.side];if(!s)return[];return S.range?s.tracks.slice(S.range[0],S.range[1]+1):s.tracks};
 
 /* ---------- 2. Enregistrement ---------- */
 async function listDevices(){
@@ -771,7 +794,7 @@ async function listDevices(){
     sel.value=cur;}catch(e){}
 }
 navigator.mediaDevices?.addEventListener?.('devicechange',listDevices);
-function clearAudio(){Object.assign(S,{chunks:[],starts:[],frames:0,env:[],acc:0,cnt:0,bounds:[],titles:[],labels:[],sel:-1,cursor:null})}
+function clearAudio(){IDRUN++;Object.assign(S,{chunks:[],starts:[],frames:0,env:[],acc:0,cnt:0,bounds:[],bounds0:[],titles:[],labels:[],segMeta:[],sel:-1,cursor:null})}
 function pushAudio(L,R){
   const n=L.length,a=new Int16Array(n*2);let pk=0;
   for(let k=0;k<n;k++){const l=L[k],r=R[k];a[2*k]=l<-1?-32768:l>1?32767:l*32767;a[2*k+1]=r<-1?-32768:r>1?32767:r*32767;
@@ -819,7 +842,7 @@ function stopRec(auto){
   $('#recBtn').textContent='Enregistrer';$('#recBtn').className='main';
   $('#meter').firstElementChild.style.width='0';
   $('#recHint').textContent=(auto?'Fin de face détectée. ':'')+'Enregistré : '+fmtI(S.frames/SR)+'. Vérifie les coupures plus bas.';
-  if(S.frames>SR*5) analyze();
+  if(S.frames>SR*5){analyze();autoIdentify()}
 }
 $('#recBtn').onclick=()=>S.recording?stopRec(false):startRec();
 $('#file').onchange=async e=>{
@@ -828,7 +851,7 @@ $('#file').onchange=async e=>{
   try{const buf=await getCtx().decodeAudioData(await f.arrayBuffer());
     const L=buf.getChannelData(0),R=buf.numberOfChannels>1?buf.getChannelData(1):L;
     for(let o=0;o<L.length;o+=4096){pushAudio(L.subarray(o,o+4096),R.subarray(o,o+4096));if(o%(4096*200)===0)await tick()}
-    $('#clock').textContent=fmtI(S.frames/SR); $('#recHint').textContent='Fichier chargé : '+fmtI(S.frames/SR)+'.'; analyze();
+    $('#clock').textContent=fmtI(S.frames/SR); $('#recHint').textContent='Fichier chargé : '+fmtI(S.frames/SR)+'.'; analyze();autoIdentify();
   }catch(err){$('#recHint').textContent='Ce fichier ne peut pas être lu par le navigateur.'}
 };
 
@@ -855,7 +878,11 @@ function analyze(){
   }else cuts=cands.map(c=>c.t);
   S.bounds=[startT,...cuts.filter(c=>c>startT+1&&c<endT-1),endT];
   const segs=S.bounds.length-1;
-  S.titles=Array.from({length:segs},(_,i)=>tr[i]?.title||'Piste '+(i+1));
+  const oldB=S.bounds0||[],oldM=S.segMeta||[],oldT=S.titles||[];
+  const keep=i=>oldB.findIndex(b=>Math.abs(b-S.bounds[i])<2);
+  S.segMeta=Array.from({length:segs},(_,i)=>{const j=keep(i);return j>=0&&j<oldM.length&&oldM[j]?oldM[j]:{}});
+  S.titles=Array.from({length:segs},(_,i)=>{if(S.mode==='autre'){const j=keep(i);if(j>=0&&S.segMeta[i].status==='ok'&&oldT[j])return oldT[j]}return tr[i]?.title||'Piste '+(i+1)});
+  S.bounds0=S.bounds.slice();
   S.labels=Array.from({length:segs},(_,i)=>tr[i]?.number||String(i+1));
   S.sel=-1;S.cursor=null;
   $('#s3').hidden=false; $('#nudge').hidden=true;S.edited=false;updSideTags();
@@ -907,9 +934,9 @@ function hideEdit(){$('#nudge').hidden=true;$('#s3').hidden=true}
 function moveB(i,t){S.edited=true;const lo=i>0?S.bounds[i-1]+.5:0,hi=i<S.bounds.length-1?S.bounds[i+1]-.5:S.frames/SR;S.bounds[i]=Math.max(lo,Math.min(hi,t));renderTracks();drawWave()}
 document.querySelectorAll('[data-n]').forEach(b=>b.onclick=()=>{const d=+b.dataset.n;if(S.sel>=0)moveB(S.sel,S.bounds[S.sel]+d);else if(S.cursor!=null){S.cursor+=d;drawWave()}});
 $('#listen').onclick=()=>{const c=center();if(c!=null)play(c-4,c+4)};
-$('#delCut').onclick=()=>{S.edited=true;const i=S.sel;if(i<=0||i>=S.bounds.length-1)return;S.bounds.splice(i,1);S.titles.splice(i,1);S.labels.splice(i,1);S.sel=-1;$('#nudge').hidden=true;renderTracks();drawWave()};
+$('#delCut').onclick=()=>{S.edited=true;const i=S.sel;if(i<=0||i>=S.bounds.length-1)return;S.bounds.splice(i,1);S.titles.splice(i,1);S.labels.splice(i,1);S.segMeta.splice(i,1);S.bounds0=S.bounds.slice();S.sel=-1;$('#nudge').hidden=true;renderTracks();drawWave()};
 $('#addCut').onclick=()=>{const t=S.cursor;if(t==null)return;let i=S.bounds.findIndex(b=>b>t);if(i<=0)return;
-  S.bounds.splice(i,0,t);S.titles.splice(i,0,'Piste '+(i+1));S.labels.splice(i,0,String(i+1));selectB(i)};
+  S.bounds.splice(i,0,t);S.titles.splice(i,0,'Piste '+(i+1));S.labels.splice(i,0,String(i+1));S.segMeta.splice(i,0,{});S.bounds0=S.bounds.slice();S.edited=true;selectB(i)};
 function renderTracks(){
   const box=$('#tracks');box.innerHTML='';
   for(let i=0;i<S.bounds.length-1;i++){
@@ -918,6 +945,11 @@ function renderTracks(){
     row.querySelector('.no').onclick=()=>selectB(i);
     row.querySelector('input').oninput=e=>{S.titles[i]=e.target.value;S.edited=true};
     row.querySelector('button:last-child').onclick=()=>play(S.bounds[i],S.bounds[i]+10);
+    if(S.mode==='autre'){const sm=S.segMeta[i]||(S.segMeta[i]={}),sub=document.createElement('div');sub.className='sub';
+      const st=sm.status==='ok'?'<span class="tag ok">reconnu</span>':sm.status==='busy'?'<span class="tag">…</span>':sm.status==='no'?'<span class="tag todo">inconnu</span>':'';
+      sub.innerHTML=`<input type="text" placeholder="Artiste" value="${esc(sm.artist||'')}" aria-label="Artiste de la piste ${i+1}"><input type="text" placeholder="Album" value="${esc(sm.album||'')}" aria-label="Album de la piste ${i+1}">${st}`;
+      const [ia,ib]=sub.querySelectorAll('input');ia.oninput=e=>{sm.artist=e.target.value};ib.oninput=e=>{sm.album=e.target.value};
+      row.append(sub)}
     box.append(row);
   }
   const extra=sideTracks().length&&sideTracks().length!==S.bounds.length-1;
@@ -954,7 +986,7 @@ function doneTag(artist,album){const r=libFind(artist,album);if(!r)return'';
 async function thumbOf(bytes,mime,size){
   try{const img=new Image();img.src=URL.createObjectURL(new Blob([bytes],{type:mime}));await img.decode();
     const c=document.createElement('canvas');c.width=c.height=size;c.getContext('2d').drawImage(img,0,0,size,size);return c.toDataURL('image/jpeg',.8)}catch(e){return ''}}
-const sideLabel=()=>{const s=S.sides[S.side];if(!s)return 'face';return S.range?`${s.name} (titres ${S.range[0]+1} à ${S.range[1]+1})`:s.name};
+const sideLabel=()=>{if(S.mode==='autre')return 'Enregistrement du '+new Date().toLocaleDateString('fr-FR')+' '+new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});const s=S.sides[S.side];if(!s)return 'face';return S.range?`${s.name} (titres ${S.range[0]+1} à ${S.range[1]+1})`:s.name};
 /* Vue discothèque */
 function showView(lib){$('#viewRec').hidden=lib;$('#viewLib').hidden=!lib;$('#tabRec').setAttribute('aria-pressed',!lib);$('#tabLib').setAttribute('aria-pressed',lib);if(lib)renderLib();scrollTo(0,0)}
 $('#tabRec').onclick=()=>showView(false);$('#tabLib').onclick=()=>showView(true);
@@ -1015,10 +1047,164 @@ $('#libImport').onchange=async e=>{
 };
 libLoad();
 
+/* ---------- Reconnaissance des morceaux (empreinte Chromaprint + AcoustID, gratuit) ---------- */
+const AKEY='sillon.acoustid';
+const getAKey=()=>{try{return localStorage.getItem(AKEY)||''}catch(e){return ''}};
+let CP=null;
+async function loadChromaprint(){
+  if(CP)return CP;
+  const base=NATIVE?new URL('lib/chromaprint/',location.href).href:'https://cdn.jsdelivr.net/npm/rusty-chromaprint-wasm@0.1.5/dist/';
+  const bg=await import(base+'rusty_chromaprint_wasm_bg.js');
+  const bytes=await (await fetch(base+'rusty_chromaprint_wasm_bg.wasm')).arrayBuffer();
+  const {instance}=await WebAssembly.instantiate(bytes,{'./rusty_chromaprint_wasm_bg.js':bg});
+  bg.__wbg_set_wasm(instance.exports);instance.exports.__wbindgen_start?.();
+  return CP=bg;
+}
+/* Début du segment i (2 minutes max, comme fpcalc), en Int16 stéréo entrelacé */
+function segSamples(i,maxSec=120){
+  const a=Math.round(S.bounds[i]*SR),b=Math.min(Math.round(S.bounds[i+1]*SR),a+maxSec*SR),n=Math.max(0,b-a),out=new Int16Array(n*2);
+  let o=0;for(let c=0;c<S.chunks.length&&o<n;c++){const ch=S.chunks[c];if(!ch)continue;const st=S.starts[c],cl=ch.length/2;
+    if(st+cl<=a)continue;const from=Math.max(0,a-st),to=Math.min(cl,b-st);if(to>from){out.set(ch.subarray(from*2,to*2),o*2);o+=to-from}}
+  return out;
+}
+async function acoustLookup(fp,duration){
+  const body=new URLSearchParams({client:getAKey(),duration:String(Math.max(1,Math.round(duration))),fingerprint:fp,meta:'recordings releasegroups releases tracks compress',format:'json'});
+  const r=await fetch('https://api.acoustid.org/v2/lookup',{method:'POST',body});
+  const d=await r.json().catch(()=>({}));
+  if(d.status!=='ok'){const m=d.error?.message||('erreur '+r.status);throw new Error(/api key/i.test(m)?'clé AcoustID refusée, vérifie-la dans les réglages':m)}
+  return d.results||[];
+}
+/* Liste des enregistrements candidats, du plus sûr au moins sûr */
+function recCands(results){
+  const out=[];
+  for(const res of results)for(const rec of res.recordings||[]){
+    if(!rec.title)continue;
+    const artist=(rec.artists||[]).map(a=>a.name+(a.joinphrase||'')).join('').trim();
+    const rgs=rec.releasegroups||[];
+    const rels=[...(rec.releases||[]).map(r=>({...r,_rg:null})),...rgs.flatMap(g=>(g.releases||[]).map(r=>({...r,_rg:g})))];
+    out.push({score:res.score||0,id:rec.id,title:rec.title,artist,rgs,rels});
+  }
+  return out.sort((a,b)=>b.score-a.score);
+}
+const isVinylRel=r=>(r.mediums||[]).some(m=>/vinyl/i.test(m.format||''));
+const rgIsAlbum=g=>g&&g.type==='Album'&&!(g.secondarytypes||[]).length;
+/* Choix de l'édition : album studio, vinyle si possible, la plus ancienne */
+function bestRelease(c,preferVinyl){
+  const rels=c.rels.slice();if(!rels.length)return null;
+  const yr=r=>r.date?.year||9999;
+  rels.sort((a,b)=>(rgIsAlbum(b._rg)-rgIsAlbum(a._rg))||(preferVinyl?(isVinylRel(b)-isVinylRel(a)):0)||(yr(a)-yr(b)));
+  return rels[0];
+}
+function trackPosIn(rel,recTitle){
+  for(const m of rel.mediums||[])for(const t of m.tracks||[])if(t.position&&(!t.title||sim(t.title,recTitle)>.5))return {no:t.position,total:m.track_count||rel.track_count||0};
+  return null;
+}
+async function identifySegment(i){
+  const pcm=segSamples(i);if(pcm.length<SR*2*12)return null;
+  const cp=await loadChromaprint();
+  const r=cp.fingerprintFromSamples(SR,2,pcm);const fp=r.compressed;try{r.free()}catch(e){}
+  return recCands(await acoustLookup(fp,S.bounds[i+1]-S.bounds[i]));
+}
+const idMsg=t=>{const e=$('#idMsg');e.hidden=!t;e.textContent=t||''};
+let IDRUN=0;
+/* Vinyle : reconnaît l'album à partir de quelques morceaux, puis charge l'édition et la bonne face */
+async function identifyAlbum(){
+  if(!getAKey()){idMsg('Pour reconnaître l\'album automatiquement, ajoute ta clé AcoustID gratuite dans « Réglages de reconnaissance ».');return}
+  const tok=++IDRUN,N=S.bounds.length-1,idx=[...Array(N).keys()].filter(i=>S.bounds[i+1]-S.bounds[i]>25).slice(0,4);
+  if(!idx.length)return;
+  const votes=new Map(),titles=[];let err=null;
+  for(const [k,i] of idx.entries()){
+    idMsg(`Reconnaissance de l'album… morceau ${k+1}/${idx.length}`);
+    try{const c=await identifySegment(i);if(tok!==IDRUN)return;
+      const top=c?.[0];if(top&&top.score>=.5){titles.push(top.title);
+        for(const g of top.rgs.length?top.rgs:[...new Map(top.rels.filter(r=>r._rg).map(r=>[r._rg.id,r._rg])).values()]){
+          const v=votes.get(g.id)||{g,n:0,rels:[]};v.n+=top.score*(rgIsAlbum(g)?1.2:1);v.rels.push(...top.rels.filter(r=>r._rg?.id===g.id));v.artist=top.artist;votes.set(g.id,v)}}}
+    catch(e){err=e.message;break}
+    await wait(400);
+  }
+  if(tok!==IDRUN)return;
+  if(err&&!votes.size){idMsg('Reconnaissance impossible : '+err+'.');return}
+  const win=[...votes.values()].sort((a,b)=>b.n-a.n)[0];
+  if(!win){idMsg('Album non reconnu. Cherche-le par son nom ou son code-barres.');return}
+  const rel=win.rels.slice().sort((a,b)=>(isVinylRel(b)-isVinylRel(a))||((a.date?.year||9999)-(b.date?.year||9999)))[0];
+  idMsg(`Reconnu : ${win.artist} – ${win.g.title}. Chargement de l'album…`);
+  if(rel)await pick(rel.id);
+  if(tok!==IDRUN)return;
+  /* face correspondant aux morceaux entendus */
+  let best=-1,bs=0;S.sides.forEach((s,i)=>{const sc=titles.filter(t=>s.tracks.some(x=>sim(x.title,t)>.6)).length;if(sc>bs){bs=sc;best=i}});
+  if(best>=0&&best!==S.side){S.side=best;S.range=null;renderSides();if(S.env.length&&!S.edited)analyze()}
+  idMsg(`Album reconnu : ${win.artist} – ${win.g.title}${S.sides[S.side]?' · '+S.sides[S.side].name:''} (${titles.length} morceau${titles.length>1?'x':''} sur ${idx.length}). Vérifie avant de valider.`);
+}
+/* Autre source : chaque morceau est reconnu séparément */
+const COVERS=new Map();
+async function coverForRelease(relId,artist,album){
+  if(COVERS.has(relId))return COVERS.get(relId);
+  let c=relId?await fetchImage(`https://coverartarchive.org/release/${relId}/front-500`):null;
+  if(!c&&artist&&album){const d=await deezer('search/album?limit=3&q='+encodeURIComponent(artist+' '+album));const a=(d?.data||[]).find(x=>sim(x.title,album)>.6);if(a)c=await fetchImage(a.cover_xl||a.cover_big)}
+  COVERS.set(relId,c);return c;
+}
+async function identifyTracks(){
+  if(!getAKey()){idMsg('Pour reconnaître les morceaux, ajoute ta clé AcoustID gratuite dans « Réglages de reconnaissance ».');return}
+  const tok=++IDRUN,N=S.bounds.length-1;let ok=0;
+  for(let i=0;i<N;i++){
+    if(S.segMeta[i]?.status==='ok')continue;
+    idMsg(`Reconnaissance des morceaux… ${i+1}/${N}`);
+    S.segMeta[i]={...S.segMeta[i],status:'busy'};renderTracks();
+    try{const c=await identifySegment(i);if(tok!==IDRUN)return;
+      const top=c?.[0];
+      if(top&&top.score>=.5){const rel=bestRelease(top,false),pos=rel&&trackPosIn(rel,top.title);
+        const album=rel?.title||rel?._rg?.title||'',year=rel?.date?.year?String(rel.date.year):'';
+        const cov=await coverForRelease(rel?.id,top.artist,album);
+        S.segMeta[i]={status:'ok',artist:top.artist,album,year,no:pos?.no||0,total:pos?.total||0,cover:cov?.bytes||null,coverMime:cov?.mime||'image/jpeg',score:top.score};
+        S.titles[i]=top.title;ok++;
+      }else S.segMeta[i]={...S.segMeta[i],status:'no'};
+    }catch(e){S.segMeta[i]={...S.segMeta[i],status:'no'};idMsg('Reconnaissance interrompue : '+e.message+'.');renderTracks();return}
+    renderTracks();await wait(400);
+  }
+  if(tok!==IDRUN)return;
+  /* même album = même dossier : on garde l'année la plus ancienne et une pochette commune */
+  const groups=new Map();S.segMeta.forEach(m=>{if(m?.status!=='ok'||!m.album)return;const k=norm(m.artist)+'|'+norm(m.album);if(!groups.has(k))groups.set(k,[]);groups.get(k).push(m)});
+  for(const ms of groups.values()){const ys=ms.map(m=>+m.year).filter(Boolean),y=ys.length?String(Math.min(...ys)):'',c=ms.find(m=>m.cover);
+    for(const m of ms){m.year=y;m.album=ms[0].album;m.artist=ms[0].artist;if(!m.cover&&c){m.cover=c.cover;m.coverMime=c.coverMime}}}
+  renderTracks();
+  idMsg(`${ok} morceau${ok>1?'x':''} reconnu${ok>1?'s':''} sur ${N}. Complète à la main ceux qui restent, ou laisse-les dans « Divers ».`);
+}
+function identify(){return S.mode==='autre'?identifyTracks():identifyAlbum()}
+/* Réglages */
+$('#aKey').value=getAKey();
+$('#aKeySave').onclick=()=>{try{localStorage.setItem(AKEY,$('#aKey').value.trim())}catch(e){}
+  $('#aKeyState').textContent=$('#aKey').value.trim()?'Clé enregistrée sur cet appareil.':'Clé effacée.'};
+$('#identify').onclick=()=>identify();
+
+/* ---------- Mode d'enregistrement : vinyle ou autre source ---------- */
+const MODEK='sillon.mode';
+function setMode(m,init){
+  S.mode=m;try{localStorage.setItem(MODEK,m)}catch(e){}
+  const other=m==='autre';
+  $('#modeVinyl').setAttribute('aria-pressed',!other);$('#modeOther').setAttribute('aria-pressed',other);
+  $('#s1').hidden=other;$('#otherHint').hidden=!other;
+  const nums=other?['','01','02','03']:['01','02','03','04'];
+  ['#s1','#s2','#s3','#s4'].forEach((id,k)=>{const n=document.querySelector(id+' h2 .n');if(n)n.textContent=nums[k]});
+  $('#identify').textContent=other?'Reconnaître les morceaux':'Reconnaître l\'album';
+  $('#autostopL').textContent=other?'Arrêt auto après 15 s de silence':'Arrêt auto en fin de face';
+  $('#reset').textContent=other?'Recommencer':'Recommencer cette face';
+  $('#bgHint').textContent=other?'La conversion en MP3 se fait en arrière-plan : tu peux lancer un autre enregistrement tout de suite.':'La conversion en MP3 se fait en arrière-plan : tu peux enregistrer la face suivante tout de suite.';
+  if(!init){clearAudio();hideEdit();idMsg('');$('#clock').textContent='0:00';
+    $('#recHint').textContent=other?'Branche l\'appareil sur l\'entrée audio, lance l\'enregistrement puis la lecture.':'Lance l\'enregistrement, puis pose le diamant. Vise un niveau vert franc sans passer au rouge.'}
+  updSideTags();pathHint();
+}
+$('#modeVinyl').onclick=()=>setMode('vinyle');$('#modeOther').onclick=()=>setMode('autre');
+
+function autoIdentify(){
+  if(!getAKey())return;
+  if(S.mode==='autre')identifyTracks();
+  else if(!S.all.length)identifyAlbum();
+}
 /* ---------- 4. Export ---------- */
 const meta=()=>({artist:$('#mArtist').value.trim()||'Artiste inconnu',album:$('#mAlbum').value.trim()||'Album inconnu',year:$('#mYear').value.trim()});
 function folder(){const m=meta();return safe(m.artist)+'/'+safe(m.album)+(m.year?' ('+m.year+')':'')}
-function pathHint(){$('#pathHint').textContent='Rangement : '+(NATIVE?(FOLDER.name||'dossier à choisir')+'/':'')+folder()+'/01 - Titre.mp3. Pochette et tags intégrés dans chaque fichier.'}
+function pathHint(){if(S.mode==='autre'){$('#pathHint').textContent='Rangement : '+(NATIVE?(FOLDER.name||'dossier à choisir')+'/':'')+'Artiste/Album/01 - Titre.mp3 pour chaque morceau reconnu, Divers/ pour les autres.';return}
+  $('#pathHint').textContent='Rangement : '+(NATIVE?(FOLDER.name||'dossier à choisir')+'/':'')+folder()+'/01 - Titre.mp3. Pochette et tags intégrés dans chaque fichier.'}
 function trackNo(i){const tr=sideTracks()[i];return tr?tr.pos:i+1}
 function totalNo(){return S.all.length||S.bounds.length-1}
 function txtFrame(id,str){const d=new Uint8Array(3+str.length*2+2);d[0]=1;d[1]=0xFF;d[2]=0xFE;for(let i=0;i<str.length;i++){const c=str.charCodeAt(i);d[3+2*i]=c&255;d[4+2*i]=c>>8}return frame(id,d)}
@@ -1074,17 +1260,28 @@ async function validateSide(){
   const tracks=[];for(let i=0;i<N;i++){
     const t={title:(S.titles[i]||'Piste '+(i+1)).trim(),artist:tr[i]?.artist||m.artist,no:tr[i]?.pos||i+1,total};
     t.id3=id3For(m,t,cover,coverMime);t.start=Math.round(S.bounds[i]*SR)-a0;t.end=Math.min(len,Math.round(S.bounds[i+1]*SR)-a0);tracks.push(t)}
-  const job={id:++jobSeq,label,meta:m,dir:folder(),cover,coverMime,src:S.src,sides:JSON.parse(JSON.stringify(S.sides)),
+  const other=S.mode==='autre',stamp=new Date().toISOString().slice(0,10);
+  if(other)tracks.forEach((t,i)=>{const sm=S.segMeta[i]||{},ar=(sm.artist||'').trim(),al=(sm.album||'').trim();
+    const tm={artist:ar||'Artiste inconnu',album:al||'Divers',year:sm.year||''};
+    t.artist=tm.artist;t.no=sm.no||i+1;t.total=sm.total||N;
+    t.dir=ar&&al?safe(ar)+'/'+safe(al)+(sm.year?' ('+sm.year+')':''):'Divers/Sillon '+stamp;
+    t.cover=sm.cover||null;t.coverMime=sm.coverMime||'image/jpeg';
+    t.id3=id3For(tm,t,t.cover,t.coverMime)});
+  const folders=other?[...new Map(tracks.filter(t=>t.cover).map(t=>[t.dir,{dir:t.dir,cover:t.cover,coverMime:t.coverMime}])).values()]:(cover?[{dir:folder(),cover,coverMime}]:[]);
+  if(!other)tracks.forEach(t=>{t.dir=folder()});
+  const job={id:++jobSeq,kind:other?'autre':'vinyle',folders,label,meta:other?{artist:N+' morceaux',album:'Autre source',year:''}:m,dir:folder(),cover,coverMime,src:S.src,sides:JSON.parse(JSON.stringify(S.sides)),
     key:albumKey(m.artist,m.album),tracks,pcm,status:'attente',done:0,p:0,outputs:[],msg:''};
   JOBS.push(job);
   clearAudio();hideEdit();$('#clock').textContent='0:00';
   /* face suivante */
   const cs=S.sides[S.side];
-  if(S.range&&cs&&S.range[1]<cs.tracks.length-1){S.range=[S.range[1]+1,cs.tracks.length-1]}
+  if(other){}
+  else if(S.range&&cs&&S.range[1]<cs.tracks.length-1){S.range=[S.range[1]+1,cs.tracks.length-1]}
   else{const nx=S.sides.findIndex((s,i)=>i!==S.side&&sideStatus(s.name)==='todo');if(nx>=0){S.side=nx;S.range=null}}
   renderSides();renderJobs();runJobs();
   const next=S.sides[S.side],nextFree=next&&sideStatus(next.name)==='todo';
-  $('#recHint').textContent=nextFree?`${label} envoyée en conversion. Retourne le disque et enregistre la ${next.name}.`:`${label} envoyée en conversion. Toutes les faces de l'album sont faites.`;
+  if(other)$('#recHint').textContent='Enregistrement envoyé en conversion. Tu peux en lancer un autre tout de suite.';
+  else $('#recHint').textContent=nextFree?`${label} envoyée en conversion. Retourne le disque et enregistre la ${next.name}.`:`${label} envoyée en conversion. Toutes les faces de l'album sont faites.`;
   $('#s2').scrollIntoView({behavior:'smooth'});
 }
 function runJobs(){
@@ -1092,18 +1289,18 @@ function runJobs(){
   jobRunning=true;job.status='conversion';renderJobs();
   let w;try{w=new Worker(workerURL)}catch(e){job.status='erreur';job.msg='conversion impossible sur cet appareil';jobRunning=false;renderJobs();return}
   let writing=Promise.resolve();
-  if(NATIVE&&job.cover)writing=writing.then(()=>writeNative(job.dir+'/folder.jpg',new Blob([job.cover],{type:job.coverMime}))).catch(()=>{});
+  if(NATIVE)for(const f of job.folders)writing=writing.then(()=>writeNative(f.dir+'/folder.jpg',new Blob([f.cover],{type:f.coverMime}))).catch(()=>{});
   const finish=async(err)=>{
     w.terminate();
     try{await writing}catch(e){err=err||e.message}
     job.pcm=null;
-    if(err){job.status='erreur';job.msg=err}else{job.status='fini';await saveSideJob(job)}
+    if(err){job.status='erreur';job.msg=err}else{job.status='fini';if(job.kind!=='autre')await saveSideJob(job)}
     jobRunning=false;renderJobs();renderSides();runJobs();
   };
   w.onmessage=e=>{const d=e.data;
     if(d.type==='progress'){job.p=(d.track+d.p)/job.tracks.length;updJob(job)}
     else if(d.type==='track'){const t=job.tracks[d.track],blob=new Blob([d.mp3],{type:'audio/mpeg'});job.done=d.track+1;job.p=job.done/job.tracks.length;
-      if(NATIVE)writing=writing.then(()=>writeNative(job.dir+'/'+fileNameOf(t),blob));else job.outputs.push({name:fileNameOf(t),blob});
+      if(NATIVE)writing=writing.then(()=>writeNative(t.dir+'/'+fileNameOf(t),blob));else job.outputs.push({name:fileNameOf(t),dir:t.dir,blob});
       updJob(job)}
     else if(d.type==='done')finish(null);
     else if(d.type==='error')finish(d.message)};
@@ -1118,7 +1315,7 @@ function jobText(j){
   if(j.status==='attente')return 'En attente';
   if(j.status==='conversion')return `Conversion ${Math.min(j.done+1,j.tracks.length)}/${j.tracks.length} · ${Math.round(j.p*100)} %`;
   if(j.status==='erreur')return 'Échec : '+j.msg;
-  return NATIVE?`${j.tracks.length} MP3 enregistrés dans ${FOLDER.name||'le dossier'}/${j.dir}`:`${j.tracks.length} MP3 prêts`;
+  return NATIVE?`${j.tracks.length} MP3 enregistrés dans ${FOLDER.name||'le dossier'}/${j.kind==='autre'?'(un dossier par artiste et album)':j.dir}`:`${j.tracks.length} MP3 prêts`;
 }
 function renderJobs(){
   const box=$('#jobs');box.innerHTML='';$('#s4').hidden=!JOBS.length&&!NATIVE;
@@ -1138,8 +1335,8 @@ function renderJobs(){
 }
 async function dlJobZip(j){
   if(typeof JSZip==='undefined')return dlJobSep(j);
-  const z=new JSZip();for(const f of j.outputs)z.file(j.dir+'/'+f.name,f.blob);
-  if(j.cover)z.file(j.dir+'/folder.jpg',j.cover);
+  const z=new JSZip();for(const f of j.outputs)z.file(f.dir+'/'+f.name,f.blob);
+  for(const f of j.folders)z.file(f.dir+'/folder.jpg',f.cover);
   const zb=await z.generateAsync({type:'blob',compression:'STORE'});
   dl(zb,safe(j.meta.artist)+' - '+safe(j.meta.album)+' - '+j.label+'.zip');
 }
@@ -1183,6 +1380,7 @@ if(NATIVE){
   NATIVE.getFolder().then(f=>{FOLDER=f||{};$('#folderName').textContent=FOLDER.name||'non choisi';pathHint();renderJobs()}).catch(()=>{});
 }else if(/Android/i.test(navigator.userAgent))$('#apkHint').hidden=false;
 renderJobs();
+setMode((()=>{try{return localStorage.getItem(MODEK)||'vinyle'}catch(e){return 'vinyle'}})(),true);
 pathHint();
 if(!navigator.mediaDevices?.getUserMedia){$('#recHint').textContent='Ce navigateur ne permet pas d\'enregistrer ici. Ouvre la page dans Chrome, via une adresse https.';$('#recBtn').disabled=true}
 </script>
