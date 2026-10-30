@@ -1,24 +1,33 @@
 name: Sonde (temporaire)
 on: workflow_dispatch
+permissions:
+  contents: write
 jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/setup-node@v4
         with: { node-version: 20 }
-      - name: Paquets d'empreinte
+      - name: Sonde
+        shell: bash
         run: |
+          set +e
+          exec > out.txt 2>&1
           mkdir p && cd p && npm init -y >/dev/null
           for pkg in rusty-chromaprint-wasm chromaprint-fixed chromaprint.js; do
-            echo "===== $pkg"; npm view $pkg version dist-tags time.modified --json 2>&1 | head -20
-            npm pack $pkg >/dev/null 2>&1 && f=$(ls ${pkg//./-}*.tgz ${pkg}*.tgz 2>/dev/null | head -1) && mkdir -p x_$pkg && tar xzf "$f" -C x_$pkg && find x_$pkg -type f | head -30 && cat x_$pkg/package/package.json
+            echo "===== $pkg"; npm view $pkg version time.modified description --json
+            rm -rf x && mkdir x && npm pack $pkg --pack-destination x >/dev/null && tar xzf x/*.tgz -C x && find x/package -type f | head -30 && cat x/package/package.json
           done
-      - name: Test empreinte (rusty-chromaprint-wasm)
-        run: |
-          cd p && npm i rusty-chromaprint-wasm >/dev/null 2>&1; ls node_modules/rusty-chromaprint-wasm
-          for f in node_modules/rusty-chromaprint-wasm/*.js; do echo "--- $f"; head -c 1500 "$f"; echo; done
-      - name: AcoustID (CORS / JSONP)
-        run: |
+          npm i rusty-chromaprint-wasm chromaprint-fixed >/dev/null 2>&1
+          echo "===== heads"
+          for f in node_modules/rusty-chromaprint-wasm/*.js node_modules/chromaprint-fixed/*.js node_modules/chromaprint-fixed/dist/*.js; do [ -f "$f" ] && { echo "--- $f ($(wc -c <"$f") o)"; head -c 1200 "$f"; echo; }; done
+          echo "===== AcoustID"
           curl -s -D - -o body.txt -H "Origin: https://aflament65.github.io" "https://api.acoustid.org/v2/lookup?client=8XaBELgH&duration=10&fingerprint=AQAAA&format=json" | head -20; cat body.txt; echo
           curl -s "https://api.acoustid.org/v2/lookup?client=8XaBELgH&duration=10&fingerprint=AQAAA&format=jsonp&jsoncallback=cb" | head -c 400; echo
           curl -s -D - -o /dev/null -X OPTIONS -H "Origin: https://localhost" -H "Access-Control-Request-Method: POST" https://api.acoustid.org/v2/lookup | head -20
+          true
+      - name: Publier le résultat
+        run: |
+          cd $RUNNER_TEMP && git init -q r && cd r && cp $GITHUB_WORKSPACE/out.txt . 2>/dev/null || cp ~/work/*/*/out.txt . 2>/dev/null || cp /home/runner/work/sillon/sillon/out.txt .
+          git checkout -q -b probe-out && git add out.txt && git -c user.name=bot -c user.email=bot@x commit -qm sonde
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" probe-out
