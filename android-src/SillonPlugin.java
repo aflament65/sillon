@@ -6,11 +6,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.UriPermission;
-import android.media.AudioAttributes;
-import android.media.MediaPlayer;
 import android.media.projection.MediaProjectionManager;
-import android.os.Handler;
-import android.os.Looper;
 import android.provider.DocumentsContract;
 import android.net.Uri;
 import android.os.Build;
@@ -37,7 +33,9 @@ import com.google.mlkit.vision.codescanner.GmsBarcodeScanning;
 
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -398,119 +396,118 @@ public class SillonPlugin extends Plugin {
         }
     }
 
-    /* ---------- Lecteur audio ---------- */
+    /* ---------- Lecteur : délégué au service de lecture (arrière-plan, Bluetooth, voiture) ---------- */
 
-    private MediaPlayer player;
-    private final Handler tick = new Handler(Looper.getMainLooper());
-    private final Runnable ticker = new Runnable() {
-        @Override
-        public void run() {
-            emitPlayerState();
-            if (player != null) tick.postDelayed(this, 500);
-        }
-    };
-
-    private void emitPlayerState() {
-        JSObject o = new JSObject();
-        try {
-            o.put("pos", player != null ? player.getCurrentPosition() : 0);
-            o.put("dur", player != null ? player.getDuration() : 0);
-            o.put("playing", player != null && player.isPlaying());
-        } catch (Exception e) {
-            o.put("pos", 0);
-            o.put("dur", 0);
-            o.put("playing", false);
-        }
-        notifyListeners("playerState", o);
-    }
-
-    private void releasePlayer() {
-        tick.removeCallbacks(ticker);
-        if (player != null) {
+    private List<PlayerService.Item> parseItems(JSArray arr) {
+        List<PlayerService.Item> l = new ArrayList<>();
+        if (arr == null) return l;
+        for (int i = 0; i < arr.length(); i++) {
             try {
-                player.release();
+                org.json.JSONObject o = arr.getJSONObject(i);
+                PlayerService.Item it = new PlayerService.Item();
+                it.uri = o.optString("uri");
+                it.title = o.optString("title");
+                it.artist = o.optString("artist");
+                it.album = o.optString("album");
+                it.dir = o.optString("dir");
+                l.add(it);
             } catch (Exception ignored) {
             }
-            player = null;
         }
+        return l;
     }
 
     @PluginMethod
-    public void playerPlay(PluginCall call) {
-        final String uri = call.getString("uri");
+    public void playerSetQueue(PluginCall call) {
+        final List<PlayerService.Item> l = parseItems(call.getArray("items"));
+        final int idx = call.getInt("index", 0);
+        final boolean play = Boolean.TRUE.equals(call.getBoolean("play", true));
+        final boolean keep = Boolean.TRUE.equals(call.getBoolean("keep", false));
         getActivity().runOnUiThread(() -> {
-            releasePlayer();
-            try {
-                MediaPlayer mp = new MediaPlayer();
-                mp.setAudioAttributes(new AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_MEDIA)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build());
-                mp.setDataSource(getContext(), Uri.parse(uri));
-                mp.setOnCompletionListener(m -> {
-                    emitPlayerState();
-                    notifyListeners("playerEnded", new JSObject());
-                });
-                mp.setOnErrorListener((m, what, extra) -> {
-                    JSObject o = new JSObject();
-                    o.put("message", "Lecture impossible (" + what + "/" + extra + ")");
-                    notifyListeners("playerError", o);
-                    return true;
-                });
-                mp.prepare();
-                mp.start();
-                player = mp;
-                tick.post(ticker);
-                call.resolve();
-            } catch (Exception e) {
-                releasePlayer();
-                call.reject("Fichier illisible : " + e.getMessage());
+            PlayerService s = PlayerService.instance;
+            if (s == null) {
+                if (l.isEmpty()) {
+                    call.resolve();
+                    return;
+                }
+                PlayerService.pendingItems = l;
+                PlayerService.pendingIndex = idx;
+                try {
+                    ContextCompat.startForegroundService(getContext(), new Intent(getContext(), PlayerService.class));
+                    call.resolve();
+                } catch (Exception e) {
+                    call.reject("Lecteur indisponible : " + e.getMessage());
+                }
+                return;
             }
+            s.setQueue(l, idx, play, keep);
+            call.resolve();
         });
     }
 
-    @PluginMethod
-    public void playerPause(PluginCall call) {
+    private interface Cmd {
+        void run(PlayerService s);
+    }
+
+    private void withPlayer(PluginCall call, Cmd c) {
         getActivity().runOnUiThread(() -> {
-            try {
-                if (player != null && player.isPlaying()) player.pause();
-            } catch (Exception ignored) {
-            }
-            emitPlayerState();
+            PlayerService s = PlayerService.instance;
+            if (s != null) c.run(s);
             call.resolve();
         });
     }
 
     @PluginMethod
-    public void playerResume(PluginCall call) {
-        getActivity().runOnUiThread(() -> {
-            try {
-                if (player != null) player.start();
-            } catch (Exception ignored) {
-            }
-            emitPlayerState();
-            call.resolve();
-        });
+    public void playerJump(PluginCall call) {
+        final int idx = call.getInt("index", 0);
+        withPlayer(call, s -> s.jump(idx));
+    }
+
+    @PluginMethod
+    public void playerToggle(PluginCall call) {
+        withPlayer(call, PlayerService::toggle);
+    }
+
+    @PluginMethod
+    public void playerNext(PluginCall call) {
+        withPlayer(call, s -> s.next(false));
+    }
+
+    @PluginMethod
+    public void playerPrev(PluginCall call) {
+        withPlayer(call, PlayerService::prev);
     }
 
     @PluginMethod
     public void playerSeek(PluginCall call) {
         final int ms = call.getInt("ms", 0);
-        getActivity().runOnUiThread(() -> {
-            try {
-                if (player != null) player.seekTo(ms);
-            } catch (Exception ignored) {
-            }
-            emitPlayerState();
-            call.resolve();
-        });
+        withPlayer(call, s -> s.seek(ms));
+    }
+
+    @PluginMethod
+    public void playerSetRepeat(PluginCall call) {
+        final String m = call.getString("mode", "off");
+        withPlayer(call, s -> s.setRepeat(m));
     }
 
     @PluginMethod
     public void playerStop(PluginCall call) {
-        getActivity().runOnUiThread(() -> {
-            releasePlayer();
-            emitPlayerState();
-            call.resolve();
-        });
+        withPlayer(call, PlayerService::stopAll);
+    }
+
+    void emitPlayerState(int index, int pos, int dur, boolean playing, int size) {
+        JSObject o = new JSObject();
+        o.put("index", index);
+        o.put("pos", pos);
+        o.put("dur", dur);
+        o.put("playing", playing);
+        o.put("size", size);
+        notifyListeners("playerState", o);
+    }
+
+    void emitPlayerError(String m) {
+        JSObject o = new JSObject();
+        o.put("message", m);
+        notifyListeners("playerError", o);
     }
 }

@@ -1290,7 +1290,7 @@ async function openAlbum(key){LIBVIEW.key=key;const r=LIB.find(x=>x.key===key);
   renderAlbum();scrollTo(0,0)}
 function closeAlbum(){LIBVIEW.key=null;renderLib();scrollTo(0,0)}
 function playable(t){return t&&(NATIVE?!!t.uri:WEBBLOB.has(t.id))}
-function qItem(r,t){return {id:t.id,title:t.title,artist:t.artist||r.artist,album:r.unsorted?'':r.album,thumb:r.thumb||'',uri:t.uri,key:r.key}}
+function qItem(r,t){return {id:t.id,title:t.title,artist:t.artist&&t.artist!=='Artiste inconnu'?t.artist:(r.unsorted?'':r.artist),album:r.unsorted?'':r.album,thumb:r.thumb||'',uri:t.uri,dir:t.dir||'',key:r.key}}
 function renderAlbum(){
   const r=LIB.find(x=>x.key===LIBVIEW.key);if(!r){closeAlbum();return}
   $('#libListSec').hidden=true;$('#libDetail').hidden=false;
@@ -1414,51 +1414,67 @@ function buildOrder(keepCur){
   if(PL.shuffle){shuffleArr(idx);if(cur!=null){idx.splice(idx.indexOf(cur),1);idx.unshift(cur)}}
   PL.order=idx;PL.pos=cur!=null?PL.order.indexOf(cur):PL.pos;
 }
-async function engPlay(it){
-  if(NATIVE?.playerPlay){await NATIVE.playerPlay({uri:it.uri})}
-  else{webAudio.src=WEBBLOB.get(it.id);await webAudio.play()}
-}
-const engPause=()=>NATIVE?.playerPause?NATIVE.playerPause():webAudio.pause();
-const engResume=()=>NATIVE?.playerResume?NATIVE.playerResume():webAudio.play();
-const engSeek=s=>NATIVE?.playerSeek?NATIVE.playerSeek({ms:Math.round(s*1000)}):(webAudio.currentTime=s);
-const engStop=()=>NATIVE?.playerStop?NATIVE.playerStop():(webAudio.pause(),webAudio.removeAttribute('src'));
+/* Moteur : sur Android, la file est confiée au service de lecture (arrière-plan, Bluetooth, voiture) ;
+   sur le web, un simple élément audio. */
+const NATQ=!!NATIVE?.playerSetQueue;
+const qPayload=()=>PL.order.map(i=>{const it=PL.q[i];return {uri:it.uri,title:it.title,artist:it.artist||'',album:it.album||'',dir:it.dir||''}});
+function syncNative(play,keep){return NATIVE.playerSetQueue({items:qPayload(),index:Math.max(0,PL.pos),play,keep}).catch(e=>toast(e.message||'Lecteur indisponible'))}
+async function webPlay(it){webAudio.src=WEBBLOB.get(it.id);await webAudio.play()}
 async function playPos(p){
-  if(p<0||p>=PL.order.length)return;PL.pos=p;PL.t=0;PL.dur=0;const it=curItem();updPlayer();
-  try{await engPlay(it);PL.playing=true}catch(e){PL.playing=false;toast('Lecture impossible : '+(e.message||e));if(PL.pos<PL.order.length-1)return setTimeout(()=>next(true),800)}
+  if(p<0||p>=PL.order.length)return;PL.pos=p;PL.t=0;PL.dur=0;updPlayer();
+  if(NATQ){await NATIVE.playerJump({index:p});PL.playing=true;updPlayer();return}
+  try{await webPlay(curItem());PL.playing=true}catch(e){PL.playing=false;toast('Lecture impossible : '+(e.message||e));if(PL.pos<PL.order.length-1)return setTimeout(()=>next(true),800)}
   updPlayer();
 }
 function playItems(items,start,shuffle){
   if(!items.length)return;PL.q=items.slice();PL.shuffle=!!shuffle;PL.order=PL.q.map((_,i)=>i);
   if(PL.shuffle){shuffleArr(PL.order);PL.pos=0}else PL.pos=Math.min(start||0,PL.q.length-1);
+  PL.t=0;PL.dur=0;PL.playing=true;updPlayer();
+  if(NATQ){syncNative(true,false);NATIVE.playerSetRepeat({mode:PL.repeat}).catch(()=>{});return}
   playPos(PL.pos);
 }
 function addItems(items){
   const empty=!PL.q.length;
   for(const it of items){PL.q.push(it);const i=PL.q.length-1;if(PL.shuffle&&PL.pos>=0){const at=PL.pos+1+Math.floor(Math.random()*(PL.order.length-PL.pos));PL.order.splice(at,0,i)}else PL.order.push(i)}
-  if(empty)playPos(0);else updPlayer();
+  if(empty){PL.pos=0;if(NATQ){PL.playing=true;syncNative(true,false)}else playPos(0)}
+  else if(NATQ)syncNative(false,true);
+  updPlayer();
 }
 function next(auto){
+  if(NATQ)return NATIVE.playerNext();
   if(PL.repeat==='one'&&auto)return playPos(PL.pos);
   if(PL.pos+1<PL.order.length)return playPos(PL.pos+1);
   if(PL.repeat==='all'&&PL.order.length){if(PL.shuffle)shuffleArr(PL.order);return playPos(0)}
   if(auto){PL.playing=false;updPlayer()}
 }
-function prev(){if(PL.t>3||PL.pos<=0){engSeek(0);PL.t=0;updPlayer();return}playPos(PL.pos-1)}
-async function togglePlay(){if(!curItem())return;if(PL.playing){await engPause();PL.playing=false}else{await engResume();PL.playing=true}updPlayer()}
-function setShuffle(on){PL.shuffle=on;buildOrder(true);updPlayer()}
-function cycleRepeat(){PL.repeat={off:'all',all:'one',one:'off'}[PL.repeat];updPlayer()}
+function prev(){
+  if(NATQ)return NATIVE.playerPrev();
+  if(PL.t>3||PL.pos<=0){webAudio.currentTime=0;PL.t=0;updPlayer();return}playPos(PL.pos-1)}
+async function togglePlay(){
+  if(!curItem())return;
+  if(NATQ){await NATIVE.playerToggle();return}
+  if(PL.playing){webAudio.pause();PL.playing=false}else{await webAudio.play();PL.playing=true}updPlayer()}
+const engSeek=s=>NATQ?NATIVE.playerSeek({ms:Math.round(s*1000)}):(webAudio.currentTime=s);
+function setShuffle(on){PL.shuffle=on;buildOrder(true);if(NATQ)syncNative(PL.playing,true);updPlayer()}
+function cycleRepeat(){PL.repeat={off:'all',all:'one',one:'off'}[PL.repeat];if(NATQ)NATIVE.playerSetRepeat({mode:PL.repeat}).catch(()=>{});updPlayer()}
 function removeQ(op){const qi=PL.order[op];const wasCur=op===PL.pos;
   PL.q.splice(qi,1);PL.order.splice(op,1);PL.order=PL.order.map(i=>i>qi?i-1:i);
   if(op<PL.pos)PL.pos--;
   if(!PL.q.length){clearQ();return}
-  if(wasCur){if(PL.pos>=PL.order.length)PL.pos=PL.order.length-1;playPos(PL.pos)}else updPlayer()}
-function moveQ(op,d){const np=op+d;if(np<=PL.pos||np>=PL.order.length||op<=PL.pos)return;[PL.order[op],PL.order[np]]=[PL.order[np],PL.order[op]];updPlayer()}
-function clearQ(){engStop();PL.q=[];PL.order=[];PL.pos=-1;PL.playing=false;PL.t=0;PL.dur=0;$('#qPanel').hidden=true;updPlayer()}
-/* événements du moteur de lecture */
+  if(PL.pos>=PL.order.length)PL.pos=PL.order.length-1;
+  if(NATQ){syncNative(true,!wasCur);updPlayer();return}
+  if(wasCur)playPos(PL.pos);else updPlayer()}
+function moveQ(op,d){const np=op+d;if(np<=PL.pos||np>=PL.order.length||op<=PL.pos)return;[PL.order[op],PL.order[np]]=[PL.order[np],PL.order[op]];if(NATQ)syncNative(PL.playing,true);updPlayer()}
+function clearQ(){if(NATQ)NATIVE.playerStop().catch(()=>{});else{webAudio.pause();webAudio.removeAttribute('src')}
+  PL.q=[];PL.order=[];PL.pos=-1;PL.playing=false;PL.t=0;PL.dur=0;$('#qPanel').hidden=true;updPlayer()}
+/* état envoyé par le service (y compris quand la voiture change de morceau) */
 if(NATIVE?.addListener){
-  NATIVE.addListener('playerState',e=>{PL.t=(e.pos||0)/1000;PL.dur=(e.dur||0)/1000;PL.playing=!!e.playing;updProgress()});
-  NATIVE.addListener('playerEnded',()=>next(true));
-  NATIVE.addListener('playerError',e=>{toast(e.message||'Lecture impossible');next(true)});
+  NATIVE.addListener('playerState',e=>{
+    if(!PL.q.length)return;
+    if(e.size===0||e.index<0){if(PL.q.length&&!e.playing&&e.size===0){PL.q=[];PL.order=[];PL.pos=-1;PL.playing=false;updPlayer()}return}
+    const changed=e.index!==PL.pos;PL.pos=e.index;PL.t=(e.pos||0)/1000;PL.dur=(e.dur||0)/1000;PL.playing=!!e.playing;
+    if(changed)updPlayer();else updProgress()});
+  NATIVE.addListener('playerError',e=>toast(e.message||'Lecture impossible'));
 }
 webAudio.addEventListener('timeupdate',()=>{PL.t=webAudio.currentTime;PL.dur=webAudio.duration||0;updProgress()});
 webAudio.addEventListener('ended',()=>next(true));

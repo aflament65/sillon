@@ -23,13 +23,14 @@ grep -q "const APP_BUILD=${RUN};" www/index.html
 npx cap add android
 JAVA_DIR=android/app/src/main/java/fr/aflament/sillon
 test -d "$JAVA_DIR"
-cp android-src/MainActivity.java android-src/SillonPlugin.java android-src/CaptureService.java "$JAVA_DIR/"
+cp android-src/MainActivity.java android-src/SillonPlugin.java android-src/CaptureService.java android-src/PlayerService.java "$JAVA_DIR/"
 
 # Permissions : micro (et réglages audio pour la carte son USB)
 MAN=android/app/src/main/AndroidManifest.xml
-sed -i 's#<application#<uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />\n    <uses-permission android:name="android.permission.CAMERA" />\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />\n\n    <application#' "$MAN"
+sed -i 's#<application#<uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />\n    <uses-permission android:name="android.permission.CAMERA" />\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />\n    <uses-permission android:name="android.permission.WAKE_LOCK" />\n\n    <application#' "$MAN"
 # Service de capture du son du téléphone
-sed -i 's#</application>#    <service android:name=".CaptureService" android:exported="false" android:foregroundServiceType="mediaProjection" />\n    </application>#' "$MAN"
+sed -i 's#</application>#    <service android:name=".CaptureService" android:exported="false" android:foregroundServiceType="mediaProjection" />\n        <service android:name=".PlayerService" android:exported="false" android:foregroundServiceType="mediaPlayback" />\n    </application>#' "$MAN"
+grep -q 'android:name=".PlayerService"' "$MAN"
 grep -q 'android:name=".CaptureService"' "$MAN"
 grep -q FOREGROUND_SERVICE_MEDIA_PROJECTION "$MAN"
 grep -q RECORD_AUDIO "$MAN"
@@ -37,7 +38,7 @@ grep -q permission.CAMERA "$MAN"
 
 # Accès aux dossiers choisis + numéro de version
 GR=android/app/build.gradle
-sed -i '0,/^dependencies {/s//dependencies {\n    implementation "androidx.documentfile:documentfile:1.1.0"\n    implementation "com.google.android.gms:play-services-code-scanner:16.1.0"/' "$GR"
+sed -i '0,/^dependencies {/s//dependencies {\n    implementation "androidx.documentfile:documentfile:1.1.0"\n    implementation "com.google.android.gms:play-services-code-scanner:16.1.0"\n    implementation "androidx.media:media:1.7.0"/' "$GR"
 sed -i -E "s/versionCode [0-9]+/versionCode ${RUN}/; s/versionName \"[^\"]*\"/versionName \"1.${RUN}\"/" "$GR"
 grep -q documentfile "$GR"
 grep -q code-scanner "$GR"
