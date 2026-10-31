@@ -25,6 +25,14 @@ JAVA_DIR=android/app/src/main/java/fr/aflament/sillon
 test -d "$JAVA_DIR"
 cp android-src/MainActivity.java android-src/SillonPlugin.java android-src/CaptureService.java android-src/PlayerService.java android-src/NowPlayingListener.java "$JAVA_DIR/"
 
+# Icône et écran de démarrage Sillon (remplacent ceux de Capacitor)
+RES=android/app/src/main/res
+find "$RES" -name 'splash.png' -delete
+rm -f "$RES"/mipmap-anydpi-v26/ic_launcher*.xml
+cp -r android-src/icon/res/. "$RES/"
+test -f "$RES/mipmap-xxxhdpi/ic_launcher_foreground.png"
+test -z "$(find "$RES" -name 'splash.png')"
+
 # Permissions : micro (et réglages audio pour la carte son USB)
 MAN=android/app/src/main/AndroidManifest.xml
 sed -i 's#<application#<uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />\n    <uses-permission android:name="android.permission.CAMERA" />\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />\n    <uses-permission android:name="android.permission.WAKE_LOCK" />\n    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />\n\n    <application#' "$MAN"
