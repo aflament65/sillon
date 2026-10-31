@@ -332,6 +332,16 @@ public class SillonPlugin extends Plugin {
         notifyListeners("pcm", o);
     }
 
+    void emitCaptureInfo(long bytes, int peak, String players, int recState, int rate) {
+        JSObject o = new JSObject();
+        o.put("bytes", bytes);
+        o.put("peak", peak);
+        o.put("players", players);
+        o.put("recording", recState == android.media.AudioRecord.RECORDSTATE_RECORDING);
+        o.put("rate", rate);
+        notifyListeners("captureInfo", o);
+    }
+
     void emitCaptureArmed() {
         notifyListeners("captureArmed", new JSObject());
     }

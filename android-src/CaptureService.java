@@ -13,7 +13,9 @@ import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.media.AudioAttributes;
 import android.media.AudioFormat;
+import android.media.AudioManager;
 import android.media.AudioPlaybackCaptureConfiguration;
+import android.media.AudioPlaybackConfiguration;
 import android.media.AudioRecord;
 import android.media.projection.MediaProjection;
 import android.media.projection.MediaProjectionManager;
@@ -160,12 +162,27 @@ public class CaptureService extends Service {
         startedAt = System.currentTimeMillis();
         reader = new Thread(() -> {
             byte[] buf = new byte[BLOCK];
+            long bytes = 0, lastInfo = 0;
+            int peak = 0;
             while (running) {
                 int got = rec.read(buf, 0, buf.length);
                 if (got > 0) {
+                    bytes += got;
+                    for (int k = 0; k + 1 < got; k += 2) {
+                        int v = Math.abs((short) ((buf[k] & 0xff) | (buf[k + 1] << 8)));
+                        if (v > peak) peak = v;
+                    }
                     SillonPlugin p = SillonPlugin.instance;
                     if (p != null) p.emitPcm(buf, got);
+                    long now = System.currentTimeMillis();
+                    if (now - lastInfo > 1000) {
+                        lastInfo = now;
+                        if (p != null) p.emitCaptureInfo(bytes, peak, playersInfo(), rec.getRecordingState(), rec.getSampleRate());
+                        peak = 0;
+                    }
                 } else if (got < 0) {
+                    SillonPlugin p = SillonPlugin.instance;
+                    if (p != null) p.emitCaptureInfo(bytes, -1, "erreur de lecture " + got, rec.getRecordingState(), rec.getSampleRate());
                     break;
                 }
             }
@@ -279,6 +296,26 @@ public class CaptureService extends Service {
             }
         }
         bubble = null;
+    }
+
+    /** Lecteurs audio actifs vus par Android (type d'usage), pour le diagnostic. */
+    private String playersInfo() {
+        try {
+            AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
+            StringBuilder sb = new StringBuilder();
+            int n = 0;
+            for (AudioPlaybackConfiguration c : am.getActivePlaybackConfigurations()) {
+                n++;
+                int u = c.getAudioAttributes().getUsage();
+                String name = u == AudioAttributes.USAGE_MEDIA ? "média" : u == AudioAttributes.USAGE_GAME ? "jeu" : u == AudioAttributes.USAGE_UNKNOWN ? "inconnu"
+                        : u == AudioAttributes.USAGE_NOTIFICATION ? "notification" : u == AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE ? "GPS" : ("usage " + u);
+                if (sb.length() > 0) sb.append(", ");
+                sb.append(name);
+            }
+            return n + " lecteur" + (n > 1 ? "s" : "") + (n > 0 ? " (" + sb + ")" : "");
+        } catch (Exception e) {
+            return "lecteurs inconnus";
+        }
     }
 
     private void fail(String msg) {

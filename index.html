@@ -257,6 +257,7 @@ body.withMini main{padding-bottom:110px}
   <p class="hint" id="telHint" hidden>Sillon enregistre ce que joue le téléphone, en numérique, sans câble. Touche « Enregistrer », accepte l'avertissement d'Android, puis lance la lecture dans l'autre appli et reviens ici. Le volume du téléphone n'a pas d'effet. Les applis de streaming qui interdisent la capture (souvent YouTube, Spotify, Netflix) donnent du silence.</p>
   <div class="row" id="npRow" hidden><span class="hint grow" id="npState"></span><button id="npBtn">Activer</button></div>
   <p class="hint" id="npNow" hidden></p>
+  <p class="hint mono" id="capDiag" hidden></p>
   <div class="row" id="bubbleRow" hidden><button id="bubbleBtn" class="main">Bouton flottant</button><span class="hint grow">Démarre et arrête l'enregistrement depuis l'appli source, sans revenir ici.</span></div>
   <label id="devRow">Entrée audio<select id="dev"><option value="">Entrée par défaut</option></select></label>
   <div class="row" style="justify-content:space-between">
@@ -983,7 +984,7 @@ async function recStarted(msg){
   NATIVE?.keepAwake({on:true}).catch(()=>{});
 }
 /* Son du téléphone : flux PCM 16 bits stéréo envoyé par le module Android par blocs de 100 ms */
-let telSubs=[];
+let telSubs=[];const TELN={blocks:0};
 function telBlock(b64){
   const raw=atob(b64),n=raw.length>>2,L=new Float32Array(n),R=new Float32Array(n);
   for(let k=0,j=0;k<n;k++,j+=4){let l=raw.charCodeAt(j)|raw.charCodeAt(j+1)<<8,r=raw.charCodeAt(j+2)|raw.charCodeAt(j+3)<<8;
@@ -993,9 +994,13 @@ function telBlock(b64){
 async function telCleanup(){for(const h of telSubs)try{await h.remove()}catch(e){}telSubs=[]}
 function bubbleIdle(){S.armed=false;$('#bubbleBtn').textContent='Bouton flottant'}
 async function startTel(bubble){
+  TELN.blocks=0;$('#capDiag').hidden=true;
   stopPlay(); clearAudio(); hideEdit(); lvlReset(); REC.liveMed=-40; REC.last=0;
   await telCleanup();
-  telSubs.push(await NATIVE.addListener('pcm',e=>telBlock(e.data)));
+  telSubs.push(await NATIVE.addListener('pcm',e=>{TELN.blocks++;telBlock(e.data)}));
+  telSubs.push(await NATIVE.addListener('captureInfo',e=>{const d=$('#capDiag');d.hidden=false;
+    const pk=e.peak<0?'erreur':e.peak?Math.round(20*Math.log10(e.peak/32768))+' dB':'silence (0)';
+    d.textContent=`Diagnostic : Android voit ${e.players} · capture ${e.recording?'active':'arrêtée'} à ${e.rate} Hz · ${Math.round(e.bytes/1024)} Ko reçus · niveau brut ${pk} · ${TELN.blocks} blocs reçus par l'app`}));
   telSubs.push(await NATIVE.addListener('captureArmed',()=>{S.armed=true;$('#bubbleBtn').textContent='Retirer le bouton flottant';
     $('#recHint').textContent='Bouton flottant prêt. Passe dans l\'appli source, touche le bouton rond pour démarrer, lance la lecture, puis retouche-le pour arrêter : Sillon reviendra tout seul.'}));
   telSubs.push(await NATIVE.addListener('captureStarted',()=>{if(bubble&&!S.recording){const keepNp=NP_LAST?[{...NP_LAST,t:0}]:[];clearAudio();S.np=keepNp;lvlReset();REC.liveMed=-40;REC.last=0;
