@@ -1005,11 +1005,19 @@ async function startTel(bubble){
   catch(e){await telCleanup();bubbleIdle();$('#recHint').textContent=e?.code==='DENIED'?'Capture refusée. Pour enregistrer le son du téléphone, accepte l\'avertissement d\'Android (et l\'accès au micro).':e?.code==='UNSUPPORTED'?e.message+'.':'Capture impossible : '+(e?.message||e)+'.';return}
   if(!bubble)recStarted('Enregistrement du son du téléphone… Lance la lecture dans l\'autre appli. Si le vumètre reste vide, cette appli interdit la capture. Reviens ici pour arrêter.');
 }
+/* retour des réglages Android : on lance le bouton flottant si Sillon a reçu l'autorisation */
+document.addEventListener('visibilitychange',async()=>{
+  if(document.hidden||!S.wantBubble||S.mode!=='tel')return;S.wantBubble=false;
+  try{const r=await NATIVE.canDrawOverlays();
+    if(r.granted)startTel(true);
+    else $('#recHint').textContent='Sillon n\'a pas encore l\'autorisation. Retouche « Bouton flottant » et, dans la liste, active « Afficher par-dessus d\'autres applis » pour Sillon (pas pour l\'appli source).';
+  }catch(e){}
+});
 $('#bubbleBtn').onclick=async()=>{
   if(S.recording)return;
   if(S.armed){NATIVE.stopCapture().catch(()=>{});return}
   try{const r=await NATIVE.canDrawOverlays();
-    if(!r.granted){$('#recHint').textContent='Autorise Sillon à « Afficher par-dessus les autres applis » dans la page qui s\'ouvre, puis reviens ici et retouche « Bouton flottant ».';await NATIVE.openOverlaySettings();return}
+    if(!r.granted){S.wantBubble=true;$('#recHint').textContent='Dans la page qui s\'ouvre, choisis « Sillon » dans la liste (pas l\'appli source) et active « Afficher par-dessus d\'autres applis ». Reviens ensuite ici : le bouton flottant se lancera tout seul.';await NATIVE.openOverlaySettings();return}
   }catch(e){}
   startTel(true);
 };
