@@ -6,7 +6,12 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.UriPermission;
+import android.media.AudioAttributes;
+import android.media.MediaPlayer;
 import android.media.projection.MediaProjectionManager;
+import android.os.Handler;
+import android.os.Looper;
+import android.provider.DocumentsContract;
 import android.net.Uri;
 import android.os.Build;
 import android.util.Base64;
@@ -16,6 +21,7 @@ import androidx.activity.result.ActivityResult;
 import androidx.core.content.ContextCompat;
 import androidx.documentfile.provider.DocumentFile;
 
+import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.PermissionState;
 import com.getcapacitor.Plugin;
@@ -29,6 +35,7 @@ import com.google.mlkit.vision.barcode.common.Barcode;
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions;
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning;
 
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.HashMap;
 import java.util.Map;
@@ -297,5 +304,213 @@ public class SillonPlugin extends Plugin {
         JSObject o = new JSObject();
         o.put("reason", reason);
         notifyListeners("captureStopped", o);
+    }
+
+    /* ---------- Fichiers : liste d'un dossier, lecture par blocs, suppression ---------- */
+
+    /** Dossier existant "a/b" sous le dossier choisi, sans le créer. */
+    private DocumentFile findDir(Uri root, String rel) {
+        DocumentFile d = DocumentFile.fromTreeUri(getContext(), root);
+        if (rel == null || rel.isEmpty()) return d;
+        for (String part : rel.split("/")) {
+            if (d == null) return null;
+            DocumentFile c = d.findFile(part);
+            if (c == null || !c.isDirectory()) return null;
+            d = c;
+        }
+        return d;
+    }
+
+    @PluginMethod
+    public void listDir(PluginCall call) {
+        final String path = call.getString("path", "");
+        final Uri root = savedFolder();
+        if (root == null) {
+            call.reject("Choisis d'abord un dossier de sauvegarde");
+            return;
+        }
+        new Thread(() -> {
+            JSArray arr = new JSArray();
+            DocumentFile d = findDir(root, path);
+            if (d != null) {
+                for (DocumentFile f : d.listFiles()) {
+                    if (!f.isFile()) continue;
+                    JSObject o = new JSObject();
+                    o.put("name", f.getName());
+                    o.put("uri", f.getUri().toString());
+                    o.put("size", f.length());
+                    arr.put(o);
+                }
+            }
+            JSObject res = new JSObject();
+            res.put("exists", d != null);
+            res.put("files", arr);
+            call.resolve(res);
+        }).start();
+    }
+
+    @PluginMethod
+    public void readFile(PluginCall call) {
+        final String uri = call.getString("uri");
+        final long offset = call.getLong("offset", 0L);
+        final int length = call.getInt("length", 786432);
+        if (uri == null) {
+            call.reject("Fichier manquant");
+            return;
+        }
+        new Thread(() -> {
+            try (InputStream in = getContext().getContentResolver().openInputStream(Uri.parse(uri))) {
+                if (in == null) throw new Exception("Lecture refusée");
+                long skipped = 0;
+                while (skipped < offset) {
+                    long k = in.skip(offset - skipped);
+                    if (k <= 0) break;
+                    skipped += k;
+                }
+                byte[] buf = new byte[length];
+                int got = 0;
+                while (got < length) {
+                    int k = in.read(buf, got, length - got);
+                    if (k < 0) break;
+                    got += k;
+                }
+                JSObject o = new JSObject();
+                o.put("data", Base64.encodeToString(buf, 0, got, Base64.NO_WRAP));
+                o.put("eof", got < length);
+                call.resolve(o);
+            } catch (Exception e) {
+                call.reject(e.getMessage() != null ? e.getMessage() : "Lecture impossible");
+            }
+        }).start();
+    }
+
+    @PluginMethod
+    public void deleteFile(PluginCall call) {
+        String uri = call.getString("uri");
+        try {
+            boolean ok = DocumentsContract.deleteDocument(getContext().getContentResolver(), Uri.parse(uri));
+            fileCache.values().remove(Uri.parse(uri));
+            JSObject o = new JSObject();
+            o.put("deleted", ok);
+            call.resolve(o);
+        } catch (Exception e) {
+            call.reject(e.getMessage() != null ? e.getMessage() : "Suppression impossible");
+        }
+    }
+
+    /* ---------- Lecteur audio ---------- */
+
+    private MediaPlayer player;
+    private final Handler tick = new Handler(Looper.getMainLooper());
+    private final Runnable ticker = new Runnable() {
+        @Override
+        public void run() {
+            emitPlayerState();
+            if (player != null) tick.postDelayed(this, 500);
+        }
+    };
+
+    private void emitPlayerState() {
+        JSObject o = new JSObject();
+        try {
+            o.put("pos", player != null ? player.getCurrentPosition() : 0);
+            o.put("dur", player != null ? player.getDuration() : 0);
+            o.put("playing", player != null && player.isPlaying());
+        } catch (Exception e) {
+            o.put("pos", 0);
+            o.put("dur", 0);
+            o.put("playing", false);
+        }
+        notifyListeners("playerState", o);
+    }
+
+    private void releasePlayer() {
+        tick.removeCallbacks(ticker);
+        if (player != null) {
+            try {
+                player.release();
+            } catch (Exception ignored) {
+            }
+            player = null;
+        }
+    }
+
+    @PluginMethod
+    public void playerPlay(PluginCall call) {
+        final String uri = call.getString("uri");
+        getActivity().runOnUiThread(() -> {
+            releasePlayer();
+            try {
+                MediaPlayer mp = new MediaPlayer();
+                mp.setAudioAttributes(new AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build());
+                mp.setDataSource(getContext(), Uri.parse(uri));
+                mp.setOnCompletionListener(m -> {
+                    emitPlayerState();
+                    notifyListeners("playerEnded", new JSObject());
+                });
+                mp.setOnErrorListener((m, what, extra) -> {
+                    JSObject o = new JSObject();
+                    o.put("message", "Lecture impossible (" + what + "/" + extra + ")");
+                    notifyListeners("playerError", o);
+                    return true;
+                });
+                mp.prepare();
+                mp.start();
+                player = mp;
+                tick.post(ticker);
+                call.resolve();
+            } catch (Exception e) {
+                releasePlayer();
+                call.reject("Fichier illisible : " + e.getMessage());
+            }
+        });
+    }
+
+    @PluginMethod
+    public void playerPause(PluginCall call) {
+        getActivity().runOnUiThread(() -> {
+            try {
+                if (player != null && player.isPlaying()) player.pause();
+            } catch (Exception ignored) {
+            }
+            emitPlayerState();
+            call.resolve();
+        });
+    }
+
+    @PluginMethod
+    public void playerResume(PluginCall call) {
+        getActivity().runOnUiThread(() -> {
+            try {
+                if (player != null) player.start();
+            } catch (Exception ignored) {
+            }
+            emitPlayerState();
+            call.resolve();
+        });
+    }
+
+    @PluginMethod
+    public void playerSeek(PluginCall call) {
+        final int ms = call.getInt("ms", 0);
+        getActivity().runOnUiThread(() -> {
+            try {
+                if (player != null) player.seekTo(ms);
+            } catch (Exception ignored) {
+            }
+            emitPlayerState();
+            call.resolve();
+        });
+    }
+
+    @PluginMethod
+    public void playerStop(PluginCall call) {
+        getActivity().runOnUiThread(() -> {
+            releasePlayer();
+            emitPlayerState();
+            call.resolve();
+        });
     }
 }
