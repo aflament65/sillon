@@ -106,5 +106,40 @@ await p.evaluate(()=>writeNative('Wolfmother/Rock n Roll Baby (2019)/bonus.mp3',
 await p.evaluate(async()=>{await libLoad();const r=LIB.find(r=>r.album==='Rock n Roll Baby');r.tracks=r.tracks.filter(t=>!/bonus/.test(t.file));await libPut(r);await libLoad();await deleteAlbum(LIB.find(r=>r.album==='Rock n Roll Baby'))});
 s=await st();ok(!s.albums.some(a=>a.album==='Rock n Roll Baby'),'album retiré');ok(s.files.includes('Wolfmother/Rock n Roll Baby (2019)/bonus.mp3'),'le fichier qui n\'appartient pas à l\'album est conservé');
 ok(s.files.filter(x=>x.startsWith('Wolfmother/')&&x.endsWith('.mp3')).length===1,'seuls les MP3 de l\'album ont été effacés');
+
+console.log('11. Sélection multiple : ranger 3 morceaux non classés d\'un coup');
+await p.evaluate(async()=>{const r={key:UNSORTED_KEY,artist:'',album:'Morceaux non classés',unsorted:true,dir:'Divers',sources:{tel:1},tracks:[]};
+  for(const [i,title] of ['Joker and the Thief','Woman','Mind\'s Eye','Autre chose'].entries()){const file=fileNameOf({no:i+1,title});const uri=await writeNative('Divers/'+file,new Blob([new Uint8Array(800)],{type:'audio/mpeg'}));
+    r.tracks.push({id:'u'+i,no:0,title,artist:'Wolfmother',dur:100,dir:'Divers',file,uri,source:'tel'})}
+  await libPut(r);await libPut({key:albumKey('Wolfmother','Wolfmother'),artist:'Wolfmother',album:'Wolfmother',year:'2005',dir:'Wolfmother/Wolfmother (2005)',sources:{vinyle:1},
+    tracklist:[{no:1,title:'Dimension'},{no:2,title:'White Unicorn'},{no:3,title:'Woman'},{no:4,title:'Where Eagles Have Been'},{no:5,title:'Apple Tree'},{no:6,title:'Joker and the Thief'},{no:7,title:'Colossal'},{no:8,title:'Mind\'s Eye'}],tracks:[]});await libLoad()});
+await openA('Morceaux non classés');await p.click('#albSelBtn');
+for(const t of ['Joker','Woman','Mind'])await p.locator('.atrk',{hasText:t}).first().click();
+ok((await p.locator('#albSel b').innerText()).startsWith('3 sélectionnés'),'3 sélectionnés');
+await p.click('#albSel .sm');await p.fill('#albSel .db','wolfmother');await p.locator('#albSel .db').dispatchEvent('change');
+ok((await p.locator('#albSel .dest').innerText()).includes('album existant'),'annonce l\'album existant (casse ignorée)');
+await p.click('#albSel .go');await p.waitForFunction(()=>document.querySelector('#albSel').hidden,null,{timeout:8000});
+s=await st();const wm=s.albums.find(a=>a.album==='Wolfmother');
+ok(wm&&wm.tracks.map(t=>t.no+':'+t.title).join()==="3:Woman,6:Joker and the Thief,8:Mind's Eye",'numéros pris dans la liste officielle : '+wm?.tracks.map(t=>t.no).join());
+ok(s.albums.find(a=>a.album==='Morceaux non classés')?.tracks.length===1,'le 4e reste non classé');
+ok(wm.tracks.every(t=>t.path.startsWith('Wolfmother/Wolfmother (2005)/')),'fichiers dans le dossier de l\'album');ok(consistent(s),'cohérent');
+
+console.log('12. Avant conversion : 2 albums enregistrés à la suite');
+await p.evaluate(()=>{showView(false);S.mode='tel';S.bounds=[0,60,120,180,240,300,360];S.titles=['Woman','Colossal','Piste 3','Paranoid','Iron Man','Pub'];S.labels=['1','2','3','4','5','6'];S.segMeta=[{},{},{},{},{},{}];S.all=[];$('#s3').hidden=false;renderTracks()});
+const pk=i=>p.locator('#tracks .trk').nth(i).locator('.pk');
+await pk(0).check();await pk(2).check();await p.click('#sortBar .rg');
+ok(await p.evaluate(()=>S.segMeta.slice(0,3).every(m=>m.pick)&&!S.segMeta[3].pick),'« Entre les deux » coche les pistes 1 à 3');
+await p.fill('#sortBar .db','Wolfmother');await p.locator('#sortBar .db').dispatchEvent('change');
+ok(await p.inputValue('#sortBar .da')==='Wolfmother','artiste complété tout seul depuis la discothèque');
+await p.click('#sortBar .ap');
+await pk(3).check();await pk(4).check();await p.fill('#sortBar .da','Black Sabbath');await p.fill('#sortBar .db','Paranoid');await p.locator('#sortBar .db').dispatchEvent('input');
+ok((await p.locator('#sortBar .dest').innerText()).includes('2 morceaux')&&(await p.locator('#sortBar .dest').innerText()).includes('sera créé'),'annonce un nouvel album de 2 morceaux');
+await p.click('#sortBar .ap');
+const fm=await p.evaluate(()=>S.titles.map((t,i)=>{const f=freeMetaFor(i);return t+'|'+f.ar+'|'+f.al+'|'+f.no}));
+ok(fm[0]==='Woman|Wolfmother|Wolfmother|3'&&fm[1]==='Colossal|Wolfmother|Wolfmother|7','numéros d\'après la liste de l\'album : '+fm.slice(0,3).join(' ; '));
+ok(fm[3]==='Paranoid|Black Sabbath|Paranoid|1'&&fm[4]==='Iron Man|Black Sabbath|Paranoid|2','nouvel album numéroté dans l\'ordre');
+ok(fm[5].endsWith('||0'),'la piste non cochée reste non classée');
+ok((await p.locator('#sortBar .sum').innerText()).includes('Black Sabbath — Paranoid')&&(await p.locator('#sortBar .sum').innerText()).includes('Wolfmother — Wolfmother'),'résumé du rangement prévu');
+await p.locator('#s3').screenshot({path:'/tmp/claude-0/s/sort.png'});
 ok(!errs.length,'aucune erreur JavaScript '+errs.join(' | '));
 await b.close();console.log(fails?`\n${fails} ÉCHEC(S)`:'\nTout est bon');process.exit(fails?1:0)})();
