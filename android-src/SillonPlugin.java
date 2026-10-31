@@ -8,6 +8,7 @@ import android.content.SharedPreferences;
 import android.content.UriPermission;
 import android.media.projection.MediaProjectionManager;
 import android.provider.DocumentsContract;
+import android.provider.Settings;
 import android.net.Uri;
 import android.os.Build;
 import android.util.Base64;
@@ -240,8 +241,30 @@ public class SillonPlugin extends Plugin {
 
     /* ---------- Capture du son joué par le téléphone (Android 10+) ---------- */
 
+    private boolean captureBubble = false;
+
+    @PluginMethod
+    public void canDrawOverlays(PluginCall call) {
+        JSObject o = new JSObject();
+        o.put("granted", Build.VERSION.SDK_INT < 23 || Settings.canDrawOverlays(getContext()));
+        call.resolve(o);
+    }
+
+    @PluginMethod
+    public void openOverlaySettings(PluginCall call) {
+        try {
+            Intent i = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + getContext().getPackageName()));
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getActivity().startActivity(i);
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("Réglage introuvable : " + e.getMessage());
+        }
+    }
+
     @PluginMethod
     public void startCapture(PluginCall call) {
+        captureBubble = Boolean.TRUE.equals(call.getBoolean("bubble", false));
         if (Build.VERSION.SDK_INT < 29) {
             call.reject("Il faut Android 10 ou plus pour enregistrer le son du téléphone", "UNSUPPORTED");
             return;
@@ -274,6 +297,7 @@ public class SillonPlugin extends Plugin {
         Intent i = new Intent(getContext(), CaptureService.class);
         i.putExtra("code", result.getResultCode());
         i.putExtra("data", result.getData());
+        i.putExtra("bubble", captureBubble);
         try {
             ContextCompat.startForegroundService(getContext(), i);
             call.resolve();
@@ -292,6 +316,10 @@ public class SillonPlugin extends Plugin {
         JSObject o = new JSObject();
         o.put("data", Base64.encodeToString(buf, 0, len, Base64.NO_WRAP));
         notifyListeners("pcm", o);
+    }
+
+    void emitCaptureArmed() {
+        notifyListeners("captureArmed", new JSObject());
     }
 
     void emitCaptureStarted() {

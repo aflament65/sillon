@@ -255,6 +255,7 @@ body.withMini main{padding-bottom:110px}
 <section id="s2">
   <h2><span class="n">02</span>Enregistrement <span id="recSide" class="tag" hidden></span></h2>
   <p class="hint" id="telHint" hidden>Sillon enregistre ce que joue le téléphone, en numérique, sans câble. Touche « Enregistrer », accepte l'avertissement d'Android, puis lance la lecture dans l'autre appli et reviens ici. Le volume du téléphone n'a pas d'effet. Les applis de streaming qui interdisent la capture (souvent YouTube, Spotify, Netflix) donnent du silence.</p>
+  <div class="row" id="bubbleRow" hidden><button id="bubbleBtn" class="main">Bouton flottant</button><span class="hint grow">Démarre et arrête l'enregistrement depuis l'appli source, sans revenir ici.</span></div>
   <label id="devRow">Entrée audio<select id="dev"><option value="">Entrée par défaut</option></select></label>
   <div class="row" style="justify-content:space-between">
     <span class="clock mono" id="clock">0:00</span>
@@ -987,15 +988,31 @@ function telBlock(b64){
   if(S.recording&&n)onBlock(L,R);
 }
 async function telCleanup(){for(const h of telSubs)try{await h.remove()}catch(e){}telSubs=[]}
-async function startTel(){
+function bubbleIdle(){S.armed=false;$('#bubbleBtn').textContent='Bouton flottant'}
+async function startTel(bubble){
   stopPlay(); clearAudio(); hideEdit(); lvlReset(); REC.liveMed=-40; REC.last=0;
   await telCleanup();
   telSubs.push(await NATIVE.addListener('pcm',e=>telBlock(e.data)));
-  telSubs.push(await NATIVE.addListener('captureStopped',e=>{if(S.recording){stopRec(false);$('#recHint').textContent='Capture arrêtée : '+(e.reason||'')+'. '+$('#recHint').textContent}else{$('#recHint').textContent='Capture impossible : '+(e.reason||'erreur inconnue')+'.';telCleanup()}}));
-  try{await NATIVE.startCapture()}
-  catch(e){await telCleanup();$('#recHint').textContent=e?.code==='DENIED'?'Capture refusée. Pour enregistrer le son du téléphone, accepte l\'avertissement d\'Android (et l\'accès au micro).':e?.code==='UNSUPPORTED'?e.message+'.':'Capture impossible : '+(e?.message||e)+'.';return}
-  recStarted('Enregistrement du son du téléphone… Lance la lecture dans l\'autre appli. Si le vumètre reste vide, cette appli interdit la capture. Reviens ici pour arrêter.');
+  telSubs.push(await NATIVE.addListener('captureArmed',()=>{S.armed=true;$('#bubbleBtn').textContent='Retirer le bouton flottant';
+    $('#recHint').textContent='Bouton flottant prêt. Passe dans l\'appli source, touche le bouton rond pour démarrer, lance la lecture, puis retouche-le pour arrêter : Sillon reviendra tout seul.'}));
+  telSubs.push(await NATIVE.addListener('captureStarted',()=>{if(bubble&&!S.recording){clearAudio();lvlReset();REC.liveMed=-40;REC.last=0;
+    recStarted('Enregistrement lancé depuis le bouton flottant… Retouche le bouton pour arrêter.')}}));
+  telSubs.push(await NATIVE.addListener('captureStopped',e=>{
+    const wasArmed=S.armed;bubbleIdle();
+    if(S.recording){stopRec(false);if(e.reason!=='bouton flottant')$('#recHint').textContent='Capture arrêtée : '+(e.reason||'')+'. '+$('#recHint').textContent}
+    else{$('#recHint').textContent=wasArmed&&!e.reason?.startsWith('capture')?'Bouton flottant retiré.':'Capture impossible : '+(e.reason||'erreur inconnue')+'.';telCleanup()}}));
+  try{await NATIVE.startCapture({bubble:!!bubble})}
+  catch(e){await telCleanup();bubbleIdle();$('#recHint').textContent=e?.code==='DENIED'?'Capture refusée. Pour enregistrer le son du téléphone, accepte l\'avertissement d\'Android (et l\'accès au micro).':e?.code==='UNSUPPORTED'?e.message+'.':'Capture impossible : '+(e?.message||e)+'.';return}
+  if(!bubble)recStarted('Enregistrement du son du téléphone… Lance la lecture dans l\'autre appli. Si le vumètre reste vide, cette appli interdit la capture. Reviens ici pour arrêter.');
 }
+$('#bubbleBtn').onclick=async()=>{
+  if(S.recording)return;
+  if(S.armed){NATIVE.stopCapture().catch(()=>{});return}
+  try{const r=await NATIVE.canDrawOverlays();
+    if(!r.granted){$('#recHint').textContent='Autorise Sillon à « Afficher par-dessus les autres applis » dans la page qui s\'ouvre, puis reviens ici et retouche « Bouton flottant ».';await NATIVE.openOverlaySettings();return}
+  }catch(e){}
+  startTel(true);
+};
 async function startRec(){
   stopMonitor();
   if(S.mode==='tel')return startTel();
@@ -1683,7 +1700,7 @@ function setMode(m,init){
   S.mode=m;try{localStorage.setItem(MODEK,m)}catch(e){}
   const other=m!=='vinyle',tel=m==='tel';
   $('#modeVinyl').setAttribute('aria-pressed',m==='vinyle');$('#modeOther').setAttribute('aria-pressed',m==='autre');$('#modeTel').setAttribute('aria-pressed',tel);
-  $('#telHint').hidden=!tel;$('#devRow').hidden=tel;$('#lvlRow').hidden=tel;$('#lvlHelp').hidden=tel;
+  $('#telHint').hidden=!tel;$('#bubbleRow').hidden=!tel||!NATIVE?.canDrawOverlays;$('#devRow').hidden=tel;$('#lvlRow').hidden=tel;$('#lvlHelp').hidden=tel;
   $('#otherHint').textContent=tel?'Le son des applis du téléphone (radio, podcasts, fichiers audio, navigateur…) : Sillon découpe aux silences, reconnaît chaque morceau et le range dans son dossier Artiste/Album.':'Radio, CD, cassette, téléphone ou ordinateur branché sur l\'entrée : Sillon découpe aux silences, reconnaît chaque morceau et le range dans son dossier Artiste/Album.';
   $('#s1').hidden=other;$('#otherHint').hidden=!other;
   const nums=other?['','01','02','03']:['01','02','03','04'];
