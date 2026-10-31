@@ -435,6 +435,38 @@ public class SillonPlugin extends Plugin {
         }).start();
     }
 
+    /** Supprime un dossier (album) et son contenu ; retire aussi le dossier parent (artiste) s'il devient vide. */
+    @PluginMethod
+    public void deletePath(PluginCall call) {
+        final String path = call.getString("path", "");
+        final boolean prune = Boolean.TRUE.equals(call.getBoolean("pruneParent", false));
+        final Uri root = savedFolder();
+        if (root == null || path == null || path.isEmpty()) {
+            call.reject("Dossier introuvable");
+            return;
+        }
+        new Thread(() -> {
+            try {
+                DocumentFile d = findDir(root, path);
+                boolean ok = d != null && d.delete();
+                if (prune) {
+                    int k = path.lastIndexOf('/');
+                    if (k > 0) {
+                        DocumentFile parent = findDir(root, path.substring(0, k));
+                        if (parent != null && parent.listFiles().length == 0) parent.delete();
+                    }
+                }
+                dirCache.clear();
+                fileCache.clear();
+                JSObject o = new JSObject();
+                o.put("deleted", ok);
+                call.resolve(o);
+            } catch (Exception e) {
+                call.reject(e.getMessage() != null ? e.getMessage() : "Suppression impossible");
+            }
+        }).start();
+    }
+
     @PluginMethod
     public void deleteFile(PluginCall call) {
         String uri = call.getString("uri");
