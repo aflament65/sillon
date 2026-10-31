@@ -23,14 +23,15 @@ grep -q "const APP_BUILD=${RUN};" www/index.html
 npx cap add android
 JAVA_DIR=android/app/src/main/java/fr/aflament/sillon
 test -d "$JAVA_DIR"
-cp android-src/MainActivity.java android-src/SillonPlugin.java android-src/CaptureService.java android-src/PlayerService.java "$JAVA_DIR/"
+cp android-src/MainActivity.java android-src/SillonPlugin.java android-src/CaptureService.java android-src/PlayerService.java android-src/NowPlayingListener.java "$JAVA_DIR/"
 
 # Permissions : micro (et réglages audio pour la carte son USB)
 MAN=android/app/src/main/AndroidManifest.xml
 sed -i 's#<application#<uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />\n    <uses-permission android:name="android.permission.CAMERA" />\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />\n    <uses-permission android:name="android.permission.WAKE_LOCK" />\n    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />\n\n    <application#' "$MAN"
 # Service de capture du son du téléphone
-sed -i 's#</application>#    <service android:name=".CaptureService" android:exported="false" android:foregroundServiceType="mediaProjection" />\n        <service android:name=".PlayerService" android:exported="false" android:foregroundServiceType="mediaPlayback" />\n    </application>#' "$MAN"
+sed -i 's#</application>#    <service android:name=".CaptureService" android:exported="false" android:foregroundServiceType="mediaProjection" />\n        <service android:name=".PlayerService" android:exported="false" android:foregroundServiceType="mediaPlayback" />\n        <service android:name=".NowPlayingListener" android:exported="true" android:label="Sillon : infos de lecture" android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"><intent-filter><action android:name="android.service.notification.NotificationListenerService" /></intent-filter></service>\n    </application>#' "$MAN"
 grep -q 'android:name=".PlayerService"' "$MAN"
+grep -q 'android:name=".NowPlayingListener"' "$MAN"
 grep -q 'android:name=".CaptureService"' "$MAN"
 grep -q FOREGROUND_SERVICE_MEDIA_PROJECTION "$MAN"
 grep -q RECORD_AUDIO "$MAN"

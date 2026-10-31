@@ -255,6 +255,8 @@ body.withMini main{padding-bottom:110px}
 <section id="s2">
   <h2><span class="n">02</span>Enregistrement <span id="recSide" class="tag" hidden></span></h2>
   <p class="hint" id="telHint" hidden>Sillon enregistre ce que joue le téléphone, en numérique, sans câble. Touche « Enregistrer », accepte l'avertissement d'Android, puis lance la lecture dans l'autre appli et reviens ici. Le volume du téléphone n'a pas d'effet. Les applis de streaming qui interdisent la capture (souvent YouTube, Spotify, Netflix) donnent du silence.</p>
+  <div class="row" id="npRow" hidden><span class="hint grow" id="npState"></span><button id="npBtn">Activer</button></div>
+  <p class="hint" id="npNow" hidden></p>
   <div class="row" id="bubbleRow" hidden><button id="bubbleBtn" class="main">Bouton flottant</button><span class="hint grow">Démarre et arrête l'enregistrement depuis l'appli source, sans revenir ici.</span></div>
   <label id="devRow">Entrée audio<select id="dev"><option value="">Entrée par défaut</option></select></label>
   <div class="row" style="justify-content:space-between">
@@ -900,7 +902,7 @@ async function listDevices(){
     sel.value=cur;}catch(e){}
 }
 navigator.mediaDevices?.addEventListener?.('devicechange',listDevices);
-function clearAudio(){IDRUN++;Object.assign(S,{chunks:[],starts:[],frames:0,env:[],acc:0,cnt:0,bounds:[],bounds0:[],titles:[],labels:[],segMeta:[],sel:-1,cursor:null})}
+function clearAudio(){IDRUN++;S.np=[];Object.assign(S,{chunks:[],starts:[],frames:0,env:[],acc:0,cnt:0,bounds:[],bounds0:[],titles:[],labels:[],segMeta:[],sel:-1,cursor:null})}
 function pushAudio(L,R){
   const n=L.length,a=new Int16Array(n*2);let pk=0;
   for(let k=0;k<n;k++){const l=L[k],r=R[k];a[2*k]=l<-1?-32768:l>1?32767:l*32767;a[2*k+1]=r<-1?-32768:r>1?32767:r*32767;
@@ -995,12 +997,13 @@ async function startTel(bubble){
   telSubs.push(await NATIVE.addListener('pcm',e=>telBlock(e.data)));
   telSubs.push(await NATIVE.addListener('captureArmed',()=>{S.armed=true;$('#bubbleBtn').textContent='Retirer le bouton flottant';
     $('#recHint').textContent='Bouton flottant prêt. Passe dans l\'appli source, touche le bouton rond pour démarrer, lance la lecture, puis retouche-le pour arrêter : Sillon reviendra tout seul.'}));
-  telSubs.push(await NATIVE.addListener('captureStarted',()=>{if(bubble&&!S.recording){clearAudio();lvlReset();REC.liveMed=-40;REC.last=0;
+  telSubs.push(await NATIVE.addListener('captureStarted',()=>{if(bubble&&!S.recording){const keepNp=NP_LAST?[{...NP_LAST,t:0}]:[];clearAudio();S.np=keepNp;lvlReset();REC.liveMed=-40;REC.last=0;
     recStarted('Enregistrement lancé depuis le bouton flottant… Retouche le bouton pour arrêter.')}}));
   telSubs.push(await NATIVE.addListener('captureStopped',e=>{
     const wasArmed=S.armed;bubbleIdle();
     if(S.recording){stopRec(false);if(e.reason!=='bouton flottant')$('#recHint').textContent='Capture arrêtée : '+(e.reason||'')+'. '+$('#recHint').textContent}
     else{$('#recHint').textContent=wasArmed&&!e.reason?.startsWith('capture')?'Bouton flottant retiré.':'Capture impossible : '+(e.reason||'erreur inconnue')+'.';telCleanup()}}));
+  await npStart();
   try{await NATIVE.startCapture({bubble:!!bubble})}
   catch(e){await telCleanup();bubbleIdle();$('#recHint').textContent=e?.code==='DENIED'?'Capture refusée. Pour enregistrer le son du téléphone, accepte l\'avertissement d\'Android (et l\'accès au micro).':e?.code==='UNSUPPORTED'?e.message+'.':'Capture impossible : '+(e?.message||e)+'.';return}
   if(!bubble)recStarted('Enregistrement du son du téléphone… Lance la lecture dans l\'autre appli. Si le vumètre reste vide, cette appli interdit la capture. Reviens ici pour arrêter.');
@@ -1038,7 +1041,7 @@ async function startRec(){
 }
 function stopRec(auto){
   if(!S.recording)return; S.recording=false;
-  if(S.mode==='tel'){NATIVE?.stopCapture().catch(()=>{});telCleanup()}
+  if(S.mode==='tel'){NATIVE?.stopCapture().catch(()=>{});telCleanup();npStop()}
   else try{proc.disconnect();src.disconnect();stream.getTracks().forEach(t=>t.stop())}catch(e){}
   try{wake?.release()}catch(e){} wake=null;
   NATIVE?.keepAwake({on:false}).catch(()=>{});
@@ -1080,7 +1083,10 @@ function analyze(){
     const around=Math.min(avg(rs-W,rs),avg(i,i+W));cands.push({t:(rs+i)/2*HS,len:i-rs,min:env[mi],depth:around-env[mi]})}rs=-1}}
   const startT=Math.max(0,first*HS-.3), endT=Math.min(S.frames/SR,(last+1)*HS+.8);
   const tr=sideTracks(); let cuts;
-  if(tr.length>1&&tr.every(t=>t.length>0)){
+  const npm=S.mode==='tel'&&S.np?.length>1?S.np.slice(1).map(m=>m.t).filter(t=>t>startT+3&&t<endT-3):null;
+  if(npm){/* changements de morceau signalés par l'appli source, recalés sur le blanc le plus proche */
+    cuts=npm.map(t=>{const c=cands.filter(c=>Math.abs(c.t-t)<3).sort((a,b)=>Math.abs(a.t-t)-Math.abs(b.t-t))[0];return c?c.t:t});
+  }else if(tr.length>1&&tr.every(t=>t.length>0)){
     const tot=tr.reduce((a,t)=>a+t.length,0)/1000; let sc=(endT-startT)/tot; if(sc<.8||sc>1.25)sc=1;
     cuts=[];let acc=0,prev=startT;
     for(let j=0;j<tr.length-1;j++){acc+=tr[j].length/1000;const b=startT+acc*sc,win=Math.max(6,.03*(b-startT));
@@ -1096,6 +1102,7 @@ function analyze(){
   S.segMeta=Array.from({length:segs},(_,i)=>{const j=keep(i);return j>=0&&j<oldM.length&&oldM[j]?oldM[j]:{}});
   S.titles=Array.from({length:segs},(_,i)=>{if(freeMode()){const j=keep(i);if(j>=0&&S.segMeta[i].status==='ok'&&oldT[j])return oldT[j]}return tr[i]?.title||'Piste '+(i+1)});
   S.bounds0=S.bounds.slice();
+  npApply();
   S.labels=Array.from({length:segs},(_,i)=>tr[i]?.number||String(i+1));
   S.sel=-1;S.cursor=null;
   $('#s3').hidden=false; $('#nudge').hidden=true;S.edited=false;updSideTags();
@@ -1174,13 +1181,13 @@ function renderTracks(){
     const row=document.createElement('div');row.className='trk'+(S.sel===i?' sel':'');
     row.innerHTML=`<button class="no" title="Régler le début">${esc(S.labels[i])}</button><input type="text" id="t${i}" value="${esc(S.titles[i])}" aria-label="Titre de la piste ${i+1}"><span class="d mono">${fmtI(S.bounds[i+1]-S.bounds[i])}</span><button aria-label="Écouter le début">▶</button>${i<S.bounds.length-2?`<button class="merge" title="Fusionner avec le morceau suivant">Fusionner avec le suivant ↓</button>`:''}`;
     row.querySelector('.no').onclick=()=>selectB(i);
-    row.querySelector('input').oninput=e=>{S.titles[i]=e.target.value;S.edited=true};
+    row.querySelector('input').oninput=e=>{S.titles[i]=e.target.value;S.edited=true;if(S.segMeta[i])S.segMeta[i].title=e.target.value};
     row.querySelector('button[aria-label="Écouter le début"]').onclick=()=>play(S.bounds[i],S.bounds[i]+10);
     row.querySelector('.merge')?.addEventListener('click',()=>mergeNext(i));
     if(freeMode()){const sm=S.segMeta[i]||(S.segMeta[i]={}),sub=document.createElement('div');sub.className='sub';
-      const st=sm.status==='ok'?'<span class="tag ok">reconnu</span>':sm.status==='busy'?'<span class="tag">…</span>':sm.status==='no'?'<span class="tag todo">inconnu</span>':'';
+      const st=sm.status==='ok'?'<span class="tag ok">reconnu</span>':sm.status==='np'?'<span class="tag">infos du lecteur</span>':sm.status==='busy'?'<span class="tag">…</span>':sm.status==='no'?'<span class="tag todo">inconnu</span>':'';
       sub.innerHTML=`<input type="text" placeholder="Artiste" value="${esc(sm.artist||'')}" aria-label="Artiste de la piste ${i+1}"><input type="text" placeholder="Album" value="${esc(sm.album||'')}" aria-label="Album de la piste ${i+1}">${st}`;
-      const [ia,ib]=sub.querySelectorAll('input');ia.oninput=e=>{sm.artist=e.target.value};ib.oninput=e=>{sm.album=e.target.value};
+      const [ia,ib]=sub.querySelectorAll('input');ia.oninput=e=>{sm.artist=e.target.value;sm.artistSet=true};ib.oninput=e=>{sm.album=e.target.value;sm.albumSet=true};
       row.append(sub)}
     box.append(row);
   }
@@ -1567,6 +1574,90 @@ $('#libImport').onchange=async e=>{
 };
 libLoad();
 
+/* ---------- Infos « en cours de lecture » de l'appli source (son du téléphone) ---------- */
+let NP_LAST=null,npSub=null;
+S.np=[];
+/* Titres YouTube : « Artiste - Titre (Official Video) », chaînes « Artiste - Topic » ou « ArtisteVEVO » */
+function cleanNp(title,artist){
+  let t=(title||'').replace(/\s*[\(\[][^\)\]]*(official|officiel|vid[eé]o|clip|lyrics?|paroles|audio|visuali[sz]er|\bhd\b|\b4k\b|remaster|live session|music video)[^\)\]]*[\)\]]/gi,'')
+    .replace(/\s*[|｜].*$/,'').replace(/\s+/g,' ').trim();
+  let a=(artist||'').replace(/\s*-\s*Topic$/i,'').replace(/VEVO$/i,'').replace(/\s*(Official|Officiel)$/i,'').trim();
+  const m=/^(.+?)\s+[-–—]\s+(.+)$/.exec(t);
+  if(m&&m[1].length<60){a=m[1].trim();t=m[2].trim()}
+  t=t.replace(/^["“«]\s*|\s*["”»]$/g,'').trim();
+  return {artist:a,title:t||title||''};
+}
+function onNowPlaying(e){
+  if(!e.title)return;
+  if(!e.playing&&S.recording&&NP_LAST&&NP_LAST.pkg!==e.pkg)return; /* une autre appli en pause : on l'ignore */
+  const key=e.pkg+'|'+e.title+'|'+(e.artist||'');
+  if(NP_LAST&&NP_LAST.key===key){if(e.art&&!NP_LAST.art)NP_LAST.art=e.art;return}
+  if(!e.playing&&S.recording)return;
+  /* instant du changement : maintenant, moins la position déjà jouée dans le nouveau morceau */
+  const back=e.pos>0&&e.pos<10000?e.pos/1000:0;
+  const m={key,pkg:e.pkg,t:S.recording?Math.max(0,S.frames/SR-back):0,raw:e.title,rawArtist:e.artist||'',album:e.album||'',art:e.art||null,dur:e.dur||0,...cleanNp(e.title,e.artist)};
+  if(S.recording)S.np.push(m);else S.np=[m];
+  NP_LAST=m;
+  $('#npNow').hidden=false;$('#npNow').textContent='En lecture : '+m.title+(m.artist?' — '+m.artist:'');
+}
+async function npStart(){
+  S.np=[];NP_LAST=null;$('#npNow').hidden=true;
+  if(!NATIVE?.hasNowPlayingAccess)return;
+  try{if(!(await NATIVE.hasNowPlayingAccess()).granted)return;
+    if(!npSub)npSub=await NATIVE.addListener('nowPlaying',onNowPlaying);
+    await NATIVE.startNowPlaying();
+  }catch(e){}
+}
+function npStop(){NATIVE?.stopNowPlaying?.().catch(()=>{})}
+/* Album, numéro et vraie pochette d'un morceau connu par son titre (Deezer) */
+async function npLookup(artist,title){
+  const d=await deezer('search/track?limit=6&q='+encodeURIComponent(`artist:"${artist.replace(/"/g,'')}" track:"${title.replace(/"/g,'')}"`));
+  const best=(d?.data||[]).map(x=>({x,s:.6*sim(x.title,title)+.4*sim(x.artist?.name,artist)})).sort((a,b)=>b.s-a.s)[0];
+  if(!best||best.s<.6)return null;
+  const al=await deezer('album/'+best.x.album.id);
+  const pos=(al?.tracks?.data||[]).findIndex(t=>t.id===best.x.id);
+  return {artist:best.x.artist?.name||artist,album:best.x.album.title,year:(al?.release_date||'').slice(0,4),no:pos>=0?pos+1:0,total:al?.nb_tracks||0,cover:best.x.album.cover_xl||best.x.album.cover_big};
+}
+/* vignette de vidéo (16:9) : on garde le carré central, en dernier recours */
+async function squareArt(b64){
+  try{const img=new Image();img.src='data:image/jpeg;base64,'+b64;await img.decode();const s=Math.min(img.width,img.height);
+    const c=document.createElement('canvas');c.width=c.height=Math.min(600,s);c.getContext('2d').drawImage(img,(img.width-s)/2,(img.height-s)/2,s,s,0,0,c.width,c.height);
+    const bl=await new Promise(r=>c.toBlob(r,'image/jpeg',.88));return {bytes:new Uint8Array(await bl.arrayBuffer()),mime:'image/jpeg'}}catch(e){return null}
+}
+/* Applique les infos du lecteur aux morceaux découpés */
+function npApply(){
+  if(S.mode!=='tel'||!S.np?.length)return;
+  for(let i=0;i<S.bounds.length-1;i++){
+    if(S.segMeta[i]?.status==='ok')continue;
+    let mk=S.np[0];for(const m of S.np)if(m.t<=S.bounds[i]+3)mk=m;
+    const prev=S.segMeta[i]||{};
+    if(prev.np&&prev.npKey===mk.key){S.titles[i]=prev.title||mk.title;continue}
+    S.segMeta[i]={...prev,np:true,npKey:mk.key,status:'np',title:mk.title,artist:prev.artistSet?prev.artist:mk.artist,album:prev.albumSet?prev.album:(mk.album||prev.album||''),art:mk.art};
+    S.titles[i]=mk.title;
+  }
+  npEnrich();
+}
+async function npEnrich(){
+  const tok=IDRUN;
+  for(let i=0;i<S.bounds.length-1;i++){
+    const sm=S.segMeta[i];if(!sm?.np||sm.status==='ok'||sm.npDone)continue;sm.npDone=true;
+    let r=null;try{r=sm.artist&&S.titles[i]?await npLookup(sm.artist,S.titles[i]):null}catch(e){}
+    if(tok!==IDRUN)return;
+    if(r){Object.assign(sm,{artist:r.artist,album:sm.album||r.album,year:r.year,no:r.no,total:r.total});const c=await fetchImage(r.cover);if(c){sm.cover=c.bytes;sm.coverMime=c.mime}}
+    if(!sm.cover&&sm.art){const c=await squareArt(sm.art);if(c){sm.cover=c.bytes;sm.coverMime=c.mime}}
+    renderTracks();
+  }
+}
+/* Réglage de l'accès aux infos de lecture */
+async function npRefreshState(){
+  if(!NATIVE?.hasNowPlayingAccess){$('#npRow').hidden=true;return}
+  try{const g=(await NATIVE.hasNowPlayingAccess()).granted;
+    $('#npState').textContent=g?'Infos du lecteur activées : titres, artistes et changements de morceau sont repris de l\'appli source.':'Infos du lecteur désactivées. Active-les pour récupérer les titres et couper exactement entre deux morceaux.';
+    $('#npBtn').hidden=g;}catch(e){}
+}
+$('#npBtn').onclick=async()=>{S.wantNp=true;$('#npState').textContent='Dans la page qui s\'ouvre, active « Sillon » (Accès aux notifications), puis reviens ici.';try{await NATIVE.openNowPlayingSettings()}catch(e){}};
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&S.wantNp){S.wantNp=false;npRefreshState()}});
+
 /* ---------- Reconnaissance des morceaux (empreinte Chromaprint + AcoustID, gratuit) ---------- */
 const AKEY='sillon.acoustid';
 const getAKey=()=>{try{return localStorage.getItem(AKEY)||''}catch(e){return ''}};
@@ -1681,8 +1772,8 @@ async function identifyTracks(){
         /* durée connue du morceau : on recolle les bouts coupés à tort à l'intérieur */
         const d=top.duration;
         if(d>30)while(i<S.bounds.length-2&&S.bounds[i+1]-S.bounds[i]<d-8&&S.bounds[i+2]-S.bounds[i]<=d+15){mergeNext(i);merged++}
-      }else S.segMeta[i]={...S.segMeta[i],status:'no'};
-    }catch(e){S.segMeta[i]={...S.segMeta[i],status:'no'};idMsg('Reconnaissance interrompue : '+e.message+'.');renderTracks();return}
+      }else S.segMeta[i]={...S.segMeta[i],status:S.segMeta[i]?.np?'np':'no'};
+    }catch(e){S.segMeta[i]={...S.segMeta[i],status:S.segMeta[i]?.np?'np':'no'};idMsg('Reconnaissance interrompue : '+e.message+'.');renderTracks();return}
     renderTracks();await wait(400);
   }
   if(tok!==IDRUN)return;
@@ -1708,7 +1799,7 @@ function setMode(m,init){
   S.mode=m;try{localStorage.setItem(MODEK,m)}catch(e){}
   const other=m!=='vinyle',tel=m==='tel';
   $('#modeVinyl').setAttribute('aria-pressed',m==='vinyle');$('#modeOther').setAttribute('aria-pressed',m==='autre');$('#modeTel').setAttribute('aria-pressed',tel);
-  $('#telHint').hidden=!tel;$('#bubbleRow').hidden=!tel||!NATIVE?.canDrawOverlays;$('#devRow').hidden=tel;$('#lvlRow').hidden=tel;$('#lvlHelp').hidden=tel;
+  $('#telHint').hidden=!tel;$('#npRow').hidden=!tel||!NATIVE?.hasNowPlayingAccess;if(tel)npRefreshState();$('#bubbleRow').hidden=!tel||!NATIVE?.canDrawOverlays;$('#devRow').hidden=tel;$('#lvlRow').hidden=tel;$('#lvlHelp').hidden=tel;
   $('#otherHint').textContent=tel?'Le son des applis du téléphone (radio, podcasts, fichiers audio, navigateur…) : Sillon découpe aux silences, reconnaît chaque morceau et le range dans son dossier Artiste/Album.':'Radio, CD, cassette, téléphone ou ordinateur branché sur l\'entrée : Sillon découpe aux silences, reconnaît chaque morceau et le range dans son dossier Artiste/Album.';
   $('#s1').hidden=other;$('#otherHint').hidden=!other;
   const nums=other?['','01','02','03']:['01','02','03','04'];

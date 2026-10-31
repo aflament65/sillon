@@ -3,6 +3,16 @@ package fr.aflament.sillon;
 import android.Manifest;
 import android.app.Activity;
 import android.content.Context;
+import java.io.ByteArrayOutputStream;
+import androidx.core.app.NotificationManagerCompat;
+import android.os.Looper;
+import android.os.Handler;
+import android.media.session.PlaybackState;
+import android.media.session.MediaSessionManager;
+import android.media.session.MediaController;
+import android.media.MediaMetadata;
+import android.graphics.Bitmap;
+import android.content.ComponentName;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.UriPermission;
@@ -537,5 +547,159 @@ public class SillonPlugin extends Plugin {
         JSObject o = new JSObject();
         o.put("message", m);
         notifyListeners("playerError", o);
+    }
+
+    /* ---------- Infos « en cours de lecture » des autres applis (titre, artiste, vignette) ---------- */
+
+    private MediaSessionManager msm;
+    private MediaSessionManager.OnActiveSessionsChangedListener sessListener;
+    private final Map<MediaController, MediaController.Callback> ctrls = new HashMap<>();
+    private String lastNowKey;
+
+    private ComponentName listenerName() {
+        return new ComponentName(getContext(), NowPlayingListener.class);
+    }
+
+    @PluginMethod
+    public void hasNowPlayingAccess(PluginCall call) {
+        JSObject o = new JSObject();
+        o.put("granted", NotificationManagerCompat.getEnabledListenerPackages(getContext()).contains(getContext().getPackageName()));
+        call.resolve(o);
+    }
+
+    @PluginMethod
+    public void openNowPlayingSettings(PluginCall call) {
+        Intent i;
+        if (Build.VERSION.SDK_INT >= 30) {
+            i = new Intent(Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS);
+            i.putExtra(Settings.EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME, listenerName().flattenToString());
+        } else {
+            i = new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS);
+        }
+        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        try {
+            getActivity().startActivity(i);
+        } catch (Exception e) {
+            Intent j = new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS);
+            j.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getActivity().startActivity(j);
+        }
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void startNowPlaying(PluginCall call) {
+        getActivity().runOnUiThread(() -> {
+            try {
+                msm = (MediaSessionManager) getContext().getSystemService(Context.MEDIA_SESSION_SERVICE);
+                lastNowKey = null;
+                attach(msm.getActiveSessions(listenerName()));
+                if (sessListener == null) {
+                    sessListener = this::attach;
+                    msm.addOnActiveSessionsChangedListener(sessListener, listenerName());
+                }
+                call.resolve();
+            } catch (SecurityException e) {
+                call.reject("Accès aux notifications non autorisé", "DENIED");
+            } catch (Exception e) {
+                call.reject(e.getMessage() != null ? e.getMessage() : "Infos de lecture indisponibles");
+            }
+        });
+    }
+
+    @PluginMethod
+    public void stopNowPlaying(PluginCall call) {
+        getActivity().runOnUiThread(() -> {
+            try {
+                if (msm != null && sessListener != null) msm.removeOnActiveSessionsChangedListener(sessListener);
+            } catch (Exception ignored) {
+            }
+            sessListener = null;
+            for (Map.Entry<MediaController, MediaController.Callback> e : ctrls.entrySet()) {
+                try {
+                    e.getKey().unregisterCallback(e.getValue());
+                } catch (Exception ignored) {
+                }
+            }
+            ctrls.clear();
+            lastNowKey = null;
+            call.resolve();
+        });
+    }
+
+    private void attach(List<MediaController> list) {
+        if (list == null) return;
+        for (MediaController c : list) {
+            if (getContext().getPackageName().equals(c.getPackageName())) continue;
+            boolean known = false;
+            for (MediaController k : ctrls.keySet()) {
+                if (k.getSessionToken().equals(c.getSessionToken())) {
+                    known = true;
+                    break;
+                }
+            }
+            if (known) continue;
+            MediaController.Callback cb = new MediaController.Callback() {
+                @Override
+                public void onMetadataChanged(MediaMetadata m) {
+                    emitNow(c);
+                }
+
+                @Override
+                public void onPlaybackStateChanged(PlaybackState st) {
+                    emitNow(c);
+                }
+
+                @Override
+                public void onSessionDestroyed() {
+                    try {
+                        c.unregisterCallback(this);
+                    } catch (Exception ignored) {
+                    }
+                    ctrls.remove(c);
+                }
+            };
+            c.registerCallback(cb, new Handler(Looper.getMainLooper()));
+            ctrls.put(c, cb);
+            emitNow(c);
+        }
+    }
+
+    private void emitNow(MediaController c) {
+        MediaMetadata m = c.getMetadata();
+        if (m == null) return;
+        PlaybackState st = c.getPlaybackState();
+        String title = m.getString(MediaMetadata.METADATA_KEY_TITLE);
+        if (title == null) title = m.getString(MediaMetadata.METADATA_KEY_DISPLAY_TITLE);
+        String artist = m.getString(MediaMetadata.METADATA_KEY_ARTIST);
+        if (artist == null) artist = m.getString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST);
+        if (artist == null) artist = m.getString(MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE);
+        String album = m.getString(MediaMetadata.METADATA_KEY_ALBUM);
+        JSObject o = new JSObject();
+        o.put("pkg", c.getPackageName());
+        o.put("title", title);
+        o.put("artist", artist);
+        o.put("album", album);
+        o.put("dur", m.getLong(MediaMetadata.METADATA_KEY_DURATION));
+        o.put("playing", st != null && st.getState() == PlaybackState.STATE_PLAYING);
+        o.put("pos", st != null ? st.getPosition() : 0);
+        String key = c.getPackageName() + "|" + title + "|" + artist;
+        if (!key.equals(lastNowKey)) {
+            lastNowKey = key;
+            Bitmap b = m.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART);
+            if (b == null) b = m.getBitmap(MediaMetadata.METADATA_KEY_ART);
+            if (b == null) b = m.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON);
+            if (b != null) {
+                try {
+                    float k = Math.min(1f, 600f / Math.max(b.getWidth(), b.getHeight()));
+                    Bitmap sb = k < 1f ? Bitmap.createScaledBitmap(b, Math.round(b.getWidth() * k), Math.round(b.getHeight() * k), true) : b;
+                    ByteArrayOutputStream out = new ByteArrayOutputStream();
+                    sb.compress(Bitmap.CompressFormat.JPEG, 88, out);
+                    o.put("art", Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP));
+                } catch (Exception ignored) {
+                }
+            }
+        }
+        notifyListeners("nowPlaying", o);
     }
 }
