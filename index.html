@@ -141,14 +141,15 @@ button.big{padding:13px 16px;font-size:1rem}
 .modeSw button{flex:1;border:none;border-radius:99px;background:none}
 .modeSw button[aria-pressed=true]{background:var(--accent);color:var(--accent-ink);font-weight:600}
 .trk .merge{grid-column:2/-1;justify-self:start;padding:3px 9px;font-size:.78rem;color:var(--muted);background:none;border-style:dashed}
-.trk .sub{grid-column:1/-1;display:grid;grid-template-columns:auto minmax(0,1fr) minmax(0,1fr) auto;gap:6px;align-items:center;padding-left:.6em}
+.trk .sub .swap{padding:4px 7px}
+.trk .sub{grid-column:1/-1;display:grid;grid-template-columns:auto minmax(0,1fr) auto minmax(0,1fr);gap:6px;align-items:center;padding-left:.6em}
 .trk .sub .pk,.atrk .no input{width:22px;height:22px;accent-color:var(--accent);margin:0}
 .trk.on,.atrk.on{background:color-mix(in srgb,var(--accent) 12%,transparent)}
 .atrk.pick{cursor:pointer}
 .selBar{position:sticky;top:0;z-index:5;display:grid;gap:8px;padding:10px;border-radius:8px;background:var(--surface);border:1px solid var(--accent);box-shadow:0 4px 14px rgba(0,0,0,.15)}
 .sortBar .sumRow{display:flex;gap:8px;align-items:center;padding:2px 0}.sortBar .sumRow .grow{overflow-wrap:anywhere}
 .trk .sub input{padding:5px 7px;font-size:.82rem}
-.trk .sub .tag{white-space:nowrap}
+.trk .sub .tag{white-space:nowrap;grid-column:2/-1;justify-self:start}
 .libBtn{width:100%;text-align:left;font:inherit;color:inherit;background:var(--surface);cursor:pointer}
 .libBtn .txt{display:grid;gap:5px;min-width:0}
 .tag.src-vinyle{background:color-mix(in srgb,var(--accent) 22%,transparent)}
@@ -324,7 +325,7 @@ body.withMini main{padding-bottom:110px}
       <button id="addCut" hidden>Couper ici</button>
     </div>
   </div>
-  <div class="row"><button id="identify">Reconnaître l'album</button></div>
+  <div class="row"><button id="identify">Reconnaître l'album</button><button id="fixNames" hidden>Corriger artistes et titres</button></div>
   <p class="hint" id="idMsg" hidden></p>
   <div id="sortBar" class="nudge sortBar" hidden></div>
   <div class="tracks" id="tracks"></div>
@@ -1250,12 +1251,13 @@ function renderTracks(){
     const row=document.createElement('div');row.className='trk'+(S.sel===i?' sel':'');
     row.innerHTML=`<button class="no" title="Régler le début">${esc(S.labels[i])}</button><input type="text" id="t${i}" value="${esc(S.titles[i])}" aria-label="Titre de la piste ${i+1}"><span class="d mono">${fmtI(S.bounds[i+1]-S.bounds[i])}</span><button aria-label="Écouter le début">▶</button>${i<S.bounds.length-2?`<button class="merge" title="Fusionner avec le morceau suivant">Fusionner avec le suivant ↓</button>`:''}`;
     row.querySelector('.no').onclick=()=>selectB(i);
-    row.querySelector('input').oninput=e=>{S.titles[i]=e.target.value;S.edited=true;if(S.segMeta[i])S.segMeta[i].title=e.target.value};
+    row.querySelector('input').oninput=e=>{S.titles[i]=e.target.value;S.edited=true;if(S.segMeta[i]){S.segMeta[i].title=e.target.value;S.segMeta[i].titleSet=true}};
     row.querySelector('button[aria-label="Écouter le début"]').onclick=()=>play(S.bounds[i],S.bounds[i]+10);
     row.querySelector('.merge')?.addEventListener('click',()=>mergeNext(i));
     if(freeMode()){const sm=S.segMeta[i]||(S.segMeta[i]={}),sub=document.createElement('div');sub.className='sub';
-      const st=sm.status==='ok'?'<span class="tag ok">reconnu</span>':sm.status==='np'?'<span class="tag">infos du lecteur</span>':sm.status==='busy'?'<span class="tag">…</span>':sm.status==='no'?'<span class="tag todo">inconnu</span>':'';
-      sub.innerHTML=`<input type="checkbox" class="pk" ${sm.pick?'checked':''} aria-label="Cocher la piste ${i+1}"><input type="text" placeholder="Artiste" value="${esc(sm.artist||'')}" aria-label="Artiste de la piste ${i+1}"><input type="text" placeholder="${esc(S.all.length&&$('#mAlbum').value.trim()?$('#mAlbum').value.trim():'Album')}" value="${esc(sm.album||'')}" aria-label="Album de la piste ${i+1}">${st}`;
+      const st=sm.status==='ok'?'<span class="tag ok">reconnu</span>':sm.checked?'<span class="tag ok">vérifié</span>':sm.checked===false?'<span class="tag todo">à vérifier</span>':sm.status==='np'?'<span class="tag">infos du lecteur</span>':sm.status==='busy'?'<span class="tag">…</span>':sm.status==='no'?'<span class="tag todo">inconnu</span>':'';
+      sub.innerHTML=`<input type="checkbox" class="pk" ${sm.pick?'checked':''} aria-label="Cocher la piste ${i+1}"><input type="text" placeholder="Artiste" value="${esc(sm.artist||'')}" aria-label="Artiste de la piste ${i+1}"><button class="swap" title="Inverser artiste et titre" aria-label="Inverser artiste et titre de la piste ${i+1}">⇄</button><input type="text" placeholder="${esc(S.all.length&&$('#mAlbum').value.trim()?$('#mAlbum').value.trim():'Album')}" value="${esc(sm.album||'')}" aria-label="Album de la piste ${i+1}">${st}`;
+      sub.querySelector('.swap').onclick=()=>swapSeg(i);
       sub.querySelector('.pk').onchange=e=>{sm.pick=e.target.checked;row.classList.toggle('on',sm.pick);sortBar()};if(sm.pick)row.classList.add('on');
       const [ia,ib]=sub.querySelectorAll('input[type=text]');ia.oninput=e=>{sm.artist=e.target.value;sm.artistSet=true};ib.oninput=e=>{sm.album=e.target.value;sm.albumSet=true};ia.onchange=ib.onchange=()=>sortBar();
       row.append(sub)}
@@ -1635,6 +1637,7 @@ function trackForm(row,r,t){
   const f=document.createElement('div');f.className='cls nudge';
   const albs=LIB.filter(x=>!x.unsorted),arts=[...new Set(albs.map(x=>x.artist))];
   f.innerHTML=`<div class="row"><label style="flex:0 0 70px">N°<input type="text" class="cn" inputmode="numeric" value="${t.no||''}"></label><label class="grow">Titre<input type="text" class="ct" value="${esc(t.title)}"></label></div>
+    ${r.unsorted?`<div class="row"><button class="swap" type="button" title="Inverser le titre et l'artiste">⇄ Inverser titre et artiste</button></div>`:''}
     <div class="row"><label class="grow">Artiste<input type="text" class="ca" list="dlArt" value="${esc(r.unsorted?(t.artist&&t.artist!=='Artiste inconnu'?t.artist:''):r.artist)}"></label>
     <label class="grow">Album<input type="text" class="cb" list="dlAlb" value="${esc(r.unsorted?'':r.album)}"></label></div>
     <datalist id="dlArt">${arts.map(a=>`<option value="${esc(a)}">`).join('')}</datalist><datalist id="dlAlb">${albs.map(a=>`<option value="${esc(a.album)}">${esc(a.artist)}</option>`).join('')}</datalist>
@@ -1648,7 +1651,7 @@ function trackForm(row,r,t){
     if(same){dest.textContent='Le morceau reste dans cet album : seuls son numéro et son titre changent.';ok.textContent='Enregistrer'}
     else if(ex){dest.textContent=`Le morceau sera déplacé dans l'album existant « ${ex.album} » (${(ex.tracks||[]).length} morceau${(ex.tracks||[]).length>1?'x':''}).`;ok.textContent='Déplacer'}
     else{dest.textContent=`⚠ Aucun album « ${cb.value.trim()} » de ${ca.value.trim()} : un nouvel album sera créé pour ce seul morceau.`;ok.textContent='Créer l\'album et déplacer'}};
-  ca.oninput=cb.oninput=upd;
+  ca.oninput=cb.oninput=upd;const sw=f.querySelector('.swap');if(sw)sw.onclick=()=>{[ca.value,ct.value]=[ct.value,ca.value];upd()};
   cb.onchange=()=>{const a=albs.find(x=>norm(x.album)===norm(cb.value)&&(!ca.value||norm(x.artist)===norm(ca.value)));if(a){ca.value=a.artist;const e=(a.tracklist||[]).find(e=>sim(e.title,ct.value)>.6);if(e&&!cn.value)cn.value=e.no}upd()};
   upd();
   f.querySelector('.no').onclick=()=>f.remove();
@@ -1739,7 +1742,11 @@ function selBar(r){
   const bar=$('#albSel');const on=LSEL.key===r.key;bar.hidden=!on;if(!on){bar.innerHTML='';return}
   const n=LSEL.ids.size,all=(r.tracks||[]).length;
   bar.innerHTML=`<div class="row"><b class="grow">${n} sélectionné${n>1?'s':''}</b><button class="sa">${n===all?'Aucun':'Tout'}</button><button class="sx">Terminer</button></div>
-    <div class="row"><button class="main sm" ${n?'':'disabled'}>Ranger dans un album…</button><button class="sd" ${n?'':'disabled'}>Supprimer</button></div><div class="sf"></div>`;
+    <div class="row"><button class="main sm" ${n?'':'disabled'}>Ranger dans un album…</button><button class="si" ${n?'':'disabled'}>Identifier en ligne</button><button class="sd" ${n?'':'disabled'}>Supprimer</button></div><div class="sf"></div>`;
+  bar.querySelector('.si').onclick=async()=>{const f=bar.querySelector('.sf'),ids=[...LSEL.ids];bar.querySelectorAll('button').forEach(b=>b.disabled=true);
+    const ok=await identifyLib(r,ids,m=>{f.innerHTML='<p class="hint">'+esc(m)+'</p>'});
+    toast(ok?`${ok} morceau${ok>1?'x':''} sur ${ids.length} identifié${ok>1?'s':''} et rangé${ok>1?'s':''}`:'Aucun morceau trouvé dans le catalogue : corrige le titre ou l\'artiste à la main.');
+    LSEL.ids.clear();LSEL.key=null;libGet(r.key)?renderAlbum():closeAlbum()};
   bar.querySelector('.sa').onclick=()=>{if(n===all)LSEL.ids.clear();else(r.tracks||[]).forEach(t=>LSEL.ids.add(t.id));renderAlbum()};
   bar.querySelector('.sx').onclick=()=>{LSEL.key=null;LSEL.ids.clear();renderAlbum()};
   bar.querySelector('.sd').onclick=()=>{const f=bar.querySelector('.sf');f.innerHTML=`<div class="row delc"><span class="hint grow">Supprimer ${n} morceau${n>1?'x':''} et leurs fichiers ?</span><button class="danger">Supprimer</button><button>Annuler</button></div>`;
@@ -1994,10 +2001,14 @@ function cleanNp(title,artist){
   let t=(title||'').replace(/\s*[\(\[][^\)\]]*(official|officiel|vid[eé]o|clip|lyrics?|paroles|audio|visuali[sz]er|\bhd\b|\b4k\b|remaster|live session|music video)[^\)\]]*[\)\]]/gi,'')
     .replace(/\s*[|｜].*$/,'').replace(/\s+/g,' ').trim();
   let a=(artist||'').replace(/\s*-\s*Topic$/i,'').replace(/VEVO$/i,'').replace(/\s*(Official|Officiel)$/i,'').trim();
+  const chan=a,q=x=>x.replace(/^["“«]\s*|\s*["”»]$/g,'').trim();
   const m=/^(.+?)\s+[-–—]\s+(.+)$/.exec(t);
-  if(m&&m[1].length<60){a=m[1].trim();t=m[2].trim()}
-  t=t.replace(/^["“«]\s*|\s*["”»]$/g,'').trim();
-  return {artist:a,title:t||title||''};
+  if(m&&m[1].length<60){let x=q(m[1]),y=q(m[2]);
+    /* « Titre - Artiste » : si la 2e partie ressemble à la chaîne, c'est elle l'artiste */
+    if(chan&&sim(y,chan)>=.5&&sim(y,chan)>sim(x,chan))[x,y]=[y,x];
+    return {artist:x,title:y,alt:{artist:y,title:x},chan}}
+  t=q(t);
+  return {artist:a,title:t||title||'',chan};
 }
 function onNowPlaying(e){
   if(!e.title)return;
@@ -2022,13 +2033,73 @@ async function npStart(){
 }
 function npStop(){NATIVE?.stopNowPlaying?.().catch(()=>{})}
 /* Album, numéro et vraie pochette d'un morceau connu par son titre (Deezer) */
-async function npLookup(artist,title){
-  const d=await deezer('search/track?limit=6&q='+encodeURIComponent(`artist:"${artist.replace(/"/g,'')}" track:"${title.replace(/"/g,'')}"`));
-  const best=(d?.data||[]).map(x=>({x,s:.6*sim(x.title,title)+.4*sim(x.artist?.name,artist)})).sort((a,b)=>b.s-a.s)[0];
-  if(!best||best.s<.6)return null;
-  const al=await deezer('album/'+best.x.album.id);
-  const pos=(al?.tracks?.data||[]).findIndex(t=>t.id===best.x.id);
-  return {artist:best.x.artist?.name||artist,album:best.x.album.title,year:(al?.release_date||'').slice(0,4),no:pos>=0?pos+1:0,total:al?.nb_tracks||0,cover:best.x.album.cover_xl||best.x.album.cover_big};
+/* Corriger artistes et titres de tout l'enregistrement d'après le catalogue */
+async function fixNames(){
+  const N=S.bounds.length-1,tok=IDRUN;let fixed=0,seen=0;$('#fixNames').disabled=true;
+  for(let i=0;i<N;i++){const sm=S.segMeta[i]||(S.segMeta[i]={}),title=(S.titles[i]||'').trim();
+    if(sm.status==='ok'||!title||/^Piste \d+$/.test(title))continue;seen++;
+    idMsg(`Vérification des noms… ${i+1}/${N}`);
+    let r=null;try{r=await resolveTrack(sm.artist||'',title,{...sm,dur:sm.dur||(S.bounds[i+1]-S.bounds[i])})}catch(e){}
+    if(tok!==IDRUN)return;
+    if(r){const was=norm((sm.artist||'')+'|'+title);sm.artist=r.artist;S.titles[i]=sm.title=r.title;sm.checked=true;
+      if(!sm.albumSet||!sm.album)Object.assign(sm,{album:r.album,year:r.year,no:r.no,total:r.total,coverUrl:r.cover});
+      if(was!==norm(r.artist+'|'+r.title))fixed++}
+    else sm.checked=false;
+    renderTracks();await wait(250)}
+  for(let i=0;i<N;i++){const sm=S.segMeta[i];if(sm?.coverUrl&&!sm.cover){const c=await fetchImage(sm.coverUrl).catch(()=>null);if(c){sm.cover=c.bytes;sm.coverMime=c.mime}}}
+  $('#fixNames').disabled=false;
+  idMsg(seen?`${seen} morceau${seen>1?'x':''} vérifié${seen>1?'s':''} : ${fixed} corrigé${fixed>1?'s':''}. Les autres étaient déjà justes ou introuvables (marqués « à vérifier »).`:'Donne d\'abord un titre aux morceaux (ou laisse les infos du lecteur les remplir).');
+}
+/* ⇄ : l'artiste et le titre ont été inversés */
+async function swapSeg(i){
+  const sm=S.segMeta[i]||(S.segMeta[i]={}),a=sm.artist||'',t=S.titles[i]||'';
+  sm.artist=t;S.titles[i]=sm.title=a;sm.artistSet=sm.titleSet=true;renderTracks();
+  try{const r=await resolveTrack(sm.artist,S.titles[i],{strict:true});if(r){sm.artist=r.artist;S.titles[i]=sm.title=r.title;sm.checked=true;
+    if(!sm.albumSet||!sm.album){Object.assign(sm,{album:r.album,year:r.year,no:r.no,total:r.total});const c=await fetchImage(r.cover).catch(()=>null);if(c){sm.cover=c.bytes;sm.coverMime=c.mime}}renderTracks()}}catch(e){}
+}
+/* Discothèque : identifier en ligne les morceaux sélectionnés et les ranger dans leur album */
+async function identifyLib(r,ids,msg){
+  let ok=0,k=0;
+  for(const id of ids){const t=libGet(r.key)?.tracks?.find(x=>x.id===id);if(!t)continue;msg(`Identification… ${++k}/${ids.length}`);
+    let x=null;try{x=await resolveTrack(t.artist&&t.artist!=='Artiste inconnu'?t.artist:(r.unsorted?'':r.artist),t.title,{dur:t.dur})}catch(e){}
+    if(!x)continue;
+    try{if(x.album){await moveTrack(r.key,id,{artist:x.artist,album:x.album,no:x.no||t.no||0,title:x.title});
+        const key=albumKey(x.artist,x.album),a=libGet(key);
+        if(a&&!a.cover&&x.cover){const c=await fetchImage(x.cover).catch(()=>null);if(c){const th=await thumbOf(c.bytes,c.mime,160);await libOp(async()=>{const b=libGet(key);if(b&&!b.cover){b.cover=c.bytes;b.coverMime=c.mime;b.thumb=th;if(!b.year)b.year=x.year||'';await libPut(b)}})}}
+        if(!libGet(key)?.tracklist?.length)findTracklist(key)}
+      else await editTrack(r.key,id,{no:t.no,title:x.title,artist:x.artist});ok++}catch(e){}
+  }
+  return ok;
+}
+/* ---------- Artiste ou titre ? On demande au catalogue (Deezer, puis iTunes) ----------
+   Les titres de vidéos mélangent souvent les deux (« Titre - Artiste », chaîne qui n'est pas l'artiste…).
+   On essaie toutes les lectures possibles et on garde le morceau du catalogue qui colle le mieux. */
+const FEAT=/\s*[\(\[]?\s*\b(?:feat\.?|ft\.?|featuring)\s+[^\)\]]*[\)\]]?/ig;
+const plain=s=>(s||'').replace(FEAT,'').replace(/\s*[\(\[][^\)\]]*[\)\]]/g,'').replace(/\s+-\s+(?:\d{4} )?remaster.*$/i,'').trim();
+const COMPIL=/best of|greatest hits|\bhits\b|compil|collection|anthology|essentials|now that|ultimate|the very best|playlist|karaok|tribute|cover/i;
+function trackHyps(artist,title,extra){
+  const c=cleanNp(title,artist),h=[{artist:c.artist,title:c.title}];
+  if(c.alt)h.push(c.alt);if(c.chan&&norm(c.chan)!==norm(c.artist))h.push({artist:c.chan,title:c.title});
+  if(extra?.alt)h.push(extra.alt);if(extra?.chan&&norm(extra.chan)!==norm(c.artist))h.push({artist:extra.chan,title:c.title});
+  if(artist&&title&&norm(artist)!==norm(c.artist))h.push({artist,title});
+  h.push({artist:c.title,title:c.artist});/* l'inverse, au cas où */
+  return h.filter(x=>x.title);
+}
+const CATALOG={deezer:p=>deezer(p),itunes:u=>itunes(u)}; /* remplaçable pour les tests */
+async function resolveTrack(artist,title,extra={}){
+  const hyps=extra.strict?[{artist,title}]:trackHyps(artist,title,extra);if(!hyps.length||!title)return null;
+  const dur=extra.dur>1000?extra.dur/1000:extra.dur||0;
+  const score=c=>{let s=Math.max(...hyps.map(x=>.55*sim(plain(c.title),plain(x.title))+.45*sim(plain(c.artist),plain(x.artist))));
+    if(dur&&c.dur)s+=Math.abs(c.dur-dur)<=4?.08:Math.abs(c.dur-dur)>25?-.1:0;if(COMPIL.test(c.album||''))s-=.06;return s};
+  const q=plain(hyps[0].artist+' '+hyps[0].title);let best=null;const take=c=>{c.s=score(c);if(!best||c.s>best.s)best=c};
+  try{const d=await CATALOG.deezer('search/track?limit=15&q='+encodeURIComponent(q));
+    for(const x of d?.data||[])take({src:'dz',id:x.id,albumId:x.album?.id,artist:x.artist?.name||'',title:x.title_short||x.title||'',album:x.album?.title||'',dur:x.duration||0,cover:x.album?.cover_xl||x.album?.cover_big||''})}catch(e){}
+  if(!best||best.s<.8)try{for(const x of await CATALOG.itunes(itunesUrl('search?entity=song&limit=15&term='+encodeURIComponent(q))))
+    take({src:'it',artist:x.artistName||'',title:x.trackName||'',album:x.collectionName||'',year:(x.releaseDate||'').slice(0,4),no:x.trackNumber||0,total:x.trackCount||0,dur:Math.round((x.trackTimeMillis||0)/1000),cover:(x.artworkUrl100||'').replace('100x100','600x600')})}catch(e){}
+  if(!best||best.s<.62)return null;
+  if(best.src==='dz')try{const al=await CATALOG.deezer('album/'+best.albumId);const pos=(al?.tracks?.data||[]).findIndex(t=>t.id===best.id);
+    best.year=(al?.release_date||'').slice(0,4);best.no=pos>=0?pos+1:0;best.total=al?.nb_tracks||0}catch(e){}
+  best.title=plain(best.title)||best.title;return best;
 }
 /* vignette de vidéo (16:9) : on garde le carré central, en dernier recours */
 async function squareArt(b64){
@@ -2044,7 +2115,7 @@ function npApply(){
     let mk=S.np[0];for(const m of S.np)if(m.t<=S.bounds[i]+3)mk=m;
     const prev=S.segMeta[i]||{};
     if(prev.np&&prev.npKey===mk.key){S.titles[i]=prev.title||mk.title;continue}
-    S.segMeta[i]={...prev,np:true,npKey:mk.key,status:'np',title:mk.title,artist:prev.artistSet?prev.artist:mk.artist,album:prev.albumSet?prev.album:(mk.album||prev.album||''),art:mk.art};
+    S.segMeta[i]={...prev,np:true,npKey:mk.key,status:'np',title:mk.title,alt:mk.alt,chan:mk.chan,dur:mk.dur,artist:prev.artistSet?prev.artist:mk.artist,album:prev.albumSet?prev.album:(mk.album||prev.album||''),art:mk.art};
     S.titles[i]=mk.title;
   }
   npEnrich();
@@ -2055,9 +2126,10 @@ async function npEnrichRun(){
   const tok=NPRUN;
   for(let i=0;i<S.bounds.length-1;i++){
     const sm=S.segMeta[i];if(!sm?.np||sm.status==='ok'||sm.npDone)continue;sm.npDone=true;
-    let r=null;try{r=sm.artist&&S.titles[i]?await npLookup(sm.artist,S.titles[i]):null}catch(e){}
+    let r=null;try{r=S.titles[i]?await resolveTrack(sm.artist||'',S.titles[i],{...sm,dur:sm.dur||(S.bounds[i+1]-S.bounds[i])}):null}catch(e){}
     if(tok!==NPRUN)return;
-    if(r){Object.assign(sm,{artist:r.artist,album:sm.album||r.album,year:r.year,no:r.no,total:r.total});const c=await fetchImage(r.cover);if(c){sm.cover=c.bytes;sm.coverMime=c.mime}}
+    if(r){if(!sm.artistSet)sm.artist=r.artist;if(!sm.titleSet){S.titles[i]=r.title;sm.title=r.title}
+      Object.assign(sm,{album:sm.albumSet?sm.album:(sm.album||r.album),year:r.year,no:r.no,total:r.total,checked:true});const c=await fetchImage(r.cover);if(c){sm.cover=c.bytes;sm.coverMime=c.mime}}
     if(!sm.cover&&sm.art){const c=await squareArt(sm.art);if(c){sm.cover=c.bytes;sm.coverMime=c.mime}}
     renderTracks();
   }
@@ -2206,7 +2278,7 @@ function identify(){return freeMode()?identifyTracks():identifyAlbum()}
 $('#aKey').value=getAKey();
 $('#aKeySave').onclick=()=>{try{localStorage.setItem(AKEY,$('#aKey').value.trim())}catch(e){}
   $('#aKeyState').textContent=$('#aKey').value.trim()?'Clé enregistrée sur cet appareil.':'Clé effacée.'};
-$('#identify').onclick=()=>identify();
+$('#identify').onclick=()=>identify();$('#fixNames').onclick=()=>fixNames();
 
 /* ---------- Mode d'enregistrement : vinyle ou autre source ---------- */
 const MODEK='sillon.mode';
@@ -2221,7 +2293,7 @@ function setMode(m,init){
   $('#s1 h2').lastChild.textContent=other?'Album (facultatif)':'Album';
   const nums=['01','02','03','04'];
   ['#s1','#s2','#s3','#s4'].forEach((id,k)=>{const n=document.querySelector(id+' h2 .n');if(n)n.textContent=nums[k]});
-  $('#identify').textContent=other?'Reconnaître les morceaux':'Reconnaître l\'album';
+  $('#identify').textContent=other?'Reconnaître les morceaux':'Reconnaître l\'album';$('#fixNames').hidden=!other;
   renderLvlHelp();stopMonitor();
   $('#autostopL').textContent=other?'Arrêt auto après 15 s de silence':'Arrêt auto en fin de face';
   $('#reset').textContent=other?'Recommencer':'Recommencer cette face';
