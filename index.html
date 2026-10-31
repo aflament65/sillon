@@ -1082,9 +1082,11 @@ async function finishTel(auto){
   Object.assign(S,{chunks:[],starts:[],frames:0,env:[],acc:0,cnt:0});LV.maxPk=0;
   let off=0,eof=false;
   try{
-    while(!eof){const r=await NATIVE.readCapture({offset:off,length:1048576});const b=unb64(r.data||'');const use=b.length&~3;
+    let size=0;
+    while(!eof){const r=await NATIVE.readCapture({offset:off,length:1048576});size=r.size||size;const b=unb64(r.data||'');const use=b.length&~3;
+      if(size&&off+b.length>size+8)throw new Error('lecture du fichier incohérente');
       if(use)pushI16(new Int16Array(b.buffer.slice(b.byteOffset,b.byteOffset+use)));
-      off+=b.length;eof=r.eof||!b.length;hint.textContent=`Récupération de l'enregistrement… ${r.size?Math.round(off/r.size*100):100} %`;await tick()}
+      off+=b.length;eof=r.eof||!b.length;hint.textContent=`Récupération de l'enregistrement… ${size?Math.min(100,Math.round(off/size*100)):100} %`;await tick()}
   }catch(e){hint.textContent='Récupération impossible : '+(e.message||e)+'.';return}
   S.np=np0?[np0]:[];
   for(const m of marks){
@@ -1436,7 +1438,8 @@ function stripId3(u8){
 }
 async function readNative(uri){
   const parts=[];let off=0,eof=false;
-  while(!eof){const r=await NATIVE.readFile({uri,offset:off,length:786432});const b=unb64(r.data);parts.push(b);off+=b.length;eof=r.eof||!b.length}
+  let guard=0;
+  while(!eof){const r=await NATIVE.readFile({uri,offset:off,length:786432});const b=unb64(r.data);parts.push(b);off+=b.length;eof=r.eof||!b.length;if(++guard>2000)throw new Error('fichier trop long ou illisible')}
   const out=new Uint8Array(off);let o=0;for(const p of parts){out.set(p,o);o+=p.length}return out;
 }
 async function classifyTrack(fromKey,id,dst){

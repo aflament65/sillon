@@ -403,8 +403,8 @@ public class SillonPlugin extends Plugin {
     @PluginMethod
     public void readFile(PluginCall call) {
         final String uri = call.getString("uri");
-        final long offset = call.getLong("offset", 0L);
-        final int length = call.getInt("length", 786432);
+        final long offset = call.getData().optLong("offset", 0L);
+        final int length = call.getData().optInt("length", 786432);
         if (uri == null) {
             call.reject("Fichier manquant");
             return;
@@ -748,8 +748,8 @@ public class SillonPlugin extends Plugin {
 
     @PluginMethod
     public void readCapture(PluginCall call) {
-        final long offset = call.getLong("offset", 0L);
-        final int length = call.getInt("length", 1048576);
+        final long offset = call.getData().optLong("offset", 0L);
+        final int length = call.getData().optInt("length", 1048576);
         new Thread(() -> {
             try (java.io.RandomAccessFile f = new java.io.RandomAccessFile(CaptureService.captureFile(getContext()), "r")) {
                 long size = f.length();
