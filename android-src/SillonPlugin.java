@@ -711,7 +711,9 @@ public class SillonPlugin extends Plugin {
                     Bitmap sb = k < 1f ? Bitmap.createScaledBitmap(b, Math.round(b.getWidth() * k), Math.round(b.getHeight() * k), true) : b;
                     ByteArrayOutputStream out = new ByteArrayOutputStream();
                     sb.compress(Bitmap.CompressFormat.JPEG, 88, out);
-                    o.put("art", Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP));
+                    lastArt = Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP);
+                    lastArtKey = key;
+                    o.put("art", lastArt);
                 } catch (Exception ignored) {
                 }
             }
@@ -723,6 +725,7 @@ public class SillonPlugin extends Plugin {
                 try {
                     JSONObject mk = new JSONObject(o.toString());
                     mk.put("t", cs.elapsed());
+                    if (!mk.has("art") && key.equals(lastArtKey) && lastArt != null) mk.put("art", lastArt);
                     synchronized (CaptureService.markers) {
                         CaptureService.markers.add(mk);
                     }
@@ -733,7 +736,7 @@ public class SillonPlugin extends Plugin {
         notifyListeners("nowPlaying", o);
     }
 
-    private String lastMarkerKey;
+    private String lastMarkerKey, lastArt, lastArtKey;
 
     @PluginMethod
     public void getCaptureMarkers(PluginCall call) {
