@@ -4,6 +4,7 @@ import android.Manifest;
 import android.app.Activity;
 import android.content.Context;
 import java.io.ByteArrayOutputStream;
+import org.json.JSONObject;
 import androidx.core.app.NotificationManagerCompat;
 import android.os.Looper;
 import android.os.Handler;
@@ -607,6 +608,7 @@ public class SillonPlugin extends Plugin {
             try {
                 msm = (MediaSessionManager) getContext().getSystemService(Context.MEDIA_SESSION_SERVICE);
                 lastNowKey = null;
+                lastMarkerKey = null;
                 attach(msm.getActiveSessions(listenerName()));
                 if (sessListener == null) {
                     sessListener = this::attach;
@@ -714,6 +716,55 @@ public class SillonPlugin extends Plugin {
                 }
             }
         }
+        CaptureService cs = CaptureService.instance;
+        if (cs != null && cs.isRecording()) {
+            if (!key.equals(lastMarkerKey) && (st == null || st.getState() == PlaybackState.STATE_PLAYING)) {
+                lastMarkerKey = key;
+                try {
+                    JSONObject mk = new JSONObject(o.toString());
+                    mk.put("t", cs.elapsed());
+                    synchronized (CaptureService.markers) {
+                        CaptureService.markers.add(mk);
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+        }
         notifyListeners("nowPlaying", o);
+    }
+
+    private String lastMarkerKey;
+
+    @PluginMethod
+    public void getCaptureMarkers(PluginCall call) {
+        JSArray a = new JSArray();
+        synchronized (CaptureService.markers) {
+            for (JSONObject m : CaptureService.markers) a.put(m);
+        }
+        JSObject o = new JSObject();
+        o.put("markers", a);
+        call.resolve(o);
+    }
+
+    @PluginMethod
+    public void readCapture(PluginCall call) {
+        final long offset = call.getLong("offset", 0L);
+        final int length = call.getInt("length", 1048576);
+        new Thread(() -> {
+            try (java.io.RandomAccessFile f = new java.io.RandomAccessFile(CaptureService.captureFile(getContext()), "r")) {
+                long size = f.length();
+                f.seek(Math.min(offset, size));
+                int n = (int) Math.max(0, Math.min(length, size - offset));
+                byte[] buf = new byte[n];
+                f.readFully(buf);
+                JSObject o = new JSObject();
+                o.put("data", Base64.encodeToString(buf, Base64.NO_WRAP));
+                o.put("eof", offset + n >= size);
+                o.put("size", size);
+                call.resolve(o);
+            } catch (Exception e) {
+                call.reject("Enregistrement introuvable : " + e.getMessage());
+            }
+        }).start();
     }
 }

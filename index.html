@@ -974,7 +974,7 @@ function onBlock(L,R){
   const t=S.frames/SR; if(t-REC.last>=.25){REC.last=t;$('#clock').textContent=fmtI(t)}
   const n=S.env.length;
   if(n%200===0&&n>0){const s=S.env.filter((_,i)=>i%5===0).sort((a,b)=>a-b);REC.liveMed=s[Math.floor(s.length*.6)]}
-  if($('#autostop').checked&&t>90){const w=Math.round(15/HS);let quiet=true;for(let i=n-w;i<n;i++)if(S.env[i]>REC.liveMed-28){quiet=false;break}
+  if($('#autostop').checked&&S.mode!=='tel'&&t>90){const w=Math.round(15/HS);let quiet=true;for(let i=n-w;i<n;i++)if(S.env[i]>REC.liveMed-28){quiet=false;break}
     if(quiet)stopRec(true)}
 }
 async function recStarted(msg){
@@ -989,7 +989,7 @@ function telBlock(b64){
   const raw=atob(b64),n=raw.length>>2,L=new Float32Array(n),R=new Float32Array(n);
   for(let k=0,j=0;k<n;k++,j+=4){let l=raw.charCodeAt(j)|raw.charCodeAt(j+1)<<8,r=raw.charCodeAt(j+2)|raw.charCodeAt(j+3)<<8;
     if(l>32767)l-=65536;if(r>32767)r-=65536;L[k]=l/32768;R[k]=r/32768}
-  if(S.recording&&n)onBlock(L,R);
+  if(S.recording&&n)lvlFeed(L,R); /* vumètre seulement : le son est enregistré par Android dans un fichier */
 }
 async function telCleanup(){for(const h of telSubs)try{await h.remove()}catch(e){}telSubs=[]}
 function bubbleIdle(){S.armed=false;$('#bubbleBtn').textContent='Bouton flottant'}
@@ -1000,7 +1000,8 @@ async function startTel(bubble){
   telSubs.push(await NATIVE.addListener('pcm',e=>{TELN.blocks++;telBlock(e.data)}));
   telSubs.push(await NATIVE.addListener('captureInfo',e=>{const d=$('#capDiag');d.hidden=false;
     const pk=e.peak<0?'erreur':e.peak?Math.round(20*Math.log10(e.peak/32768))+' dB':'silence (0)';
-    d.textContent=`Diagnostic : Android voit ${e.players} · capture ${e.recording?'active':'arrêtée'} à ${e.rate} Hz · ${Math.round(e.bytes/1024)} Ko reçus · niveau brut ${pk} · ${TELN.blocks} blocs reçus par l'app`}));
+    if(S.recording)$('#clock').textContent=fmtI(e.bytes/176400);
+    d.textContent=`Capture ${e.recording?'active':'arrêtée'} · ${fmtI(e.bytes/176400)} enregistrées · niveau ${pk} · Android voit ${e.players}`}));
   telSubs.push(await NATIVE.addListener('captureArmed',()=>{S.armed=true;$('#bubbleBtn').textContent='Retirer le bouton flottant';
     $('#recHint').textContent='Bouton flottant prêt. Passe dans l\'appli source, touche le bouton rond pour démarrer, lance la lecture, puis retouche-le pour arrêter : Sillon reviendra tout seul.'}));
   telSubs.push(await NATIVE.addListener('captureStarted',()=>{if(bubble&&!S.recording){const keepNp=NP_LAST?[{...NP_LAST,t:0}]:[];clearAudio();S.np=keepNp;lvlReset();REC.liveMed=-40;REC.last=0;
@@ -1047,12 +1048,17 @@ async function startRec(){
 }
 function stopRec(auto){
   if(!S.recording)return; S.recording=false;
-  if(S.mode==='tel'){NATIVE?.stopCapture().catch(()=>{});telCleanup();npStop()}
+  const tel=S.mode==='tel';
+  if(tel){NATIVE?.stopCapture().catch(()=>{});telCleanup();npStop()}
   else try{proc.disconnect();src.disconnect();stream.getTracks().forEach(t=>t.stop())}catch(e){}
   try{wake?.release()}catch(e){} wake=null;
   NATIVE?.keepAwake({on:false}).catch(()=>{});
   $('#recBtn').textContent='Enregistrer';$('#recBtn').className='main';
   $('#meter').firstElementChild.style.width='0';
+  if(tel){finishTel(auto);return}
+  recBilan(auto);
+}
+function recBilan(auto){
   const pkDb=Math.round(20*Math.log10(LV.maxPk+1e-9));
   const bilan=S.mode==='tel'&&LV.maxPk>=0.001?` Son capturé au niveau d'origine (crête ${pkDb} dB).`:LV.clips?` Attention : ${LV.clips} saturation${LV.clips>1?'s':''} (crête ${pkDb} dB). Si tu entends des craquements durs, baisse le volume de la source et recommence.`
     :S.mode==='tel'&&LV.maxPk<0.001?' Aucun son capturé : l\'appli utilisée interdit sans doute la capture.'
@@ -1060,6 +1066,37 @@ function stopRec(auto){
     :` Niveau correct (crête ${pkDb} dB).`;
   $('#recHint').textContent=(auto?'Fin de face détectée. ':'')+'Enregistré : '+fmtI(S.frames/SR)+'.'+bilan+' Vérifie les coupures plus bas.';
   if(S.frames>SR*5){analyze();autoIdentify()}
+}
+/* Son du téléphone : Android a tout écrit dans un fichier ; on le relit, avec les changements de morceau */
+function pushI16(a){
+  const n=a.length>>1;let pk=0;
+  for(let k=0;k<n;k++){const l=a[2*k]/32768,r=a[2*k+1]/32768,al=l<0?-l:l,ar=r<0?-r:r;if(al>pk)pk=al;if(ar>pk)pk=ar;
+    S.acc+=(l*l+r*r)/2;if(++S.cnt===HOP){S.env.push(10*Math.log10(S.acc/HOP+1e-12));S.acc=0;S.cnt=0}}
+  S.starts.push(S.frames);S.chunks.push(a);S.frames+=n;if(pk>LV.maxPk)LV.maxPk=pk;
+}
+async function finishTel(auto){
+  const hint=$('#recHint');hint.textContent='Récupération de l\'enregistrement…';
+  await wait(600);
+  const np0=S.np.length&&S.np[0].t===0?S.np[0]:null;
+  let marks=[];try{marks=(await NATIVE.getCaptureMarkers()).markers||[]}catch(e){}
+  Object.assign(S,{chunks:[],starts:[],frames:0,env:[],acc:0,cnt:0});LV.maxPk=0;
+  let off=0,eof=false;
+  try{
+    while(!eof){const r=await NATIVE.readCapture({offset:off,length:1048576});const b=unb64(r.data||'');const use=b.length&~3;
+      if(use)pushI16(new Int16Array(b.buffer.slice(b.byteOffset,b.byteOffset+use)));
+      off+=b.length;eof=r.eof||!b.length;hint.textContent=`Récupération de l'enregistrement… ${r.size?Math.round(off/r.size*100):100} %`;await tick()}
+  }catch(e){hint.textContent='Récupération impossible : '+(e.message||e)+'.';return}
+  S.np=np0?[np0]:[];
+  for(const m of marks){
+    const back=m.pos>0&&m.pos<10000?m.pos/1000:0;
+    const c={key:m.pkg+'|'+m.title+'|'+(m.artist||''),pkg:m.pkg,t:Math.max(0,(m.t||0)-back),raw:m.title,rawArtist:m.artist||'',album:m.album||'',art:m.art||null,dur:m.dur||0,...cleanNp(m.title,m.artist)};
+    const last=S.np[S.np.length-1];
+    if(last&&last.key===c.key){if(!last.art&&c.art)last.art=c.art;continue}
+    if(!S.np.length||c.t<3){c.t=S.np.length?c.t:0}
+    S.np.push(c);
+  }
+  if(S.np.length&&S.np[0].t>0)S.np[0].t=0;
+  recBilan(auto);
 }
 $('#recBtn').onclick=()=>S.recording?stopRec(false):startRec();
 $('#file').onchange=async e=>{
@@ -1602,7 +1639,7 @@ function onNowPlaying(e){
   /* instant du changement : maintenant, moins la position déjà jouée dans le nouveau morceau */
   const back=e.pos>0&&e.pos<10000?e.pos/1000:0;
   const m={key,pkg:e.pkg,t:S.recording?Math.max(0,S.frames/SR-back):0,raw:e.title,rawArtist:e.artist||'',album:e.album||'',art:e.art||null,dur:e.dur||0,...cleanNp(e.title,e.artist)};
-  if(S.recording)S.np.push(m);else S.np=[m];
+  if(S.recording){if(S.mode!=='tel')S.np.push(m)}else S.np=[m]; /* en capture du téléphone, Android horodate lui-même les changements */
   NP_LAST=m;
   $('#npNow').hidden=false;$('#npNow').textContent='En lecture : '+m.title+(m.artist?' — '+m.artist:'');
 }

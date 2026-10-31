@@ -32,6 +32,13 @@ import android.widget.TextView;
 
 import androidx.core.app.NotificationCompat;
 
+import org.json.JSONObject;
+
+import java.io.File;
+import java.io.FileOutputStream;
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * Service de premier plan qui capture le son joué par le téléphone (Android 10 et plus).
  * Mode normal : la capture démarre tout de suite.
@@ -42,12 +49,31 @@ import androidx.core.app.NotificationCompat;
 public class CaptureService extends Service {
 
     static final int RATE = 44100;
+    static volatile CaptureService instance;
+    /** Le son capturé est écrit ici : l'app le récupère à l'arrêt, même si elle était en veille. */
+    static File captureFile(android.content.Context c) {
+        return new File(c.getCacheDir(), "capture.pcm");
+    }
+    /** Changements de morceau signalés par l'appli source, horodatés dans l'enregistrement. */
+    static final List<JSONObject> markers = new ArrayList<>();
+    private volatile long written = 0;
+    private FileOutputStream out;
+
+    /** Secondes déjà enregistrées. */
+    double elapsed() {
+        return written / (double) (RATE * 4);
+    }
+
+    boolean isRecording() {
+        return running;
+    }
     private static final int BLOCK = 4410 * 4; // 100 ms en stéréo 16 bits
 
     private MediaProjection projection;
     private AudioRecord rec;
     private Thread reader;
     private volatile boolean running;
+    volatile int maxPeak = 0;
     private boolean bubbleMode;
     private long startedAt;
 
@@ -65,6 +91,12 @@ public class CaptureService extends Service {
             }
         }
     };
+
+    @Override
+    public void onCreate() {
+        super.onCreate();
+        instance = this;
+    }
 
     @Override
     public IBinder onBind(Intent intent) {
@@ -158,6 +190,16 @@ public class CaptureService extends Service {
             fail("capture audio impossible (" + e.getMessage() + ")");
             return;
         }
+        try {
+            out = new FileOutputStream(captureFile(this), false);
+        } catch (Exception e) {
+            fail("fichier d'enregistrement impossible (" + e.getMessage() + ")");
+            return;
+        }
+        written = 0;
+        synchronized (markers) {
+            markers.clear();
+        }
         running = true;
         startedAt = System.currentTimeMillis();
         reader = new Thread(() -> {
@@ -167,6 +209,12 @@ public class CaptureService extends Service {
             while (running) {
                 int got = rec.read(buf, 0, buf.length);
                 if (got > 0) {
+                    try {
+                        out.write(buf, 0, got);
+                        written += got;
+                    } catch (Exception e) {
+                        break;
+                    }
                     bytes += got;
                     for (int k = 0; k + 1 < got; k += 2) {
                         int v = Math.abs((short) ((buf[k] & 0xff) | (buf[k + 1] << 8)));
@@ -178,6 +226,7 @@ public class CaptureService extends Service {
                     if (now - lastInfo > 1000) {
                         lastInfo = now;
                         if (p != null) p.emitCaptureInfo(bytes, peak, playersInfo(), rec.getRecordingState(), rec.getSampleRate());
+                        maxPeak = Math.max(maxPeak, peak);
                         peak = 0;
                     }
                 } else if (got < 0) {
@@ -327,10 +376,15 @@ public class CaptureService extends Service {
     @Override
     public void onDestroy() {
         running = false;
+        instance = null;
         removeBubble();
         try {
             if (reader != null) reader.join(500);
         } catch (InterruptedException ignored) {
+        }
+        try {
+            if (out != null) out.close();
+        } catch (Exception ignored) {
         }
         try {
             if (rec != null) {
