@@ -855,7 +855,10 @@ const LV={hold:-99,holdT:0,win:[],clips:0,maxPk:0};
 const dbx=db=>Math.max(0,Math.min(100,(db+48)/48*100));
 function lvlReset(){LV.hold=-99;LV.win=[];LV.clips=0;LV.maxPk=0;const m=$('#meter');m.className='meter';m.firstElementChild.style.width='0';$('#peakMark').style.opacity=0;$('#lvlTxt').className='lvlTxt';$('#lvlTxt').textContent='Niveau : —'}
 function lvlFeed(L,R){
-  let pk=0,clip=false;for(let k=0;k<L.length;k++){const a=Math.abs(L[k]),b=Math.abs(R[k]);if(a>pk)pk=a;if(b>pk)pk=b;if(a>=.999||b>=.999)clip=true}
+  /* vraie saturation = au moins 4 échantillons de suite écrêtés au maximum (une crête isolée à 0 dB est normale) */
+  let pk=0,clip=false,run=0;for(let k=0;k<L.length;k++){const a=Math.abs(L[k]),b=Math.abs(R[k]);if(a>pk)pk=a;if(b>pk)pk=b;
+    if(a>=.999||b>=.999){if(++run>=4)clip=true}else run=0}
+  const tel=S.mode==='tel';if(tel)clip=false;
   if(clip)LV.clips++;if(pk>LV.maxPk)LV.maxPk=pk;
   const db=20*Math.log10(pk+1e-9),now=performance.now();
   LV.win.push([now,db]);while(LV.win.length&&now-LV.win[0][0]>3000)LV.win.shift();
@@ -865,7 +868,7 @@ function lvlFeed(L,R){
   m.className='meter '+cls;m.firstElementChild.style.width=dbx(db)+'%';
   const pm=$('#peakMark');pm.style.left='calc('+dbx(LV.hold)+'% - 1px)';pm.style.opacity=1;
   const t=$('#lvlTxt');
-  const [txt,c]=clip||recent>=-1?['Saturation ! Baisse le volume de la source.','hot']:recent>=-3?['Limite : baisse un peu le volume.','']:recent>=-12?['Bon niveau.','good']:recent>=-24?['Un peu faible : monte le volume si tu peux.','']:recent>-60?['Trop faible : monte le volume de la source.','']:['Aucun son détecté.',''];
+  const [txt,c]=tel?(recent>-60?['Son reçu en numérique, au niveau d\'origine : rien à régler.','good']:['Aucun son reçu : lance la lecture, ou l\'appli interdit la capture.','']):clip||recent>=-1?['Saturation ! Baisse le volume de la source.','hot']:recent>=-3?['Limite : baisse un peu le volume.','']:recent>=-12?['Bon niveau.','good']:recent>=-24?['Un peu faible : monte le volume si tu peux.','']:recent>-60?['Trop faible : monte le volume de la source.','']:['Aucun son détecté.',''];
   t.className='lvlTxt '+c;t.textContent=`${txt} Crête : ${recent>-90?Math.round(recent):'—'} dB${LV.clips?` · ${LV.clips} saturation${LV.clips>1?'s':''}`:''}`;
   return pk;
 }
@@ -953,7 +956,7 @@ function stopRec(auto){
   $('#recBtn').textContent='Enregistrer';$('#recBtn').className='main';
   $('#meter').firstElementChild.style.width='0';
   const pkDb=Math.round(20*Math.log10(LV.maxPk+1e-9));
-  const bilan=LV.clips?` Attention : ${LV.clips} saturation${LV.clips>1?'s':''} (crête ${pkDb} dB). Si tu entends des craquements durs, baisse le volume de la source et recommence.`
+  const bilan=S.mode==='tel'&&LV.maxPk>=0.001?` Son capturé au niveau d'origine (crête ${pkDb} dB).`:LV.clips?` Attention : ${LV.clips} saturation${LV.clips>1?'s':''} (crête ${pkDb} dB). Si tu entends des craquements durs, baisse le volume de la source et recommence.`
     :S.mode==='tel'&&LV.maxPk<0.001?' Aucun son capturé : l\'appli utilisée interdit sans doute la capture.'
     :pkDb<-24?` Niveau faible (crête ${pkDb} dB) : Sillon remontera le volume à la conversion${S.mode==='tel'?'.':', mais pour la prochaine fois monte un peu la source.'}`
     :` Niveau correct (crête ${pkDb} dB).`;
