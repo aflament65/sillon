@@ -161,6 +161,7 @@ button.big{padding:13px 16px;font-size:1rem}
 .atrk .acts{grid-column:2/-1;display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end}.atrk .acts button{padding:4px 10px;font-size:.85rem}
 .atrk.miss .tt b{color:var(--muted);font-weight:400}
 .atrk .cls,.atrk .delc{grid-column:1/-1}
+.ordRow{display:grid;grid-template-columns:2em minmax(0,1fr) auto auto;gap:6px;align-items:center;padding:4px 0;border-bottom:1px solid var(--line)}.ordRow b{font-weight:500;overflow-wrap:anywhere}.ordRow button{padding:4px 12px}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(96px + env(safe-area-inset-bottom,0px));z-index:60;background:var(--ink);color:var(--bg);padding:9px 14px;border-radius:99px;font-size:.88rem;max-width:90vw}
 .mini{position:fixed;left:0;right:0;bottom:0;z-index:40;background:var(--surface);border-top:1px solid var(--line);padding:0 max(12px,env(safe-area-inset-right,0px)) env(safe-area-inset-bottom,0px) max(12px,env(safe-area-inset-left,0px))}
 .miniBar{height:5px;background:var(--line);cursor:pointer;margin:0 calc(-1*max(12px,env(safe-area-inset-left,0px)))}.miniBar i{display:block;height:100%;width:0;background:var(--accent)}
@@ -356,6 +357,9 @@ body.withMini main{padding-bottom:110px}
   <div class="row"><button id="albPlay" class="main">▶ Lire l'album</button><button id="albShuffle">Aléatoire</button><button id="albQueue">+ File de lecture</button></div>
   <p class="hint" id="albNoPlay" hidden></p>
   <div id="albComplete" class="albComplete" hidden></div>
+  <div class="row" id="albTools"><button id="albEditBtn">Modifier l'album</button><button id="albOrderBtn">Changer l'ordre</button></div>
+  <div id="albEdit" class="nudge" hidden></div>
+  <div id="albOrder" class="nudge" hidden></div>
   <div id="albTracks" class="albTracks"></div>
   <div class="row"><button id="albCover">Changer la pochette</button><input id="albCoverFile" type="file" accept="image/*" hidden><button id="albDel">Supprimer l'album</button></div>
   <div class="row" id="albDelConfirm" hidden><span class="hint grow" id="albDelTxt">Supprimer cet album de la discothèque et effacer son dossier et ses MP3 du téléphone ?</span><button id="albDelYes" class="danger">Supprimer</button><button id="albDelNo">Annuler</button></div>
@@ -365,6 +369,8 @@ body.withMini main{padding-bottom:110px}
   <p class="hint">La discothèque est gardée sur cet appareil. Fais une sauvegarde de temps en temps pour la retrouver sur un autre téléphone.</p>
   <div class="row"><button id="libExport" class="main">Créer une sauvegarde</button><button id="libImportBtn">Restaurer une sauvegarde</button>
   <input id="libImport" type="file" accept="application/json,.json" hidden></div>
+  <div class="row" id="repairRow" hidden><button id="libRepair">Réparer la discothèque</button></div>
+  <p class="hint" id="repairHint" hidden>Retrouve les MP3 de ton dossier de sauvegarde qui ne sont plus dans la discothèque (d'après leurs étiquettes) et les remet dans leur album.</p>
   <p class="hint" id="libMsg"></p>
 </section>
 <section id="appSec">
@@ -1299,11 +1305,14 @@ function albumRows(r){
     if(i>=0){used.add(i);rows.push({exp:e,t:tr[i]})}else rows.push({exp:e,t:null});
   }
   tr.forEach((x,k)=>{if(!used.has(k))rows.push({exp:null,t:x})});
-  return rows;
+  /* ordre affiché : le numéro du morceau enregistré (modifiable), sinon celui de la liste officielle */
+  const num=x=>(x.t&&x.t.no)||(x.exp&&x.exp.no)||999;
+  return rows.map((x,i)=>({x,i})).sort((a,b)=>num(a.x)-num(b.x)||(a.x.t?0:1)-(b.x.t?0:1)||a.i-b.i).map(o=>o.x);
 }
 const albumCount=r=>{const rows=albumRows(r);return {have:rows.filter(x=>x.t).length,total:rows.length}};
 /* Enregistre dans la discothèque les morceaux d'une conversion terminée */
-async function saveJobToLib(j){
+function saveJobToLib(j){return libOp(ctx=>saveJobToLib0(j,ctx)).catch(e=>toast('Discothèque non mise à jour : '+e.message))}
+async function saveJobToLib0(j,ctx){
   const groups=new Map();
   for(const t of j.tracks){if(!t.done)continue;const a=t.alb;if(!groups.has(a.key))groups.set(a.key,{a,list:[]});groups.get(a.key).list.push(t)}
   for(const {a,list} of groups.values()){
@@ -1314,7 +1323,8 @@ async function saveJobToLib(j){
       const e={id:uid(),no:a.unsorted?0:t.no,title:t.title,artist:t.artist,dur:Math.round((t.end-t.start)/SR),dir:t.dir,file:fileNameOf(t),uri:t.uri||null,source:j.source,date:Date.now()};
       if(t.blob)WEBBLOB.set(e.id,URL.createObjectURL(t.blob));
       const k=rec.tracks.findIndex(x=>!a.unsorted&&((x.no&&x.no===e.no&&sim(x.title,e.title)>.5)||norm(x.title)===norm(e.title)));
-      if(k>=0)rec.tracks[k]=e;else rec.tracks.push(e);
+      if(k>=0){const o=rec.tracks[k];ctx.removed.push(o.id);/* nouvel enregistrement du même titre : il remplace l'ancien */
+        if(o.uri&&o.uri!==e.uri&&(o.dir+'/'+o.file).toLowerCase()!==(e.dir+'/'+e.file).toLowerCase())ctx.trash.push(o.uri);rec.tracks[k]=e}else rec.tracks.push(e);
     }
     if(j.kind==='vinyle'){
       rec.src=j.src||old.src||null;rec.sides=j.sides.length?j.sides:old.sides||[];
@@ -1335,9 +1345,9 @@ async function fetchTracklist(key,relId){
   try{const r=await mb('release/'+relId+'?inc=recordings');const tl=[];let n=0;
     let unk=0;
     for(const m of r.media||[])for(const t of m.tracks||[]){n++;if(!t.title||/^\[?unknown\]?$/i.test(t.title.trim())){unk++;continue}tl.push({no:n,number:t.number||String(n),title:t.title,length:t.length||0})}
-    const rec=LIB.find(x=>x.key===key);if(!rec||!tl.length||unk>tl.length)return; /* liste trop incomplète : on ne l'utilise pas */
-    rec.tracklist=tl;rec.relId=relId;if(!rec.year&&r.date)rec.year=r.date.slice(0,4);
-    await libPut(rec);await libLoad();renderLib();if(LIBVIEW.key===key)renderAlbum();
+    if(!tl.length||unk>tl.length)return; /* liste trop incomplète : on ne l'utilise pas */
+    await libOp(async()=>{const rec=libGet(key);if(!rec)return;rec.tracklist=tl;rec.relId=relId;if(!rec.year&&r.date)rec.year=r.date.slice(0,4);await libPut(rec)});
+    renderLib();if(LIBVIEW.key===key)renderAlbum();
   }catch(e){}
 }
 /* Anciens albums : on retrouve les MP3 déjà présents dans le dossier */
@@ -1406,14 +1416,14 @@ function renderAlbum(){
   const box=$('#albTracks');box.innerHTML='';
   rows.forEach(({exp,t},i)=>{
     const row=document.createElement('div');row.className='atrk'+(t?'':' miss');
-    const no=exp?.number||exp?.no||t?.no||'';const title=t?.title||exp?.title||'';
+    const no=t?.no?(exp&&exp.no===t.no&&exp.number?exp.number:t.no):(exp?.number||exp?.no||'');const title=t?.title||exp?.title||'';
     const d=t?.dur||(exp?.length?Math.round(exp.length/1000):0);
     row.innerHTML=`<span class="no mono">${esc(no)}</span><span class="tt"><b>${esc(title)}</b>${t?`<small>${t.artist&&t.artist!==r.artist&&t.artist!=='Artiste inconnu'?esc(t.artist)+' · ':''}<span class="tag src-${t.source}">${SRC_LABEL[t.source]||''}</span></small>`:'<small>manquant</small>'}</span>
       <span class="d mono">${d?fmtI(d):''}</span>`;
     if(t){const acts=document.createElement('span');acts.className='acts';
       if(playable(t)){const bp=document.createElement('button');bp.textContent='▶';bp.setAttribute('aria-label','Écouter '+title);bp.onclick=()=>{const idx=pl.findIndex(x=>x.id===t.id);playItems(pl,Math.max(0,idx),false)};
         const bq=document.createElement('button');bq.textContent='+';bq.setAttribute('aria-label','Ajouter à la file');bq.onclick=()=>{addItems([qItem(r,t)]);toast('Ajouté à la file')};acts.append(bp,bq)}
-      if(r.unsorted||t.source!=='vinyle'){const bc=document.createElement('button');bc.textContent='Classer…';bc.onclick=()=>classifyForm(row,r,t);acts.append(bc)}
+      {const bc=document.createElement('button');bc.textContent=r.unsorted?'Classer…':'Modifier…';bc.onclick=()=>trackForm(row,r,t);acts.append(bc)}
       const bd=document.createElement('button');bd.textContent='✕';bd.setAttribute('aria-label','Supprimer '+title);
       bd.onclick=()=>{if(row.querySelector('.delc'))return;const c=document.createElement('div');c.className='delc row';
         c.innerHTML='<span class="hint grow">Supprimer ce titre et effacer son fichier ?</span><button class="danger">Supprimer</button><button>Annuler</button>';
@@ -1423,6 +1433,8 @@ function renderAlbum(){
     box.append(row);
   });
   $('#albDelConfirm').hidden=true;$('#albDel').hidden=false;$('#albCover').hidden=!!r.unsorted;
+  $('#albEdit').hidden=true;$('#albOrder').hidden=true;$('#albTools').hidden=!!r.unsorted;$('#albOrderBtn').hidden=(r.tracks||[]).length<2;
+  $('#albEditBtn').onclick=()=>albumForm(r);$('#albOrderBtn').onclick=()=>orderForm(r);
   $('#albDelTxt').textContent=r.unsorted?'Supprimer tous les morceaux non classés et effacer leurs fichiers du téléphone ?':`Supprimer « ${r.album} » de la discothèque et effacer son dossier et ses ${have.length} MP3 du téléphone ?`;
 }
 $('#albBack').onclick=closeAlbum;
@@ -1432,7 +1444,6 @@ $('#albDelYes').onclick=async()=>{const r=LIB.find(x=>x.key===LIBVIEW.key);if(r)
 $('#albCover').onclick=()=>$('#albCoverFile').click();
 $('#albCoverFile').onchange=async e=>{const f=e.target.files[0];e.target.value='';const r=LIB.find(x=>x.key===LIBVIEW.key);if(f&&r)await setAlbumCover(r,f)};
 /* Suppression : la discothèque et les fichiers du téléphone */
-async function deleteTrackFile(t){if(NATIVE&&t.uri)try{await NATIVE.deleteFile({uri:t.uri})}catch(e){}WEBBLOB.delete(t.id)}
 function dropFromQueue(fn){
   if(!PL.q.length)return;const cur=curItem();const keep=PL.order.map(i=>PL.q[i]).filter(it=>!fn(it));
   if(!keep.length){clearQ();return}
@@ -1441,65 +1452,14 @@ function dropFromQueue(fn){
   if(NATQ)syncNative(PL.playing,!!(cur&&!fn(cur)));else if(!cur||fn(cur))playPos(PL.pos);
   updPlayer();
 }
-async function deleteTrack(r,t){
-  await deleteTrackFile(t);dropFromQueue(it=>it.id===t.id);
-  r.tracks=(r.tracks||[]).filter(x=>x.id!==t.id);
-  if(!r.tracks.length&&(r.unsorted||!Object.keys(r.done||{}).length)){await libDel(r.key);LIBVIEW.key=null}else{r.updated=Date.now();await libPut(r)}
-  await libLoad();LIBVIEW.key?renderAlbum():renderLib();toast('« '+t.title+' » supprimé');
-}
-async function deleteAlbum(r){
-  dropFromQueue(it=>it.key===r.key);
-  if(NATIVE){
-    if(r.unsorted)for(const t of r.tracks||[])await deleteTrackFile(t);
-    else{const dirs=new Set((r.tracks||[]).map(t=>t.dir).filter(Boolean));if(r.dir)dirs.add(r.dir);if(!dirs.size)dirs.add(legacyDir(r));
-      for(const d of dirs)try{await NATIVE.deletePath({path:d,pruneParent:true})}catch(e){}}
-  }
-  await libDel(r.key);await libLoad();toast('Album supprimé');
-}
 /* Pochette choisie après coup : discothèque, image du dossier et étiquettes des MP3 */
 async function cropSquare(file,size){
   const img=new Image();img.src=URL.createObjectURL(file);await img.decode();const s=Math.min(img.width,img.height);
   const c=document.createElement('canvas');c.width=c.height=size;c.getContext('2d').drawImage(img,(img.width-s)/2,(img.height-s)/2,s,s,0,0,size,size);
   const b=await new Promise(res=>c.toBlob(res,'image/jpeg',.88));return new Uint8Array(await b.arrayBuffer());
 }
-async function retagTrack(r,t){
-  const audio=stripId3(await readNative(t.uri));const total=r.tracklist?.length||(r.tracks||[]).length;
-  const tag=id3For({artist:r.artist,album:r.album,year:r.year||''},{title:t.title,artist:t.artist||r.artist,no:t.no||1,total},r.cover,r.coverMime||'image/jpeg');
-  t.uri=await writeNative(t.dir+'/'+t.file,new Blob([tag,audio],{type:'audio/mpeg'}))||t.uri;
-}
-async function setAlbumCover(r,file){
-  try{r.cover=await cropSquare(file,600);r.coverMime='image/jpeg';r.thumb=await thumbOf(r.cover,'image/jpeg',160);r.updated=Date.now();
-    await libPut(r);await libLoad();renderAlbum();
-    if(NATIVE&&!r.unsorted){const files=(r.tracks||[]).filter(t=>t.uri);const dir=r.dir||files[0]?.dir||legacyDir(r);
-      await writeNative(dir+'/folder.jpg',new Blob([r.cover],{type:'image/jpeg'}));
-      let n=0;for(const t of files){toast(`Pochette ajoutée aux fichiers… ${++n}/${files.length}`);try{await retagTrack(r,t)}catch(e){}}
-      await libPut(r);await libLoad();toast(`Pochette ajoutée à l'album et à ses ${files.length} fichier${files.length>1?'s':''}`)}
-    else toast('Pochette ajoutée');
-  }catch(e){toast('Image illisible : '+(e.message||e))}
-}
+if(NATIVE){$('#repairRow').hidden=false;$('#repairHint').hidden=false;$('#libRepair').onclick=repairLib}
 $('#libShuffle').onclick=()=>{const all=LIB.flatMap(r=>(r.tracks||[]).filter(playable).map(t=>qItem(r,t)));if(!all.length)return toast(NATIVE?'Aucun fichier lisible.':'La lecture se fait dans l\'application Android.');playItems(all,0,true)};
-/* Classer un morceau dans un album (existant ou nouveau) : fichier déplacé et étiquettes corrigées */
-function classifyForm(row,r,t){
-  if(row.querySelector('.cls'))return;
-  const f=document.createElement('div');f.className='cls nudge';
-  const arts=[...new Set(LIB.filter(x=>!x.unsorted).map(x=>x.artist))],albs=LIB.filter(x=>!x.unsorted);
-  f.innerHTML=`<div class="row"><label class="grow">Artiste<input type="text" class="ca" list="dlArt" value="${esc(r.unsorted?(t.artist&&t.artist!=='Artiste inconnu'?t.artist:''):r.artist)}"></label>
-    <label class="grow">Album<input type="text" class="cb" list="dlAlb" value="${esc(r.unsorted?'':r.album)}"></label></div>
-    <div class="row"><label style="flex:0 0 70px">N°<input type="text" class="cn" inputmode="numeric" value="${t.no||''}"></label><label class="grow">Titre<input type="text" class="ct" value="${esc(t.title)}"></label></div>
-    <datalist id="dlArt">${arts.map(a=>`<option value="${esc(a)}">`).join('')}</datalist><datalist id="dlAlb">${albs.map(a=>`<option value="${esc(a.album)}">${esc(a.artist)}</option>`).join('')}</datalist>
-    <div class="row"><button class="main ok">Classer</button><button class="no">Annuler</button></div><p class="hint msg"></p>`;
-  row.append(f);
-  const ca=f.querySelector('.ca'),cb=f.querySelector('.cb'),cn=f.querySelector('.cn'),ct=f.querySelector('.ct');
-  cb.onchange=()=>{const a=albs.find(x=>norm(x.album)===norm(cb.value)&&(!ca.value||norm(x.artist)===norm(ca.value)));if(a){if(!ca.value)ca.value=a.artist;const e=(a.tracklist||[]).find(e=>sim(e.title,ct.value)>.6);if(e&&!cn.value)cn.value=e.no}};
-  f.querySelector('.no').onclick=()=>f.remove();
-  f.querySelector('.ok').onclick=async()=>{
-    if(!ca.value.trim()||!cb.value.trim()){f.querySelector('.msg').textContent='Indique l\'artiste et l\'album.';return}
-    f.querySelector('.ok').disabled=true;f.querySelector('.msg').textContent='Classement…';
-    try{await classifyTrack(r.key,t.id,{artist:ca.value.trim(),album:cb.value.trim(),no:+cn.value||0,title:ct.value.trim()||t.title});
-      toast('Morceau classé dans « '+cb.value.trim()+' »');renderAlbum()}
-    catch(e){f.querySelector('.msg').textContent='Classement impossible : '+e.message;f.querySelector('.ok').disabled=false}
-  };
-}
 function stripId3(u8){
   if(u8[0]===73&&u8[1]===68&&u8[2]===51){const sz=(u8[6]&127)<<21|(u8[7]&127)<<14|(u8[8]&127)<<7|(u8[9]&127);return u8.subarray(10+sz+((u8[5]&16)?10:0))}
   return u8;
@@ -1510,28 +1470,255 @@ async function readNative(uri){
   while(!eof){const r=await NATIVE.readFile({uri,offset:off,length:786432});const b=unb64(r.data);parts.push(b);off+=b.length;eof=r.eof||!b.length;if(++guard>2000)throw new Error('fichier trop long ou illisible')}
   const out=new Uint8Array(off);let o=0;for(const p of parts){out.set(p,o);o+=p.length}return out;
 }
-async function classifyTrack(fromKey,id,dst){
-  const from=LIB.find(r=>r.key===fromKey),t=from?.tracks?.find(x=>x.id===id);if(!t)throw new Error('morceau introuvable');
-  const key=albumKey(dst.artist,dst.album);let to=LIB.find(r=>r.key===key&&r!==from);
-  const year=to?.year||'';const dir=to?.dir||(safe(dst.artist)+'/'+safe(dst.album)+(year?' ('+year+')':''));
-  const nt={...t,no:dst.no||0,title:dst.title,artist:dst.artist,dir};nt.file=fileNameOf({no:nt.no||1,title:nt.title});
-  if(NATIVE&&t.uri){
-    const audio=stripId3(await readNative(t.uri));
-    const total=to?.tracklist?.length||nt.no||1;
-    const tag=id3For({artist:dst.artist,album:dst.album,year},{title:nt.title,artist:dst.artist,no:nt.no||1,total},to?.cover||null,to?.coverMime||'image/jpeg');
-    nt.uri=await writeNative(dir+'/'+nt.file,new Blob([tag,audio],{type:'audio/mpeg'}));
-    if(nt.uri&&nt.uri!==t.uri)await NATIVE.deleteFile({uri:t.uri}).catch(()=>{});
-  }
-  if(WEBBLOB.has(t.id))WEBBLOB.set(nt.id,WEBBLOB.get(t.id));
-  from.tracks=from.tracks.filter(x=>x.id!==id);
-  if(from===to)to=null;
-  if(!from.tracks.length&&(from.unsorted||!Object.keys(from.done||{}).length))await libDel(from.key);else await libPut(from);
-  to=to?{...to}:{key,artist:dst.artist,album:dst.album,year,dir,created:Date.now(),sources:{},tracks:[],tracklist:[]};
-  to.sources={...(to.sources||{}),[t.source]:1};
-  to.tracks=[...(to.tracks||[]).filter(x=>!(nt.no&&x.no===nt.no&&sim(x.title,nt.title)>.5)),nt];to.updated=Date.now();
-  if(!to.thumb&&from.thumb&&!from.unsorted){to.thumb=from.thumb;to.cover=from.cover;to.coverMime=from.coverMime}
-  await libPut(to);await libLoad();
-  if(!to.tracklist?.length)findTracklist(to.key);
+/* ---------- Gestion des albums : règles de sûreté ----------
+ 1. Un album existant n'est jamais remplacé par un nouveau : ce qui y arrive est ajouté ou fusionné.
+ 2. Un fichier n'en écrase jamais un autre : si le nom est pris, on en prend un libre.
+ 3. L'ancien fichier n'est effacé qu'une fois la nouvelle copie écrite ET la discothèque enregistrée.
+ 4. Après chaque opération, on vérifie qu'aucun morceau n'a disparu ni n'est en double ; sinon tout est remis comme avant.
+ 5. Un dossier n'est supprimé que s'il ne contient plus rien (pochette mise à part).
+ 6. Une seule opération à la fois. */
+let OPCHAIN=Promise.resolve();
+function libOp(fn,removes=[]){
+  const run=async()=>{
+    await libLoad();
+    const snap=LIB.map(r=>({...r,tracks:(r.tracks||[]).map(t=>({...t}))}));
+    const before=new Set(snap.flatMap(r=>r.tracks.map(t=>t.id)));
+    const ctx={created:[],trash:[],dirs:new Set(),names:new Map(),renames:[],removed:[]};
+    try{
+      const out=await fn(ctx);
+      await libLoad();
+      const all=LIB.flatMap(r=>(r.tracks||[]).map(t=>t.id)),now=new Set(all);
+      const lost=[...before].filter(i=>!now.has(i)&&!removes.includes(i)&&!ctx.removed.includes(i));
+      if(lost.length)throw new Error(lost.length+' morceau'+(lost.length>1?'x auraient':' aurait')+' disparu de la discothèque');
+      if(now.size!==all.length)throw new Error('un morceau se serait retrouvé en double');
+      /* tout est cohérent : on peut effacer les anciens fichiers et ranger */
+      if(NATIVE){
+        for(const u of ctx.trash)await NATIVE.deleteFile({uri:u}).catch(()=>{});
+        for(const x of ctx.renames)try{const res=await NATIVE.renameFile({uri:x.uri,name:x.name});
+          const r=LIB.find(r=>(r.tracks||[]).some(t=>t.id===x.id));const t=r?.tracks.find(t=>t.id===x.id);
+          if(t&&res?.uri){t.uri=res.uri;t.file=x.name;await libPut(r)}}catch(e){}
+        for(const d of ctx.dirs)if(d)await NATIVE.deletePath({path:d,onlyIfEmpty:true,pruneParent:true}).catch(()=>{});
+        if(ctx.renames.length)await libLoad();
+      }
+      return out;
+    }catch(e){
+      /* retour arrière : la discothèque redevient exactement comme avant, les copies neuves sont effacées */
+      try{const keys=new Set(snap.map(r=>r.key));await libLoad();
+        for(const r of LIB)if(!keys.has(r.key))await libDel(r.key);
+        for(const r of snap)await libPut(r);
+        if(NATIVE)for(const u of ctx.created)await NATIVE.deleteFile({uri:u}).catch(()=>{});
+      }catch(_){}
+      await libLoad();throw e;
+    }
+  };
+  const p=OPCHAIN.then(run,run);OPCHAIN=p.catch(()=>{});return p;
+}
+const albumDir=r=>safe(r.artist)+'/'+safe(r.album)+(r.year?' ('+r.year+')':'');
+function dirOf(r){if(r.dir)return r.dir;const c={};for(const t of r.tracks||[])if(t.dir)c[t.dir]=(c[t.dir]||0)+1;
+  return Object.keys(c).sort((a,b)=>c[b]-c[a])[0]||(r.unsorted?'Divers':albumDir(r))}
+async function namesIn(ctx,dir){
+  if(!ctx.names.has(dir)){const s=new Set();
+    if(NATIVE)try{const d=await NATIVE.listDir({path:dir});for(const f of d.files||[])s.add(f.name.toLowerCase())}catch(e){}
+    for(const r of LIB)for(const t of r.tracks||[])if(t.dir===dir&&t.file)s.add(t.file.toLowerCase());
+    ctx.names.set(dir,s)}
+  return ctx.names.get(dir);
+}
+async function freeName(ctx,dir,want){const s=await namesIn(ctx,dir);let n=want,k=2;
+  while(s.has(n.toLowerCase()))n=want.replace(/\.mp3$/i,'')+' ('+(k++)+').mp3';s.add(n.toLowerCase());return n}
+/* Écrit le morceau à sa place (dossier, nom, étiquettes de l'album) ; l'original n'est effacé qu'à la fin de l'opération */
+async function placeTrack(ctx,t,alb,dir,no,title,artist){
+  const want=fileNameOf({no:no||1,title});
+  const nt={...t,no,title,artist,dir,file:want};
+  if(!NATIVE||!t.uri){if(t.dir!==dir)ctx.dirs.add(t.dir);return nt}
+  const same=t.dir===dir&&(t.file||'').toLowerCase()===want.toLowerCase();
+  const audio=stripId3(await readNative(t.uri));
+  const total=Math.max(alb.tracklist?.length||0,(alb.tracks||[]).length,no||1);
+  const tag=id3For({artist:alb.artist,album:alb.album,year:alb.year||''},{title,artist:artist||alb.artist,no:no||1,total},alb.cover||null,alb.coverMime||'image/jpeg');
+  const name=await freeName(ctx,dir,same?want.replace(/\.mp3$/i,' (maj).mp3'):want);
+  const uri=await writeNative(dir+'/'+name,new Blob([tag,audio],{type:'audio/mpeg'}));
+  if(!uri)throw new Error('impossible d\'écrire « '+name+' »');
+  ctx.created.push(uri);ctx.trash.push(t.uri);
+  if(t.dir&&t.dir!==dir)ctx.dirs.add(t.dir);
+  if(same)ctx.renames.push({id:t.id,uri,name:want});
+  return {...nt,uri,file:name};
+}
+const libGet=k=>LIB.find(r=>r.key===k);
+async function saveOrDrop(r){if(!(r.tracks||[]).length&&(r.unsorted||!Object.keys(r.done||{}).length)){await libDel(r.key);return false}r.updated=Date.now();await libPut(r);return true}
+/* Corriger le numéro / le titre d'un morceau, sans changer d'album */
+function editTrack(key,id,{no,title,artist}){return libOp(async ctx=>{
+  const r=libGet(key),t=r?.tracks?.find(x=>x.id===id);if(!t)throw new Error('morceau introuvable');
+  const nt=await placeTrack(ctx,t,r,t.dir||dirOf(r),no,title,artist||t.artist);
+  r.tracks=r.tracks.map(x=>x.id===id?nt:x);await libPut(r);
+})}
+/* Ranger un morceau dans un autre album (existant : il y est ajouté ; sinon l'album est créé) */
+function moveTrack(fromKey,id,dst){
+  const key=albumKey(dst.artist,dst.album);
+  if(key===fromKey)return editTrack(fromKey,id,dst);
+  return libOp(async ctx=>{
+    const from=libGet(fromKey),t=from?.tracks?.find(x=>x.id===id);if(!t)throw new Error('morceau introuvable');
+    const to=libGet(key)||{key,artist:dst.artist,album:dst.album,year:'',created:Date.now(),sources:{},tracks:[],tracklist:[]};
+    if(!to.cover&&from.cover&&!from.unsorted){to.cover=from.cover;to.coverMime=from.coverMime;to.thumb=from.thumb}
+    const nt=await placeTrack(ctx,t,to,dirOf(to),dst.no,dst.title,dst.artist);
+    to.tracks=[...(to.tracks||[]),nt];to.sources={...(to.sources||{}),[t.source]:1};to.unsorted=false;to.updated=Date.now();
+    await libPut(to);
+    from.tracks=from.tracks.filter(x=>x.id!==id);await saveOrDrop(from);
+    return to.key;
+  });
+}
+/* Renommer un album (artiste, titre, année) ; s'il existe déjà sous ce nom, les deux sont réunis */
+function editAlbum(key,{artist,album,year}){return libOp(async ctx=>{
+  const r=libGet(key);if(!r)throw new Error('album introuvable');
+  const nk=albumKey(artist,album),other=nk!==key?libGet(nk):null;
+  const to=other||{...r,key:nk};
+  if(!other){to.artist=artist;to.album=album;to.year=year;delete to.dir}
+  else{to.sources={...(r.sources||{}),...(other.sources||{})};to.done={...(r.done||{}),...(other.done||{})};
+    if(!to.sides?.length&&r.sides?.length)to.sides=r.sides;if(!to.tracklist?.length&&r.tracklist?.length)to.tracklist=r.tracklist;
+    if(!to.cover&&r.cover){to.cover=r.cover;to.coverMime=r.coverMime;to.thumb=r.thumb}if(!to.year&&year)to.year=year}
+  const dir=other?dirOf(other):albumDir(to);
+  const moved=[];for(const t of r.tracks||[])moved.push(await placeTrack(ctx,t,to,dir,t.no,t.title,t.artist===r.artist?to.artist:t.artist));
+  to.tracks=other?[...(other.tracks||[]),...moved]:moved;to.dir=dir;to.updated=Date.now();
+  if(r.dir&&r.dir!==dir)ctx.dirs.add(r.dir);
+  if(NATIVE&&to.cover&&moved.length)try{await writeNative(dir+'/folder.jpg',new Blob([to.cover],{type:'image/jpeg'}))}catch(e){}
+  await libPut(to);if(nk!==key)await libDel(key);
+  return nk;
+})}
+/* Nouvel ordre des morceaux : numéros, noms de fichiers et étiquettes mis à jour */
+function reorderAlbum(key,ids){return libOp(async ctx=>{
+  const r=libGet(key);if(!r)throw new Error('album introuvable');
+  const out=[];for(const t of r.tracks)if(!ids.includes(t.id))out.push(t);
+  for(let i=0;i<ids.length;i++){const t=r.tracks.find(x=>x.id===ids[i]);if(!t)continue;
+    out.push(t.no===i+1?t:await placeTrack(ctx,t,r,t.dir||dirOf(r),i+1,t.title,t.artist))}
+  r.tracks=out;await libPut(r);
+})}
+async function deleteTrack(r,t){
+  try{await libOp(async ctx=>{const a=libGet(r.key);if(!a)return;
+      a.tracks=(a.tracks||[]).filter(x=>x.id!==t.id);if(t.uri)ctx.trash.push(t.uri);ctx.dirs.add(t.dir);
+      if(!(await saveOrDrop(a))&&LIBVIEW.key===a.key)LIBVIEW.key=null},[t.id]);
+    WEBBLOB.delete(t.id);dropFromQueue(it=>it.id===t.id);toast('« '+t.title+' » supprimé')}
+  catch(e){toast('Suppression annulée : '+e.message)}
+  LIBVIEW.key?renderAlbum():renderLib();
+}
+async function deleteAlbum(r){
+  const ids=(r.tracks||[]).map(t=>t.id);
+  try{await libOp(async ctx=>{for(const t of r.tracks||[]){if(t.uri)ctx.trash.push(t.uri);ctx.dirs.add(t.dir)}
+      if(!r.unsorted)ctx.dirs.add(dirOf(r));await libDel(r.key)},ids);
+    dropFromQueue(it=>it.key===r.key);ids.forEach(i=>WEBBLOB.delete(i));toast('Album supprimé')}
+  catch(e){toast('Suppression annulée : '+e.message)}
+}
+async function setAlbumCover(r,file){
+  let cover;try{cover=await cropSquare(file,600)}catch(e){toast('Image illisible : '+(e.message||e));return}
+  try{await libOp(async ctx=>{const a=libGet(r.key);a.cover=cover;a.coverMime='image/jpeg';a.thumb=await thumbOf(cover,'image/jpeg',160);
+      if(NATIVE&&!a.unsorted){const dir=dirOf(a);await writeNative(dir+'/folder.jpg',new Blob([cover],{type:'image/jpeg'}));
+        const out=[];let n=0;for(const t of a.tracks||[]){toast(`Pochette ajoutée aux fichiers… ${++n}/${a.tracks.length}`);out.push(t.uri?await placeTrack(ctx,t,a,t.dir||dir,t.no,t.title,t.artist):t)}a.tracks=out}
+      await libPut(a)});
+    toast('Pochette ajoutée'+(NATIVE?' à l\'album et à ses fichiers':''))}
+  catch(e){toast('Pochette non ajoutée : '+e.message)}
+  renderAlbum();
+}
+/* Formulaire « Modifier » d'un morceau : corriger, ou ranger dans un autre album */
+function trackForm(row,r,t){
+  if(row.querySelector('.cls'))return;
+  const f=document.createElement('div');f.className='cls nudge';
+  const albs=LIB.filter(x=>!x.unsorted),arts=[...new Set(albs.map(x=>x.artist))];
+  f.innerHTML=`<div class="row"><label style="flex:0 0 70px">N°<input type="text" class="cn" inputmode="numeric" value="${t.no||''}"></label><label class="grow">Titre<input type="text" class="ct" value="${esc(t.title)}"></label></div>
+    <div class="row"><label class="grow">Artiste<input type="text" class="ca" list="dlArt" value="${esc(r.unsorted?(t.artist&&t.artist!=='Artiste inconnu'?t.artist:''):r.artist)}"></label>
+    <label class="grow">Album<input type="text" class="cb" list="dlAlb" value="${esc(r.unsorted?'':r.album)}"></label></div>
+    <datalist id="dlArt">${arts.map(a=>`<option value="${esc(a)}">`).join('')}</datalist><datalist id="dlAlb">${albs.map(a=>`<option value="${esc(a.album)}">${esc(a.artist)}</option>`).join('')}</datalist>
+    <p class="hint dest"></p>
+    <div class="row"><button class="main ok">Enregistrer</button><button class="no">Annuler</button></div><p class="hint msg"></p>`;
+  row.append(f);
+  const ca=f.querySelector('.ca'),cb=f.querySelector('.cb'),cn=f.querySelector('.cn'),ct=f.querySelector('.ct'),dest=f.querySelector('.dest'),ok=f.querySelector('.ok');
+  const target=()=>{const k=albumKey(ca.value.trim(),cb.value.trim());return {k,same:k===r.key,ex:libGet(k)}};
+  const upd=()=>{const {same,ex}=target();
+    if(!ca.value.trim()||!cb.value.trim()){dest.textContent=r.unsorted?'Indique l\'artiste et l\'album où ranger ce morceau.':'Indique l\'artiste et l\'album.';ok.textContent='Enregistrer';return}
+    if(same){dest.textContent='Le morceau reste dans cet album : seuls son numéro et son titre changent.';ok.textContent='Enregistrer'}
+    else if(ex){dest.textContent=`Le morceau sera déplacé dans l'album existant « ${ex.album} » (${(ex.tracks||[]).length} morceau${(ex.tracks||[]).length>1?'x':''}).`;ok.textContent='Déplacer'}
+    else{dest.textContent=`⚠ Aucun album « ${cb.value.trim()} » de ${ca.value.trim()} : un nouvel album sera créé pour ce seul morceau.`;ok.textContent='Créer l\'album et déplacer'}};
+  ca.oninput=cb.oninput=upd;
+  cb.onchange=()=>{const a=albs.find(x=>norm(x.album)===norm(cb.value)&&(!ca.value||norm(x.artist)===norm(ca.value)));if(a){ca.value=a.artist;const e=(a.tracklist||[]).find(e=>sim(e.title,ct.value)>.6);if(e&&!cn.value)cn.value=e.no}upd()};
+  upd();
+  f.querySelector('.no').onclick=()=>f.remove();
+  ok.onclick=async()=>{
+    if(!ca.value.trim()||!cb.value.trim()){f.querySelector('.msg').textContent='Indique l\'artiste et l\'album.';return}
+    const {same,ex}=target();ok.disabled=true;f.querySelector('.msg').textContent='Enregistrement…';
+    const dst={artist:ca.value.trim(),album:cb.value.trim(),no:+cn.value||0,title:ct.value.trim()||t.title};
+    try{if(same){await editTrack(r.key,t.id,{no:dst.no,title:dst.title,artist:t.artist});toast('Morceau modifié')}
+      else{const k=await moveTrack(r.key,t.id,dst);toast('Morceau rangé dans « '+(ex?.album||dst.album)+' »');if(!libGet(k)?.tracklist?.length)findTracklist(k)}
+      dropFromQueue(it=>it.id===t.id);renderAlbum()}
+    catch(e){f.querySelector('.msg').textContent='Rien n\'a été modifié : '+e.message;ok.disabled=false}
+  };
+}
+/* Formulaire « Modifier l'album » */
+function albumForm(r){
+  const box=$('#albEdit');if(!box.hidden){box.hidden=true;return}
+  box.innerHTML=`<div class="row"><label class="grow">Artiste<input type="text" class="ea" value="${esc(r.artist)}"></label></div>
+    <div class="row"><label class="grow">Album<input type="text" class="eb" value="${esc(r.album)}"></label><label style="flex:0 0 90px">Année<input type="text" class="ey" inputmode="numeric" value="${esc(r.year||'')}"></label></div>
+    <p class="hint dest"></p><div class="row"><button class="main ok">Enregistrer</button><button class="no">Annuler</button></div><p class="hint msg"></p>`;
+  box.hidden=false;
+  const ea=box.querySelector('.ea'),eb=box.querySelector('.eb'),ey=box.querySelector('.ey'),dest=box.querySelector('.dest'),ok=box.querySelector('.ok');
+  const upd=()=>{const k=albumKey(ea.value.trim(),eb.value.trim()),ex=k!==r.key&&libGet(k);
+    dest.textContent=ex?`« ${ex.album} » de ${ex.artist} existe déjà : les deux albums seront réunis en un seul (${(ex.tracks||[]).length+(r.tracks||[]).length} morceaux).`:'Les fichiers sont renommés et rangés dans le dossier du nouveau nom.'};
+  ea.oninput=eb.oninput=upd;upd();
+  box.querySelector('.no').onclick=()=>{box.hidden=true};
+  ok.onclick=async()=>{const artist=ea.value.trim(),album=eb.value.trim(),year=ey.value.trim();
+    if(!artist||!album){box.querySelector('.msg').textContent='Indique l\'artiste et l\'album.';return}
+    ok.disabled=true;box.querySelector('.msg').textContent='Enregistrement…';
+    try{const nk=await editAlbum(r.key,{artist,album,year});LIBVIEW.key=nk;toast('Album modifié');renderAlbum()}
+    catch(e){box.querySelector('.msg').textContent='Rien n\'a été modifié : '+e.message;ok.disabled=false}};
+}
+/* Changer l'ordre : flèches, puis enregistrement */
+function orderForm(r){
+  const box=$('#albOrder');if(!box.hidden){box.hidden=true;return}
+  let ids=(r.tracks||[]).slice().sort((a,b)=>(a.no||999)-(b.no||999)).map(t=>t.id);
+  const draw=()=>{box.innerHTML='<p class="hint">Monte ou descends les morceaux, puis enregistre : numéros, noms de fichiers et étiquettes suivent.</p>';
+    ids.forEach((id,i)=>{const t=r.tracks.find(x=>x.id===id),l=document.createElement('div');l.className='ordRow';
+      l.innerHTML=`<span class="no mono">${i+1}</span><b>${esc(t.title)}</b><button aria-label="Monter" ${i?'':'disabled'}>↑</button><button aria-label="Descendre" ${i<ids.length-1?'':'disabled'}>↓</button>`;
+      const [u,d]=l.querySelectorAll('button');u.onclick=()=>{[ids[i-1],ids[i]]=[ids[i],ids[i-1]];draw()};d.onclick=()=>{[ids[i+1],ids[i]]=[ids[i],ids[i+1]];draw()};box.append(l)});
+    const row=document.createElement('div');row.className='row';row.innerHTML='<button class="main">Enregistrer l\'ordre</button><button>Annuler</button><span class="hint msg"></span>';
+    const [s,c]=row.querySelectorAll('button');c.onclick=()=>{box.hidden=true};
+    s.onclick=async()=>{s.disabled=true;row.querySelector('.msg').textContent='Enregistrement…';
+      try{await reorderAlbum(r.key,ids);toast('Ordre enregistré');renderAlbum()}catch(e){row.querySelector('.msg').textContent='Rien n\'a été modifié : '+e.message;s.disabled=false}};
+    box.append(row)};
+  box.hidden=false;draw();
+}
+/* Réparer : retrouver dans le dossier de sauvegarde les MP3 absents de la discothèque (lus d'après leurs étiquettes) */
+function readId3(u8){
+  const m={};if(!(u8[0]===73&&u8[1]===68&&u8[2]===51))return m;const v=u8[3],end=10+((u8[6]&127)<<21|(u8[7]&127)<<14|(u8[8]&127)<<7|(u8[9]&127));
+  let o=10;const dec=(e,b)=>{try{if(e===0)return String.fromCharCode(...b);if(e===3)return new TextDecoder('utf-8').decode(b);if(e===2)return new TextDecoder('utf-16be').decode(b);
+    return new TextDecoder(b[0]===0xFE?'utf-16be':'utf-16le').decode(b.subarray(2))}catch(x){return ''}};
+  while(o+10<=Math.min(end,u8.length)){const id=String.fromCharCode(u8[o],u8[o+1],u8[o+2],u8[o+3]);if(!/^[A-Z0-9]{4}$/.test(id))break;
+    const n=v===4?((u8[o+4]&127)<<21|(u8[o+5]&127)<<14|(u8[o+6]&127)<<7|(u8[o+7]&127)):(u8[o+4]<<24|u8[o+5]<<16|u8[o+6]<<8|u8[o+7]);const d=u8.subarray(o+10,o+10+n);
+    if(id[0]==='T')m[id]=dec(d[0],d.subarray(1)).replace(/\0+$/,'').trim();
+    else if(id==='APIC'){let k=1;while(d[k])k++;const mime=String.fromCharCode(...d.subarray(1,k));k+=2;const e=d[0];
+      if(e===1||e===2){while(k+1<d.length&&(d[k]||d[k+1]))k+=2;k+=2}else{while(k<d.length&&d[k])k++;k++}m.cover={bytes:d.slice(k),mime:mime||'image/jpeg'}}
+    o+=10+n}
+  return m;
+}
+async function readHead(uri){const a=unb64((await NATIVE.readFile({uri,offset:0,length:10})).data);
+  if(!(a[0]===73&&a[1]===68&&a[2]===51))return a;const n=10+((a[6]&127)<<21|(a[7]&127)<<14|(a[8]&127)<<7|(a[9]&127));
+  return unb64((await NATIVE.readFile({uri,offset:0,length:Math.min(n,4194304)})).data)}
+async function repairLib(){
+  if(!NATIVE?.scanMp3||!FOLDER.uri){toast('Choisis d\'abord le dossier de sauvegarde (onglet Numériser).');return}
+  const msg=$('#libMsg');msg.textContent='Recherche des MP3 dans '+(FOLDER.name||'le dossier')+'…';
+  try{const n=await libOp(async()=>{
+      const {files}=await NATIVE.scanMp3();const known=new Set(LIB.flatMap(r=>(r.tracks||[]).flatMap(t=>[(t.dir+'/'+t.file).toLowerCase(),t.uri])));
+      const lost=files.filter(f=>!known.has((f.dir+'/'+f.name).toLowerCase())&&!known.has(f.uri));let k=0;
+      for(const f of lost){msg.textContent=`Morceaux retrouvés : ${++k}/${lost.length}…`;
+        let m={};try{m=readId3(await readHead(f.uri))}catch(e){}
+        const pm=/^(.+?)\/([^/]+?)(?: \((\d{4})\))?$/.exec(f.dir),fm=/^(\d+) - (.+)\.mp3$/i.exec(f.name);
+        const artist=m.TPE2||m.TPE1||(pm&&pm[1])||'',album=m.TALB||(pm&&pm[2])||'';
+        const title=m.TIT2||(fm?fm[2]:f.name.replace(/\.mp3$/i,'')),no=parseInt(m.TRCK)||(fm?+fm[1]:0);
+        const unsorted=!artist||!album||f.dir==='Divers';const key=unsorted?UNSORTED_KEY:albumKey(artist,album);
+        const r=libGet(key)||(unsorted?{key,artist:'',album:'Morceaux non classés',unsorted:true,sources:{},tracks:[],created:Date.now()}:{key,artist,album,year:(m.TYER||m.TDRC||(pm&&pm[3])||'').slice(0,4),dir:f.dir,created:Date.now(),sources:{},tracks:[],tracklist:[]});
+        const src=Object.keys(r.sources||{})[0]||'autre';
+        r.tracks=[...(r.tracks||[]),{id:uid(),no:unsorted?0:no,title,artist:m.TPE1||artist,dur:Math.round(f.size*8/320000),dir:f.dir,file:f.name,uri:f.uri,source:src,date:Date.now()}];
+        r.sources={...(r.sources||{}),[src]:1};
+        if(!r.cover&&m.cover?.bytes?.length){r.cover=m.cover.bytes;r.coverMime=m.cover.mime;r.thumb=await thumbOf(r.cover,r.coverMime,160)}
+        await libPut(r);await libLoad()}
+      return lost.length});
+    msg.textContent=n?`${n} morceau${n>1?'x':''} retrouvé${n>1?'s':''} et remis dans la discothèque.`:'Rien à réparer : tous les MP3 du dossier sont dans la discothèque.';
+    renderLib()}
+  catch(e){msg.textContent='Réparation impossible : '+e.message}
 }
 /* Album créé à la main : on cherche sa liste de titres et sa pochette */
 async function findTracklist(key){
@@ -1541,7 +1728,8 @@ async function findTracklist(key){
     const best=(d.releases||[]).map(x=>({x,s:albumSim({album:x.title,artist:credit(x['artist-credit'])},r)})).sort((a,b)=>b.s-a.s)[0];
     if(!best||best.s<.6)return;await wait(1100);await fetchTracklist(key,best.x.id);
     const rec=LIB.find(x=>x.key===key);
-    if(rec&&!rec.cover){const c=await coverForRelease(best.x.id,rec.artist,rec.album);if(c){rec.cover=c.bytes;rec.coverMime=c.mime;rec.thumb=await thumbOf(c.bytes,c.mime,160);await libPut(rec);await libLoad();if(LIBVIEW.key===key)renderAlbum()}}
+    if(rec&&!rec.cover){const c=await coverForRelease(best.x.id,rec.artist,rec.album);if(c){const th=await thumbOf(c.bytes,c.mime,160);
+      await libOp(async()=>{const x=libGet(key);if(x&&!x.cover){x.cover=c.bytes;x.coverMime=c.mime;x.thumb=th;await libPut(x)}});if(LIBVIEW.key===key)renderAlbum()}}
   }catch(e){}
 }
 function toast(m){const t=$('#toast');t.textContent=m;t.hidden=false;clearTimeout(toast.h);toast.h=setTimeout(()=>{t.hidden=true},2600)}

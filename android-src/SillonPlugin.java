@@ -440,6 +440,7 @@ public class SillonPlugin extends Plugin {
     public void deletePath(PluginCall call) {
         final String path = call.getString("path", "");
         final boolean prune = Boolean.TRUE.equals(call.getBoolean("pruneParent", false));
+        final boolean onlyEmpty = Boolean.TRUE.equals(call.getBoolean("onlyIfEmpty", false));
         final Uri root = savedFolder();
         if (root == null || path == null || path.isEmpty()) {
             call.reject("Dossier introuvable");
@@ -448,7 +449,22 @@ public class SillonPlugin extends Plugin {
         new Thread(() -> {
             try {
                 DocumentFile d = findDir(root, path);
-                boolean ok = d != null && d.delete();
+                boolean ok = false;
+                int left = 0;
+                if (d != null) {
+                    if (onlyEmpty) {
+                        /* On ne supprime le dossier que s'il ne reste rien d'autre que la pochette */
+                        DocumentFile cover = null;
+                        for (DocumentFile f : d.listFiles()) {
+                            if (f.isFile() && "folder.jpg".equalsIgnoreCase(f.getName())) cover = f;
+                            else left++;
+                        }
+                        if (left == 0) {
+                            if (cover != null) cover.delete();
+                            ok = d.delete();
+                        }
+                    } else ok = d.delete();
+                }
                 if (prune) {
                     int k = path.lastIndexOf('/');
                     if (k > 0) {
@@ -460,11 +476,70 @@ public class SillonPlugin extends Plugin {
                 fileCache.clear();
                 JSObject o = new JSObject();
                 o.put("deleted", ok);
+                o.put("left", left);
                 call.resolve(o);
             } catch (Exception e) {
                 call.reject(e.getMessage() != null ? e.getMessage() : "Suppression impossible");
             }
         }).start();
+    }
+
+    /* Liste tous les MP3 du dossier de sauvegarde (sous-dossiers compris) */
+    private void scanInto(DocumentFile d, String rel, int depth, JSArray out) {
+        if (d == null || depth > 4) return;
+        for (DocumentFile f : d.listFiles()) {
+            String n = f.getName();
+            if (n == null) continue;
+            if (f.isDirectory()) scanInto(f, rel.isEmpty() ? n : rel + "/" + n, depth + 1, out);
+            else if (n.toLowerCase().endsWith(".mp3")) {
+                JSObject o = new JSObject();
+                o.put("dir", rel);
+                o.put("name", n);
+                o.put("uri", f.getUri().toString());
+                o.put("size", f.length());
+                out.put(o);
+            }
+        }
+    }
+
+    @PluginMethod
+    public void scanMp3(PluginCall call) {
+        final Uri root = savedFolder();
+        if (root == null) {
+            call.reject("Choisis d'abord un dossier de sauvegarde");
+            return;
+        }
+        new Thread(() -> {
+            try {
+                JSArray arr = new JSArray();
+                scanInto(DocumentFile.fromTreeUri(getContext(), root), "", 0, arr);
+                JSObject res = new JSObject();
+                res.put("files", arr);
+                call.resolve(res);
+            } catch (Exception e) {
+                call.reject(e.getMessage() != null ? e.getMessage() : "Lecture du dossier impossible");
+            }
+        }).start();
+    }
+
+    @PluginMethod
+    public void renameFile(PluginCall call) {
+        final String uri = call.getString("uri");
+        final String name = call.getString("name");
+        if (uri == null || name == null || name.isEmpty()) {
+            call.reject("Fichier manquant");
+            return;
+        }
+        try {
+            Uri u = DocumentsContract.renameDocument(getContext().getContentResolver(), Uri.parse(uri), name);
+            fileCache.clear();
+            if (u == null) throw new Exception("Renommage refusé");
+            JSObject o = new JSObject();
+            o.put("uri", u.toString());
+            call.resolve(o);
+        } catch (Exception e) {
+            call.reject(e.getMessage() != null ? e.getMessage() : "Renommage impossible");
+        }
     }
 
     @PluginMethod
