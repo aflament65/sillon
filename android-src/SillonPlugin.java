@@ -294,7 +294,11 @@ public class SillonPlugin extends Plugin {
 
     private void askProjection(PluginCall call) {
         MediaProjectionManager mpm = (MediaProjectionManager) getContext().getSystemService(Context.MEDIA_PROJECTION_SERVICE);
-        startActivityForResult(call, mpm.createScreenCaptureIntent(), "projectionResult");
+        /* Android 14+ : on impose « tout l'écran », sinon « une seule appli » ne capte que le son de cette appli (silence) */
+        Intent ask = Build.VERSION.SDK_INT >= 34
+                ? mpm.createScreenCaptureIntent(android.media.projection.MediaProjectionConfig.createConfigForDefaultDisplay())
+                : mpm.createScreenCaptureIntent();
+        startActivityForResult(call, ask, "projectionResult");
     }
 
     @ActivityCallback

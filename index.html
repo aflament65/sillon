@@ -935,7 +935,8 @@ function lvlFeed(L,R){
   m.className='meter '+cls;m.firstElementChild.style.width=dbx(db)+'%';
   const pm=$('#peakMark');pm.style.left='calc('+dbx(LV.hold)+'% - 1px)';pm.style.opacity=1;
   const t=$('#lvlTxt');
-  const [txt,c]=tel?(recent>-60?['Son reçu en numérique, au niveau d\'origine : rien à régler.','good']:['Aucun son reçu : lance la lecture, ou l\'appli interdit la capture.','']):clip||recent>=-1?['Saturation ! Baisse le volume de la source.','hot']:recent>=-3?['Limite : baisse un peu le volume.','']:recent>=-12?['Bon niveau.','good']:recent>=-24?['Un peu faible : monte le volume si tu peux.','']:recent>-60?['Trop faible : monte le volume de la source.','']:['Aucun son détecté.',''];
+  const silentLong=tel&&S.recording&&LV.maxPk<0.001&&S.frames/SR>12;
+  const [txt,c]=tel?(recent>-60?['Son reçu en numérique, au niveau d\'origine : rien à régler.','good']:silentLong?['Toujours aucun son après 12 s. Si la lecture tourne : arrête, relance et choisis « Tout l\'écran » dans l\'avertissement d\'Android. Sinon l\'appli interdit la capture.','hot']:['Aucun son reçu : lance la lecture, ou l\'appli interdit la capture.','']):clip||recent>=-1?['Saturation ! Baisse le volume de la source.','hot']:recent>=-3?['Limite : baisse un peu le volume.','']:recent>=-12?['Bon niveau.','good']:recent>=-24?['Un peu faible : monte le volume si tu peux.','']:recent>-60?['Trop faible : monte le volume de la source.','']:['Aucun son détecté.',''];
   t.className='lvlTxt '+c;t.textContent=`${txt} Crête : ${recent>-90?Math.round(recent):'—'} dB${LV.clips?` · ${LV.clips} saturation${LV.clips>1?'s':''}`:''}`;
   return pk;
 }
