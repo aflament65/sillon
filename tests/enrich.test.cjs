@@ -41,15 +41,36 @@ await p.evaluate(()=>autoEnrich(true));
 const st=await p.evaluate(()=>({albums:LIB.map(r=>({album:r.album,artist:r.artist,year:r.year,genre:r.genre,cover:!!r.cover,tl:(r.tracklist||[]).length,tracks:(r.tracks||[]).map(t=>t.no+':'+t.title+':'+t.dir+'/'+t.file)})),files:[...__FS.keys()].sort(),state:$('#enrState').textContent}));
 const A=n=>st.albums.find(a=>a.album===n);
 ok(!st.albums.some(a=>a.album==='Morceaux non classés'),'plus de morceaux non classés');
-ok(A('Aleph')?.tracks.some(t=>t.startsWith('2:Pursuit:Gesaffelstein/Aleph/02 - Pursuit.mp3')),'« Pursuit - Gesaffelstein » identifié et rangé dans Aleph, piste 2');
-ok(A('Aleph')?.tracks.some(t=>t.includes('Nameless:Ma collection/Nameless.mp3')),'MP3 déposé à la main ajouté, fichier laissé en place');
+ok(A('Aleph')?.tracks.some(t=>t.startsWith('2:Pursuit:Gesaffelstein/Aleph (2013)/02 - Pursuit.mp3')),'« Pursuit - Gesaffelstein » identifié et rangé dans Aleph, piste 2');
+ok(A('Aleph')?.tracks.some(t=>t==='3:Nameless:Gesaffelstein/Aleph (2013)/03 - Nameless.mp3'),'MP3 déposé à la main : rangé dans le dossier de l\'album, renommé');
 ok(!st.albums.some(a=>/Deluxe/.test(a.album))&&A('Wolfmother')?.tracks.length===2,'les deux éditions réunies');
 const w=A('Wolfmother');ok(w&&w.cover&&w.year==='2005'&&w.genre==='Rock'&&w.tl===4,'pochette, année, genre et liste ajoutés : '+JSON.stringify(w&&{y:w.year,g:w.genre,tl:w.tl,c:w.cover}));
-ok(w?.tracks.includes('3:Woman:Wolfmother/Wolfmother/03 - Woman.mp3'),'« woman » → « Woman », fichier renommé : '+w?.tracks.join(' | '));
-ok(w?.tracks.some(t=>t.startsWith('4:Joker & The Thief:Wolfmother/Wolfmother/04 - Joker & The Thief.mp3')),'titre officiel « Joker & The Thief »');
+ok(w?.tracks.includes('3:Woman:Wolfmother/Wolfmother (2005)/03 - Woman.mp3'),'« woman » → « Woman », fichier renommé : '+w?.tracks.join(' | '));
+ok(w?.tracks.some(t=>t.startsWith('4:Joker & The Thief:Wolfmother/Wolfmother (2005)/04 - Joker & The Thief.mp3')),'titre officiel « Joker & The Thief »');
 ok(st.files.filter(f=>f.endsWith('.mp3')).length===4,'4 MP3, aucun perdu ni en double : '+st.files.join(' | '));
-ok(st.files.includes('Wolfmother/Wolfmother/folder.jpg'),'pochette déposée dans le dossier');
+ok(st.files.includes('Wolfmother/Wolfmother (2005)/folder.jpg')&&!st.files.some(f=>/^(Ma collection|Divers|Wolfmother\/Wolfmother\/|Wolfmother\/Wolfmother \(Deluxe)/.test(f)),'un seul dossier par album, anciens dossiers supprimés');
 ok(/morceau rangé|morceaux rangés/.test(st.state)&&/pochette/.test(st.state),'bilan affiché : '+st.state);
 const again=await p.evaluate(async()=>{await autoEnrich();return $('#enrState').textContent});ok(/rien de nouveau/.test(again),'2e passage : rien à refaire');
+
+console.log('— MP3 ajoutés à la main ensuite (sans étiquettes, doublon)');
+await p.evaluate(async()=>{const mk=async(path,n)=>writeNative(path,new Blob([new Uint8Array(n)],{type:'audio/mpeg'}));
+  CATALOG.itunes=async()=>[];
+  await mk('Téléchargements/Wolfmother - Woman.mp3',1000);        /* même morceau, fichier plus petit : doublon */
+  await mk('Gesaffelstein/Aleph/01 Out of Line.mp3',5000);        /* dossier Artiste/Album sans étiquettes */
+  await mk('Muse/Absolution (2003)/05 Hysteria.mp3',5000)});       /* album inconnu du catalogue */
+await p.evaluate(()=>autoEnrich(true));
+const s2=await p.evaluate(()=>({albums:LIB.map(r=>({album:r.album,tracks:(r.tracks||[]).map(t=>t.no+':'+t.title+':'+t.dir+'/'+t.file)})),files:[...__FS.keys()].sort()}));
+const B=n=>s2.albums.find(a=>a.album===n);
+ok(B('Wolfmother')?.tracks.length===2,'doublon de « Woman » retiré de l\'album');
+ok(s2.files.some(f=>/^_Doublons Sillon\/Wolfmother - Wolfmother\/.*Woman/.test(f)),'le moins bon fichier est mis de côté, pas effacé');
+ok(!s2.files.includes('Téléchargements/Wolfmother - Woman.mp3'),'plus de copie dans Téléchargements');
+ok(B('Aleph')?.tracks.includes('1:Out of Line:Gesaffelstein/Aleph (2013)/01 - Out of Line.mp3'),'fichier sans étiquettes reconnu par son chemin et réuni avec son album');
+ok(!s2.files.some(f=>f.startsWith('Gesaffelstein/Aleph/')),'pas de deuxième dossier « Aleph »');
+ok(B('Absolution')?.tracks.includes('5:Hysteria:Muse/Absolution (2003)/05 - Hysteria.mp3'),'album absent du catalogue : rangé d\'après le chemin');
+const again2=await p.evaluate(async()=>{await autoEnrich(true);return [...__FS.keys()].filter(f=>f.endsWith('.mp3')).length});
+ok(again2===s2.files.filter(f=>f.endsWith('.mp3')).length,'un nouveau passage ne réimporte pas les doublons mis de côté');
+console.log('— Rangement des MP3 manuels désactivé');
+await p.evaluate(async()=>{localStorage.setItem('sillon.tidyManual','0');await writeNative('Perso/Muse - Time Is Running Out.mp3',new Blob([new Uint8Array(900)],{type:'audio/mpeg'}));await autoEnrich(true)});
+ok(await p.evaluate(()=>__FS.has('Perso/Muse - Time Is Running Out.mp3')&&LIB.some(r=>(r.tracks||[]).some(t=>t.title==='Time Is Running Out'))),'fichier laissé en place mais présent dans la discothèque');
 ok(!errs.length,'aucune erreur JavaScript '+errs.join(' | '));
 await b.close();console.log(fails?`\n${fails} ÉCHEC(S)`:'\nTout est bon');process.exit(fails?1:0)})();
