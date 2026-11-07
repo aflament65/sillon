@@ -167,6 +167,13 @@ button.big{padding:13px 16px;font-size:1rem}
 .atrk .acts{grid-column:2/-1;display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end}.atrk .acts button{padding:4px 10px;font-size:.85rem}
 .atrk.miss .tt b{color:var(--muted);font-weight:400}
 .atrk .cls,.atrk .delc{grid-column:1/-1}
+.tasks{position:sticky;top:0;z-index:30;background:var(--surface);border:1px solid var(--accent);border-radius:10px;padding:8px 10px;margin-bottom:10px;box-shadow:0 4px 14px rgba(0,0,0,.18);display:grid;gap:8px}
+.task{display:grid;gap:4px}.tHead{display:flex;flex-wrap:wrap;gap:2px 10px;justify-content:space-between;align-items:baseline}.tHead b{overflow-wrap:anywhere}.tHead .mono{font-size:.78rem;color:var(--muted)}
+.task small{color:var(--muted);overflow-wrap:anywhere;font-size:.78rem}
+.tBar{height:8px;border-radius:4px;background:var(--line);overflow:hidden}.tBar i{display:block;height:100%;background:var(--accent);transition:width .3s}
+.tBar.ind i{animation:tind 1.2s ease-in-out infinite}@keyframes tind{0%{margin-left:-30%}100%{margin-left:100%}}
+.tActs{gap:8px}.tActs button{padding:4px 10px;font-size:.85rem}
+#black{position:fixed;inset:0;background:#000;z-index:9999;display:flex;align-items:flex-end;justify-content:center;padding:40px 20px;color:#333;font-size:.8rem;text-align:center}
 .wRow{display:flex;gap:8px;align-items:center;padding:4px 0}.wRow .grow{min-width:0;overflow-wrap:anywhere}.wRow small{color:var(--muted)}
 .dupRow,.chkRow{display:grid;gap:6px;padding:10px 0;border-bottom:1px solid var(--line)}.dupRow b,.dupRow small{overflow-wrap:anywhere}.dupRow small{color:var(--muted)}
 .dupPair{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 8px;align-items:center;font-size:.88rem}
@@ -216,6 +223,8 @@ body.withMini main{padding-bottom:110px}
   <button id="tabRec" aria-pressed="true">Numériser</button>
   <button id="tabLib" aria-pressed="false">Ma discothèque <span id="libCount" class="mono"></span></button>
 </nav>
+<div id="tasks" class="tasks" hidden><div class="tl"></div><div class="row tActs"><button id="blackBtn">Écran noir</button><label class="hint" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="keepOn"> Garder l'écran allumé pendant les tâches</label></div></div>
+<div id="black" hidden><span>Sillon travaille. Touche l'écran pour revenir.</span></div>
 <div id="musicBanner" class="nudge" hidden style="margin-bottom:12px"><p class="hint" id="musicTxt"></p><div class="row"><button id="musicBtn" class="main">Choisir le dossier Music</button></div></div>
 <div id="viewRec" class="view">
 <div class="modeSw" role="group" aria-label="Source">
@@ -472,7 +481,59 @@ async function mb(path){
 }
 const credit=ac=>(ac||[]).map(a=>a.name+(a.joinphrase||'')).join('').trim();
 /* Recherche : MusicBrainz (requête par champs, tolérante) + iTunes en secours */
-const wait=ms=>new Promise(r=>setTimeout(r,ms));
+const wait=ms=>WT?WT(ms):new Promise(r=>setTimeout(r,ms));
+/* ---------- Progression de chaque tâche : barre, compteur, temps écoulé et restant ----------
+   Affichée en haut de l'appli et dans la notification Android (visible écran verrouillé). */
+const TASKS=new Map();let TID=0,TDRAWT=0,TSYNC=0,TSYNCT=0;
+const fmtDur=ms=>{const s=Math.max(0,Math.round(ms/1000));if(s<60)return s+' s';const m=Math.floor(s/60);if(m<60)return m+' min'+(s%60&&m<10?' '+String(s%60).padStart(2,'0'):'');return Math.floor(m/60)+' h '+String(m%60).padStart(2,'0')};
+function task(label){
+  const t={id:++TID,label,sub:'',done:0,total:0,start:Date.now(),pStart:Date.now(),pDone:0,phase:''};TASKS.set(t.id,t);drawTasks();
+  const api={
+    step(done,total,sub){if(sub!=null){const ph=String(sub).split(/\d/)[0];if(ph!==t.phase){t.phase=ph;t.pStart=Date.now();t.pDone=done||0}t.sub=sub}
+      if(total!=null)t.total=total;if(done!=null)t.done=done;drawTasks()},
+    /* lit « 12/40 » ou « 45 % » dans un message */
+    say(text){const m=/(\d+)\s*\/\s*(\d+)/.exec(text||''),pc=/(\d+)\s*%/.exec(text||'');
+      if(m)api.step(+m[1],+m[2],text);else if(pc)api.step(+pc[1],100,text);else api.step(0,0,text)},
+    end(){TASKS.delete(t.id);drawTasks()},t};
+  return api;
+}
+function taskMeta(t){const parts=[];if(t.total>0){const f=Math.min(1,t.done/t.total);parts.push(t.total===100&&/%/.test(t.sub)?Math.round(f*100)+' %':`${Math.round(t.done)}/${t.total} · ${Math.round(f*100)} %`);
+    const el=Date.now()-t.pStart,d=t.done-t.pDone;if(d>0&&el>1500&&f<1)parts.push('reste ≈ '+fmtDur(el/d*(t.total-t.done)))}
+  parts.push('depuis '+fmtDur(Date.now()-t.start));return parts.join(' · ')}
+function drawTasks(){
+  const now=Date.now();if(now-TDRAWT<200){clearTimeout(drawTasks.h);drawTasks.h=setTimeout(drawTasks,220);return}TDRAWT=now;
+  const box=$('#tasks');if(!box)return;const l=[...TASKS.values()];box.hidden=!l.length;
+  if(l.length){box.querySelector('.tl').innerHTML=l.map(t=>{const f=t.total>0?Math.min(1,t.done/t.total):null;
+    return `<div class="task"><div class="tHead"><b>${esc(t.label)}</b><span class="mono">${esc(taskMeta(t))}</span></div>
+      <div class="tBar${f==null?' ind':''}"><i style="width:${f==null?30:Math.round(f*100)}%"></i></div>${t.sub&&t.sub!==t.label?`<small>${esc(t.sub)}</small>`:''}</div>`}).join('')}
+  workSync();
+}
+/* notification Android + service qui garde le processeur actif écran éteint */
+function workSync(force){if(!NATIVE?.workUpdate)return;const now=Date.now();
+  if(!force&&TASKS.size&&now-TSYNC<1500){clearTimeout(TSYNCT);TSYNCT=setTimeout(()=>workSync(true),1600);return}TSYNC=now;
+  const l=[...TASKS.values()];
+  if(!l.length){clearTimeout(TSYNCT);NATIVE.workStop().catch(()=>{});if(ls(KEEPK)==='1'&&!S.recording)NATIVE.keepAwake({on:false}).catch(()=>{});return}
+  const t=l[0],f=t.total>0?Math.min(1,t.done/t.total):0;
+  NATIVE.workUpdate({label:t.label+(l.length>1?` (+${l.length-1})`:''),sub:taskMeta(t),done:Math.round(f*1000),total:t.total>0?1000:0}).catch(()=>{});
+  if(ls(KEEPK)==='1')NATIVE.keepAwake({on:true}).catch(()=>{});
+}
+const KEEPK='sillon.keepOn';
+setInterval(()=>{if(TASKS.size)drawTasks()},1000);
+/* tâches « automatiques » : messages de reconnaissance et conversion */
+let IDTASK=null;
+function idTaskSay(t){if(/\d+\s*\/\s*\d+/.test(t)){if(!IDTASK)IDTASK=task(/noms/.test(t)?'Vérification des noms':'Reconnaissance');IDTASK.say(t)}else if(IDTASK){IDTASK.end();IDTASK=null}}
+let CONV=null,CONVB=[];
+function syncConv(){const act=JOBS.filter(j=>j.status==='attente'||j.status==='conversion');
+  if(!act.length){if(CONV){CONV.end();CONV=null}CONVB=[];return}
+  if(!CONV){CONV=task('Conversion en MP3');CONVB=[]}for(const j of act)if(!CONVB.includes(j))CONVB.push(j);
+  const total=CONVB.reduce((a,j)=>a+j.tracks.length,0),done=CONVB.reduce((a,j)=>a+(j.status==='fini'?j.tracks.length:j.status==='conversion'?j.p*j.tracks.length:0),0);
+  const cur=act.find(j=>j.status==='conversion');
+  CONV.step(done,total,cur?`${cur.label||cur.meta.album} · morceau ${Math.min(cur.done+1,cur.tracks.length)} sur ${cur.tracks.length}${act.length>1?` · ${act.length-1} en attente`:''}`:'En attente');
+}
+/* minuteries via un worker : Android ne les ralentit pas quand l'écran est éteint */
+const WT=(()=>{try{const w=new Worker(URL.createObjectURL(new Blob(['onmessage=e=>setTimeout(()=>postMessage(e.data),e.data.ms)'],{type:'text/javascript'})));
+  const cb=new Map();let n=0;w.onmessage=e=>{const f=cb.get(e.data.id);cb.delete(e.data.id);f&&f()};return ms=>new Promise(r=>{const id=++n;cb.set(id,r);w.postMessage({id,ms})})}catch(e){return null}})();
+
 const luc=s=>s.replace(/[+\-&|!(){}\[\]^"~*?:\\\/]/g,' ').trim();
 const words=s=>luc(s.replace(/['’‘`´.,;]/g,' ')).split(/\s+/).filter(Boolean);
 const fz=w=>w.length>=5?w+'~1':w;
@@ -1125,6 +1186,8 @@ function pushI16(a){
   S.starts.push(S.frames);S.chunks.push(a);S.frames+=n;if(pk>LV.maxPk)LV.maxPk=pk;
 }
 async function finishTel(auto){
+  const RT=task('Récupération de l\'enregistrement');try{return await finishTel0(auto,RT)}finally{RT.end()}}
+async function finishTel0(auto,RT){
   const hint=$('#recHint');hint.textContent='Récupération de l\'enregistrement…';
   await wait(600);
   const np0=S.np.length&&S.np[0].t===0?S.np[0]:null;
@@ -1136,7 +1199,7 @@ async function finishTel(auto){
     while(!eof){const r=await NATIVE.readCapture({offset:off,length:1048576});size=r.size||size;const b=unb64(r.data||'');const use=b.length&~3;
       if(size&&off+b.length>size+8)throw new Error('lecture du fichier incohérente');
       if(use)pushI16(new Int16Array(b.buffer.slice(b.byteOffset,b.byteOffset+use)));
-      off+=b.length;eof=r.eof||!b.length;hint.textContent=`Récupération de l'enregistrement… ${size?Math.min(100,Math.round(off/size*100)):100} %`;await tick()}
+      off+=b.length;eof=r.eof||!b.length;hint.textContent=`Récupération de l'enregistrement… ${size?Math.min(100,Math.round(off/size*100)):100} %`;RT.say(hint.textContent);await tick()}
   }catch(e){hint.textContent='Récupération impossible : '+(e.message||e)+'.';return}
   S.np=np0?[np0]:[];
   for(const m of marks){
@@ -1520,12 +1583,14 @@ async function readNative(uri){
  5. Un dossier n'est supprimé que s'il ne contient plus rien (pochette mise à part).
  6. Une seule opération à la fois. */
 let OPCHAIN=Promise.resolve();
-function libOp(fn,removes=[]){
-  const run=async()=>{
+function libOp(fn,removes=[],opt={}){
+  const run=async()=>{const T=opt.label?task(opt.label):null;try{return await run0(T)}finally{T?.end()}};
+  const run0=async T=>{
     await libLoad();
     const snap=LIB.map(r=>({...r,tracks:(r.tracks||[]).map(t=>({...t}))}));
     const before=new Set(snap.flatMap(r=>r.tracks.map(t=>t.id)));
-    const ctx={created:[],trash:[],dirs:new Set(),names:new Map(),renames:[],removed:[],after:[]};
+    const ctx={created:[],trash:[],dirs:new Set(),names:new Map(),renames:[],removed:[],after:[],task:T,n:0,total:opt.total||0};
+    if(T)T.step(0,ctx.total,opt.sub||'');
     try{
       const out=await fn(ctx);
       await libLoad();
@@ -1577,6 +1642,7 @@ async function freeName(ctx,dir,want){const s=await namesIn(ctx,dir);let n=want,
   while(s.has(n.toLowerCase()))n=want.replace(/\.mp3$/i,'')+' ('+(k++)+').mp3';s.add(n.toLowerCase());return n}
 /* Écrit le morceau à sa place (dossier, nom, étiquettes de l'album) ; l'original n'est effacé qu'à la fin de l'opération */
 async function placeTrack(ctx,t,alb,dir,no,title,artist){
+  if(ctx.task)ctx.task.step(ctx.n++,ctx.total||null,'« '+(title||t.title)+' »');
   const want=fileNameOf({no:no||1,title});
   const nt={...t,no,title,artist,dir,file:want};
   if(!NATIVE||!t.uri){if(t.dir!==dir)ctx.dirs.add(t.dir);return nt}
@@ -1631,7 +1697,7 @@ function editAlbum(key,{artist,album,year}){return libOp(async ctx=>{
   if(NATIVE&&to.cover&&moved.length)try{await writeNative(dir+'/folder.jpg',new Blob([to.cover],{type:'image/jpeg'}))}catch(e){}
   await libPut(to);if(nk!==key)await libDel(key);
   return nk;
-})}
+},[],{label:'Modification de l\'album',total:(libGet(key)?.tracks||[]).length})}
 /* Nouvel ordre des morceaux : numéros, noms de fichiers et étiquettes mis à jour */
 function reorderAlbum(key,ids){return libOp(async ctx=>{
   const r=libGet(key);if(!r)throw new Error('album introuvable');
@@ -1639,7 +1705,7 @@ function reorderAlbum(key,ids){return libOp(async ctx=>{
   for(let i=0;i<ids.length;i++){const t=r.tracks.find(x=>x.id===ids[i]);if(!t)continue;
     out.push(t.no===i+1?t:await placeTrack(ctx,t,r,t.dir||dirOf(r),i+1,t.title,t.artist))}
   r.tracks=out;await libPut(r);
-})}
+},[],{label:'Nouvel ordre des morceaux',total:ids.length})}
 async function deleteTrack(r,t){
   try{await libOp(async ctx=>{const a=libGet(r.key);if(!a)return;
       a.tracks=(a.tracks||[]).filter(x=>x.id!==t.id);if(t.uri)ctx.trash.push(t.uri);ctx.dirs.add(t.dir);
@@ -1659,8 +1725,8 @@ async function setAlbumCover(r,file){
   let cover;try{cover=await cropSquare(file,600)}catch(e){toast('Image illisible : '+(e.message||e));return}
   try{await libOp(async ctx=>{const a=libGet(r.key);a.cover=cover;a.coverMime='image/jpeg';a.thumb=await thumbOf(cover,'image/jpeg',160);
       if(NATIVE&&!a.unsorted){const dir=dirOf(a);await writeNative(dir+'/folder.jpg',new Blob([cover],{type:'image/jpeg'}));
-        const out=[];let n=0;for(const t of a.tracks||[]){toast(`Pochette ajoutée aux fichiers… ${++n}/${a.tracks.length}`);out.push(t.uri?await placeTrack(ctx,t,a,t.dir||dir,t.no,t.title,t.artist):t)}a.tracks=out}
-      await libPut(a)});
+        const out=[];for(const t of a.tracks||[]){out.push(t.uri?await placeTrack(ctx,t,a,t.dir||dir,t.no,t.title,t.artist):t)}a.tracks=out}
+      await libPut(a)},[],{label:'Ajout de la pochette aux fichiers',total:(r.tracks||[]).length});
     toast('Pochette ajoutée'+(NATIVE?' à l\'album et à ses fichiers':''))}
   catch(e){toast('Pochette non ajoutée : '+e.message)}
   renderAlbum();
@@ -1749,7 +1815,7 @@ function moveTracks(fromKey,ids,dst,onStep){
     to.unsorted=false;to.updated=Date.now();await libPut(to);
     from.tracks=from.tracks.filter(x=>!ids.includes(x.id));await saveOrDrop(from);
     return key;
-  });
+  },[],{label:`Rangement dans « ${dst.album} »`,total:ids.length});
 }
 function deleteTracks(key,ids){return libOp(async ctx=>{const a=libGet(key);if(!a)return;
   for(const t of a.tracks||[])if(ids.includes(t.id)){if(t.uri)ctx.trash.push(t.uri);ctx.dirs.add(t.dir)}
@@ -1778,7 +1844,7 @@ function selBar(r){
   bar.innerHTML=`<div class="row"><b class="grow">${n} sélectionné${n>1?'s':''}</b><button class="sa">${n===all?'Aucun':'Tout'}</button><button class="sx">Terminer</button></div>
     <div class="row"><button class="main sm" ${n?'':'disabled'}>Ranger dans un album…</button><button class="si" ${n?'':'disabled'}>Identifier en ligne</button><button class="sd" ${n?'':'disabled'}>Supprimer</button></div><div class="sf"></div>`;
   bar.querySelector('.si').onclick=async()=>{const f=bar.querySelector('.sf'),ids=[...LSEL.ids];bar.querySelectorAll('button').forEach(b=>b.disabled=true);
-    const ok=await identifyLib(r,ids,m=>{f.innerHTML='<p class="hint">'+esc(m)+'</p>'});
+    const IT=task('Identification en ligne');const ok=await identifyLib(r,ids,m=>{f.innerHTML='<p class="hint">'+esc(m)+'</p>';IT.say(m)}).finally(()=>IT.end());
     toast(ok?`${ok} morceau${ok>1?'x':''} sur ${ids.length} identifié${ok>1?'s':''} et rangé${ok>1?'s':''}`:'Aucun morceau trouvé dans le catalogue : corrige le titre ou l\'artiste à la main.');
     LSEL.ids.clear();LSEL.key=null;libGet(r.key)?renderAlbum():closeAlbum()};
   bar.querySelector('.sa').onclick=()=>{if(n===all)LSEL.ids.clear();else(r.tracks||[]).forEach(t=>LSEL.ids.add(t.id));renderAlbum()};
@@ -1863,7 +1929,8 @@ async function readHead(uri){const a=unb64((await NATIVE.readFile({uri,offset:0,
 async function repairLib(){
   if(!NATIVE?.scanMp3||!FOLDER.uri){toast('Choisis d\'abord le dossier de sauvegarde (onglet Numériser).');return}
   const msg=$('#libMsg');msg.textContent='Recherche des MP3 dans '+(FOLDER.name||'le dossier')+'…';
-  try{const n=await importOrphans(t=>{msg.textContent=t});
+  const RT=task('Réparation de la discothèque');RT.say(msg.textContent);
+  try{const n=await importOrphans(t=>{msg.textContent=t;RT.say(t)}).finally(()=>RT.end());
     msg.textContent=(n?`${n} morceau${n>1?'x':''} retrouvé${n>1?'s':''} et remis dans la discothèque. `:'Rien à réparer : tous les MP3 sont déjà dans la discothèque. ')+scanReport();
     renderLib()}
   catch(e){msg.textContent='Réparation impossible : '+e.message}
@@ -1916,7 +1983,8 @@ const RETRY=7*864e5,REDO=30*864e5;
 let ENRUN=null;
 function enrichSoon(ms=20000){clearTimeout(enrichSoon.h);if(enrichOn())enrichSoon.h=setTimeout(()=>autoEnrich(),ms)}
 const idleRec=async()=>{while(S.recording||JOBS.some(j=>j.status==='conversion'))await wait(5000)};
-function enrSay(t){const e=$('#enrState');if(e)e.textContent=t}
+let ENRTASK=null;
+function enrSay(t){const e=$('#enrState');if(e)e.textContent=t;ENRTASK?.say(t)}
 /* Fiche d'album Deezer : pochette, année, genre, label, titres */
 async function dzAlbum(artist,album){
   const q=x=>plain(x).replace(/"/g,'');
@@ -2112,8 +2180,8 @@ async function dupSwap(d){
     if(placed.file!==want&&placed.dir===dirOf(a))ctx.renames.push({id:placed.id,uri:placed.uri,name:want});
     a.tracks=[...a.tracks.filter(t=>t.id!==k?.id),{...placed,size:d.size}];await libPut(a)});
 }
-async function dupDelete(list){for(const d of list){try{await NATIVE.deleteFile({uri:d.uri})}catch(e){}try{await NATIVE.deletePath({path:d.dir,onlyIfEmpty:true,pruneParent:true})}catch(e){}}
-  const gone=new Set(list.map(d=>d.uri));dupSave(dupList().filter(d=>!gone.has(d.uri)))}
+async function dupDelete(list){const DT=list.length>3?task('Suppression des doublons'):null;let i=0;for(const d of list){DT?.step(i++,list.length,`${i}/${list.length}`);try{await NATIVE.deleteFile({uri:d.uri})}catch(e){}try{await NATIVE.deletePath({path:d.dir,onlyIfEmpty:true,pruneParent:true})}catch(e){}}
+  DT?.end();const gone=new Set(list.map(d=>d.uri));dupSave(dupList().filter(d=>!gone.has(d.uri)))}
 async function renderDups(){
   const box=$('#toolBody');box.innerHTML='<p class="hint">Vérification du dossier…</p>';
   const l=await dupReconcile();box.innerHTML='';
@@ -2165,7 +2233,8 @@ function renderCheck(){
     q('.go').onclick=async e=>{e.target.disabled=true;if(await go())renderLibTools();else e.target.disabled=false};
     q('.dl').onclick=async()=>{const c=q('.msg');c.innerHTML='';const y=document.createElement('button');y.className='danger';y.textContent='Effacer le fichier';y.onclick=async()=>{try{await deleteTracks(UNSORTED_KEY,[t.id]);row.remove();renderLibTools()}catch(e){c.textContent=e.message}};c.append(y)};
     rows.push({row,go,suggest,complete:()=>ca.value.trim()&&cb.value.trim()});box.append(row)}
-  box.querySelector('.okAll').onclick=async e=>{e.target.disabled=true;let n=0;for(const x of rows)if(x.row.isConnected&&x.complete()&&await x.go())n++;toast(n?n+' morceau'+(n>1?'x':'')+' rangé'+(n>1?'s':''):'Aucune ligne complète (artiste + album)');e.target.disabled=false;renderLibTools()};
+  box.querySelector('.okAll').onclick=async e=>{e.target.disabled=true;let n=0;const todo=rows.filter(x=>x.row.isConnected&&x.complete()),OT=task('Rangement des morceaux vérifiés');
+    for(const [i,x] of todo.entries()){OT.step(i,todo.length,`${i+1}/${todo.length}`);if(await x.go())n++}OT.end();toast(n?n+' morceau'+(n>1?'x':'')+' rangé'+(n>1?'s':''):'Aucune ligne complète (artiste + album)');e.target.disabled=false;renderLibTools()};
   /* suggestions remplies une par une, sans bloquer l'écran */
   (async()=>{for(const x of rows){if(tok!==CHKRUN)return;if(x.row.isConnected&&!x.complete())await x.suggest();await wait(250)}})();
 }
@@ -2212,6 +2281,7 @@ const libBusy=()=>!!(LIBVIEW.tool||!$('#albOrder').hidden||!$('#albEdit').hidden
 function refreshLibSoon(){if(!$('#viewLib')||$('#viewLib').hidden)return;if(libBusy()){clearTimeout(refreshLibSoon.h);refreshLibSoon.h=setTimeout(refreshLibSoon,4000);return}LIBVIEW.key?renderAlbum():renderLib()}
 async function autoEnrich(manual){
   if(ENRUN)return ENRUN;
+  ENRTASK=task('Enrichissement de la discothèque');
   ENRUN=(async()=>{const rep={imp:0,conv:0,skipped:0,filed:0,merged:0,covers:0,years:0,genres:0,lists:0,names:0,moved:0,dups:0};
     try{await idleRec();await libLoad();
       if(NATIVE?.scanMp3&&FOLDER.uri){enrSay('Recherche de nouveaux MP3 dans le dossier…');
@@ -2231,7 +2301,7 @@ async function autoEnrich(manual){
       const txt='Dernier enrichissement '+new Date().toLocaleString('fr-FR',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})+' : '+(parts.length?parts.join(', ')+'.':'rien de nouveau, la discothèque est à jour.');
       const full=txt+(rep.err?' Problème : '+rep.err+'.':'')+(LASTSCAN?' '+scanReport():'');ls(ENRR,full);enrSay(full);if(parts.length&&manual)toast(parts.join(', '));
     }catch(e){enrSay('Enrichissement interrompu : '+e.message)}
-    finally{ENRUN=null;await libLoad();refreshLibSoon()}
+    finally{ENRUN=null;ENRTASK?.end();ENRTASK=null;await libLoad();refreshLibSoon()}
   })();
   return ENRUN;
 }
@@ -2601,7 +2671,7 @@ async function identifySegment(i){
   const r=cp.fingerprintFromSamples(SR,2,pcm);const fp=r.compressed;try{r.free()}catch(e){}
   return recCands(await acoustLookup(fp,S.bounds[i+1]-S.bounds[i]));
 }
-const idMsg=t=>{const e=$('#idMsg');e.hidden=!t;e.textContent=t||''};
+const idMsg=t=>{const e=$('#idMsg');e.hidden=!t;e.textContent=t||'';idTaskSay(t||'')};
 let IDRUN=0;
 /* Vinyle : reconnaît l'album à partir de quelques morceaux, puis charge l'édition et la bonne face */
 async function identifyAlbum(){
@@ -2865,7 +2935,7 @@ function runJobs(){
   const pcm=job.pcm;
   w.postMessage({pcm,gain:job.gain,tracks:job.tracks.map(t=>({start:t.start,end:t.end,id3:t.id3}))},[pcm.buffer]);
 }
-function updJob(job){const el=document.getElementById('job'+job.id);if(!el)return renderJobs();
+function updJob(job){syncConv();const el=document.getElementById('job'+job.id);if(!el)return renderJobs();
   el.querySelector('.bar i').style.width=Math.round(job.p*100)+'%';
   el.querySelector('.st').textContent=jobText(job)}
 function jobText(j){
@@ -2874,7 +2944,7 @@ function jobText(j){
   if(j.status==='erreur')return 'Échec : '+j.msg;
   return NATIVE?`${j.tracks.length} MP3 enregistrés dans ${FOLDER.name||'le dossier'}/${j.kind==='autre'?'(un dossier par artiste et album)':j.dir}`:`${j.tracks.length} MP3 prêts`;
 }
-function renderJobs(){
+function renderJobs(){syncConv();
   const box=$('#jobs');box.innerHTML='';$('#s4').hidden=!JOBS.length&&!NATIVE;
   $('#jobsEmpty').hidden=JOBS.length>0;
   for(const j of [...JOBS].reverse()){
@@ -2944,6 +3014,9 @@ const REPO='aflament65/sillon',APK_URL='https://github.com/'+REPO+'/releases/dow
 const UPDK='sillon.updcheck',SKIPK='sillon.updskip';
 const ls=(k,v)=>{try{if(v===undefined)return localStorage.getItem(k);localStorage.setItem(k,v)}catch(e){return null}};
 /* Enrichissement automatique : réglage et lancement */
+$('#keepOn').checked=ls(KEEPK)==='1';$('#keepOn').onchange=e=>{ls(KEEPK,e.target.checked?'1':'0');workSync(true)};
+$('#blackBtn').onclick=()=>{$('#black').hidden=false;NATIVE?.keepAwake({on:true}).catch(()=>{})};
+$('#black').onclick=()=>{$('#black').hidden=true;if(ls(KEEPK)!=='1'&&!S.recording)NATIVE?.keepAwake({on:false}).catch(()=>{})};
 $('#toolBack').onclick=closeTool;if(NATIVE?.addWatchFolder){$('#watchBox').hidden=false;$('#watchAdd').onclick=addWatch;setTimeout(renderWatch,1500)}$('#toolChk').onclick=()=>openTool('check');$('#toolDup').onclick=()=>openTool('dups');
 $('#enrOn').checked=enrichOn();$('#enrOn').onchange=e=>{ls(ENRK,e.target.checked?'1':'0');if(e.target.checked)enrichSoon(1000)};
 $('#enrNow').onclick=async()=>{$('#enrNow').disabled=true;await autoEnrich(true);$('#enrNow').disabled=false};

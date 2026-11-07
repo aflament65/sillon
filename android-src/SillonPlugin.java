@@ -220,6 +220,34 @@ public class SillonPlugin extends Plugin {
         });
     }
 
+    /* ---------- Tâches longues : service de premier plan + notification de progression ---------- */
+    static volatile boolean WORKING = false;
+
+    @PluginMethod
+    public void workUpdate(PluginCall call) {
+        Intent i = new Intent(getContext(), WorkService.class);
+        i.putExtra("label", call.getString("label", "Sillon travaille"));
+        i.putExtra("sub", call.getString("sub", ""));
+        i.putExtra("done", call.getData().optInt("done", 0));
+        i.putExtra("total", call.getData().optInt("total", 0));
+        try {
+            if (Build.VERSION.SDK_INT >= 26) getContext().startForegroundService(i); else getContext().startService(i);
+            WORKING = true;
+            call.resolve();
+        } catch (Exception e) {
+            call.reject(e.getMessage() != null ? e.getMessage() : "Service indisponible");
+        }
+    }
+
+    @PluginMethod
+    public void workStop(PluginCall call) {
+        WORKING = false;
+        try {
+            getContext().stopService(new Intent(getContext(), WorkService.class));
+        } catch (Exception e) { }
+        call.resolve();
+    }
+
     /** Scanner de codes-barres de Google Play Services : bonne caméra, mise au point et zoom automatiques. */
     @PluginMethod
     public void scanBarcode(PluginCall call) {
