@@ -6,9 +6,11 @@ await p.route(/fonts|deezer|itunes|musicbrainz|discogs|acoustid|api\.github|cove
 await p.route(/lamejs.*lame\.min\.js|lib\/lame\.min\.js/,r=>r.fulfill({body:fs.readFileSync(process.env.LAME_JS),contentType:'text/javascript'}));
 const errs=[];p.on('pageerror',e=>errs.push(e.message));
 await p.addInitScript(`localStorage.setItem('sillon.autoenrich','0');(${require('./fake-phone.cjs').toString()})();
-  window.__WORK=[];Object.assign(window.Capacitor.Plugins.Sillon,{workUpdate:async o=>{__WORK.push(o)},workStop:async()=>{__WORK.push('stop')}});`);
+  window.__WORK=[];window.__BATT=[];Object.assign(window.Capacitor.Plugins.Sillon,{workUpdate:async o=>{__WORK.push(o)},workStop:async()=>{__WORK.push('stop')},
+    batteryExempt:async()=>({exempt:false}),requestBatteryExempt:async()=>{__BATT.push(1)}});`);
 await p.goto('http://localhost:8765/index.html');await p.waitForTimeout(300);
 ok(await p.evaluate(()=>!!WT),'minuteries par worker actives (pas ralenties écran éteint)');
+ok(await p.evaluate(async()=>{let n=0;for(let i=0;i<50;i++){await tick();n++}return n===50}),'tick() sans minuterie de page');
 const t0=Date.now();await p.evaluate(()=>wait(300));ok(Date.now()-t0>=280,'wait() attend bien');
 await p.evaluate(async()=>{FOLDER={uri:'root',name:'Music'};CATALOG.deezer=async()=>({data:[]});CATALOG.itunes=async()=>[];window.mb=async()=>{throw new Error('x')};window.fetchImage=async()=>null;window.thumbOf=async()=>'data:,';
   const wav=sec=>{const sr=44100,n=sec*sr,b=new ArrayBuffer(44+n*4),v=new DataView(b);const w=(o,s)=>[...s].forEach((c,i)=>v.setUint8(o+i,c.charCodeAt(0)));w(0,'RIFF');v.setUint32(4,36+n*4,true);w(8,'WAVE');w(12,'fmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,2,true);v.setUint32(24,sr,true);v.setUint32(28,sr*4,true);v.setUint16(32,4,true);v.setUint16(34,16,true);w(36,'data');v.setUint32(40,n*4,true);return new Uint8Array(b)};
@@ -28,6 +30,7 @@ ok(await p.isHidden('#tasks'),'barre masquée à la fin');
 const W=await p.evaluate(()=>__WORK);
 ok(W.some(o=>o.label&&/Enrichissement/.test(o.label)&&o.total===1000),'notification Android mise à jour avec la progression');
 ok(W[W.length-1]==='stop','service arrêté à la fin');
+ok(await p.evaluate(()=>__BATT.length===1&&!$('#battRow').hidden),'première tâche : Android demande une seule fois l\'exemption batterie, bouton « Autoriser » affiché');
 console.log('— rangement groupé');
 await p.evaluate(()=>{__WORK.length=0});
 const seen2=await p.evaluate(async()=>{const log=[];const orig=drawTasks;window.drawTasks=()=>{};const iv=setInterval(()=>{for(const t of TASKS.values())log.push(t.label+' '+t.done+'/'+t.total+' '+t.sub)},5);

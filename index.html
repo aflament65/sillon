@@ -223,7 +223,8 @@ body.withMini main{padding-bottom:110px}
   <button id="tabRec" aria-pressed="true">Numériser</button>
   <button id="tabLib" aria-pressed="false">Ma discothèque <span id="libCount" class="mono"></span></button>
 </nav>
-<div id="tasks" class="tasks" hidden><div class="tl"></div><div class="row tActs"><button id="blackBtn">Écran noir</button><label class="hint" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="keepOn"> Écran noir automatique pendant les tâches (recommandé)</label></div></div>
+<div id="tasks" class="tasks" hidden><div class="tl"></div><div class="row" id="battRow" hidden><span class="hint grow">Pour que Sillon continue écran éteint, autorise-le à ignorer l'optimisation de la batterie.</span><button id="battBtn" class="main">Autoriser</button></div>
+  <div class="row tActs"><button id="blackBtn">Écran noir</button><label class="hint" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="keepOn"> Écran noir automatique pendant les tâches (recommandé)</label></div></div>
 <div id="black" hidden><span>Sillon travaille. Touche l'écran pour revenir.</span></div>
 <div id="musicBanner" class="nudge" hidden style="margin-bottom:12px"><p class="hint" id="musicTxt"></p><div class="row"><button id="musicBtn" class="main">Choisir le dossier Music</button></div></div>
 <div id="viewRec" class="view">
@@ -467,7 +468,8 @@ let FOLDER={};
 
 const fmt=t=>{t=Math.max(0,t);const m=Math.floor(t/60),s=t-m*60;return m+':'+(s<10?'0':'')+s.toFixed(t<600&&s%1?1:0).replace('.',',')};
 const fmtI=t=>{t=Math.max(0,Math.round(t));return Math.floor(t/60)+':'+String(t%60).padStart(2,'0')};
-const tick=()=>new Promise(r=>setTimeout(r,0));
+/* « laisse respirer l'écran » sans minuterie : Android ne la ralentit pas écran éteint */
+const tick=(()=>{const ch=new MessageChannel(),q=[];ch.port1.onmessage=()=>{const f=q.shift();f&&f()};return ()=>new Promise(r=>{q.push(r);ch.port2.postMessage(0)})})();
 /* noms de fichiers et dossiers : « AC/DC » → « AC-DC », « In the Flesh? » → « In the Flesh », « Titre: suite » → « Titre - suite » */
 const safe=s=>(s||'').replace(/[?*"<>|]+/g,'').replace(/\s*:\s*/g,' - ').replace(/[\\/]+/g,'-').replace(/\s+/g,' ').replace(/[\s.]+$/,'').trim().slice(0,90)||'Sans titre';
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -486,7 +488,13 @@ const wait=ms=>WT?WT(ms):new Promise(r=>setTimeout(r,ms));
    Affichée en haut de l'appli et dans la notification Android (visible écran verrouillé). */
 const TASKS=new Map();let TID=0,TDRAWT=0,TSYNC=0,TSYNCT=0;
 const fmtDur=ms=>{const s=Math.max(0,Math.round(ms/1000));if(s<60)return s+' s';const m=Math.floor(s/60);if(m<60)return m+' min'+(s%60&&m<10?' '+String(s%60).padStart(2,'0'):'');return Math.floor(m/60)+' h '+String(m%60).padStart(2,'0')};
+let BATT=null;
+async function battCheck(ask){if(!NATIVE?.batteryExempt)return;try{BATT=(await NATIVE.batteryExempt()).exempt}catch(e){return}
+  const r=$('#battRow');if(r)r.hidden=BATT;
+  /* première longue tâche : Android pose la question une fois, sans qu'on ait à chercher le réglage */
+  if(!BATT&&ask&&ls('sillon.battAsked')!=='1'){ls('sillon.battAsked','1');NATIVE.requestBatteryExempt().catch(()=>{})}}
 function task(label){
+  if(!TASKS.size)battCheck(true);
   const t={id:++TID,label,sub:'',done:0,total:0,start:Date.now(),pStart:Date.now(),pDone:0,phase:''};TASKS.set(t.id,t);drawTasks();
   const api={
     step(done,total,sub){if(sub!=null){const ph=String(sub).split(/\d/)[0];if(ph!==t.phase){t.phase=ph;t.pStart=Date.now();t.pDone=done||0}t.sub=sub}
@@ -510,9 +518,9 @@ function drawTasks(){
 }
 /* notification Android + service qui garde le processeur actif écran éteint */
 function workSync(force){if(!NATIVE?.workUpdate)return;const now=Date.now();
-  if(!force&&TASKS.size&&now-TSYNC<1500){clearTimeout(TSYNCT);TSYNCT=setTimeout(()=>workSync(true),1600);return}TSYNC=now;
+  if(!force&&TASKS.size&&now-TSYNC<1500){const k=++TSYNCT;wait(1600).then(()=>{if(k===TSYNCT)workSync(true)});return}TSYNC=now;
   const l=[...TASKS.values()];
-  if(!l.length){clearTimeout(TSYNCT);NATIVE.workStop().catch(()=>{});if(!S.recording)NATIVE.keepAwake({on:false}).catch(()=>{});blackDone();return}
+  if(!l.length){TSYNCT++;NATIVE.workStop().catch(()=>{});if(!S.recording)NATIVE.keepAwake({on:false}).catch(()=>{});blackDone();return}
   const t=l[0],f=t.total>0?Math.min(1,t.done/t.total):0;
   NATIVE.workUpdate({label:t.label+(l.length>1?` (+${l.length-1})`:''),sub:taskMeta(t),done:Math.round(f*1000),total:t.total>0?1000:0}).catch(()=>{});
   if(keepOn())NATIVE.keepAwake({on:true}).catch(()=>{});
@@ -528,7 +536,7 @@ function blackOff(){const b=$('#black');if(!b||b.hidden)return;b.hidden=true;LAS
 function blackDone(){const b=$('#black');if(!b||b.hidden)return;b.querySelector('span').textContent='Terminé. Touche l\'écran pour revenir.';NATIVE?.dim?.({on:false}).catch(()=>{})}
 setInterval(()=>{if(TASKS.size&&keepOn()&&NATIVE&&!S.recording&&!document.hidden&&Date.now()-LASTTOUCH>40000)blackOn()},5000);
 /* mesure : la tâche avance-t-elle quand l'écran est éteint ? (affichée au retour) */
-let HID=null,BEAT=0;setInterval(()=>{if(document.hidden)BEAT++},1000);
+let HID=null,BEAT=0;setTimeout(async()=>{for(;;){await wait(1000);if(document.hidden)BEAT++}},0);/* lancé après le chargement : le worker des minuteries est défini plus bas */
 document.addEventListener('visibilitychange',()=>{const t=[...TASKS.values()][0];
   if(document.hidden){HID={at:Date.now(),beat:BEAT,label:t?.label,f:t&&t.total?t.done/t.total:null,id:t?.id};return}
   if(!HID)return;const h=HID;HID=null;const away=Date.now()-h.at;if(away<20000||!h.label)return;
@@ -1456,7 +1464,7 @@ async function saveJobToLib0(j,ctx){
     const relId=list.find(t=>t.relId)?.relId;
     if(!rec.unsorted&&!rec.tracklist?.length)(relId?later.push(()=>fetchTracklist(rec.key,relId)):later.push(()=>findTracklist(rec.key)));
   }
-  await libLoad();setTimeout(()=>later.forEach(f=>f()),0);renderLib();if(LIBVIEW.key)renderAlbum();
+  await libLoad();wait(0).then(()=>later.forEach(f=>f()));renderLib();if(LIBVIEW.key)renderAlbum();
 }
 /* Liste officielle des titres (MusicBrainz) pour voir ce qu'il manque */
 async function fetchTracklist(key,relId){
@@ -2000,7 +2008,7 @@ const enrichOn=()=>ls(ENRK)!=='0';
 const plainAlb=s=>(s||'').replace(/\s*[\(\[][^\)\]]*(deluxe|remaster|edition|édition|bonus|expanded|anniversary|version|mono|stereo)[^\)\]]*[\)\]]/gi,'').replace(/\s+-\s+(deluxe|remaster).*$/i,'').trim();
 const RETRY=7*864e5,REDO=30*864e5;
 let ENRUN=null;
-function enrichSoon(ms=20000){clearTimeout(enrichSoon.h);if(enrichOn())enrichSoon.h=setTimeout(()=>autoEnrich(),ms)}
+function enrichSoon(ms=20000){const k=enrichSoon.k=(enrichSoon.k||0)+1;if(enrichOn())wait(ms).then(()=>{if(k===enrichSoon.k)autoEnrich()})}
 const idleRec=async()=>{while(S.recording||JOBS.some(j=>j.status==='conversion'))await wait(5000)};
 let ENRTASK=null;
 function enrSay(t){const e=$('#enrState');if(e)e.textContent=t;ENRTASK?.say(t)}
@@ -3034,7 +3042,8 @@ const UPDK='sillon.updcheck',SKIPK='sillon.updskip';
 const ls=(k,v)=>{try{if(v===undefined)return localStorage.getItem(k);localStorage.setItem(k,v)}catch(e){return null}};
 /* Enrichissement automatique : réglage et lancement */
 $('#keepOn').checked=keepOn();$('#keepOn').onchange=e=>{ls(KEEPK,e.target.checked?'1':'0');if(!e.target.checked&&!S.recording)NATIVE?.keepAwake({on:false}).catch(()=>{});workSync(true)};
-$('#blackBtn').onclick=blackOn;$('#black').onclick=blackOff;
+$('#blackBtn').onclick=blackOn;$('#battBtn').onclick=()=>NATIVE?.requestBatteryExempt?.().catch(e=>toast(e.message||String(e)));
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)battCheck(false)});$('#black').onclick=blackOff;
 $('#toolBack').onclick=closeTool;if(NATIVE?.addWatchFolder){$('#watchBox').hidden=false;$('#watchAdd').onclick=addWatch;setTimeout(renderWatch,1500)}$('#toolChk').onclick=()=>openTool('check');$('#toolDup').onclick=()=>openTool('dups');
 $('#enrOn').checked=enrichOn();$('#enrOn').onchange=e=>{ls(ENRK,e.target.checked?'1':'0');if(e.target.checked)enrichSoon(1000)};
 $('#enrNow').onclick=async()=>{$('#enrNow').disabled=true;await autoEnrich(true);$('#enrNow').disabled=false};

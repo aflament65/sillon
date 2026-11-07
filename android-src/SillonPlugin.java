@@ -220,6 +220,35 @@ public class SillonPlugin extends Plugin {
         });
     }
 
+    /* Optimisation de la batterie : tant qu'elle est active, Android coupe le réseau et endort Sillon écran éteint */
+    @PluginMethod
+    public void batteryExempt(PluginCall call) {
+        android.os.PowerManager pm = (android.os.PowerManager) getContext().getSystemService(android.content.Context.POWER_SERVICE);
+        JSObject o = new JSObject();
+        o.put("exempt", Build.VERSION.SDK_INT < 23 || pm.isIgnoringBatteryOptimizations(getContext().getPackageName()));
+        call.resolve(o);
+    }
+
+    @PluginMethod
+    public void requestBatteryExempt(PluginCall call) {
+        try {
+            Intent i = new Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                    Uri.parse("package:" + getContext().getPackageName()));
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getContext().startActivity(i);
+        } catch (Exception e) {
+            try {
+                Intent i = new Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS);
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                getContext().startActivity(i);
+            } catch (Exception e2) {
+                call.reject("Réglage introuvable");
+                return;
+            }
+        }
+        call.resolve();
+    }
+
     /* Luminosité au minimum (écran noir pendant les tâches) ou rendue au réglage du téléphone */
     @PluginMethod
     public void dim(PluginCall call) {
