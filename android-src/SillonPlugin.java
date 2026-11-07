@@ -113,6 +113,11 @@ public class SillonPlugin extends Plugin {
                 | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
                 | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
                 | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
+        /* le sélecteur s'ouvre directement sur « Music » */
+        if (Build.VERSION.SDK_INT >= 26) {
+            i.putExtra(DocumentsContract.EXTRA_INITIAL_URI,
+                    DocumentsContract.buildDocumentUri("com.android.externalstorage.documents", "primary:Music"));
+        }
         startActivityForResult(call, i, "folderResult");
     }
 
@@ -621,6 +626,56 @@ public class SillonPlugin extends Plugin {
             return;
         }
         for (String[] d : dirs) walk(tree, d[0], rel.isEmpty() ? d[1] : rel + "/" + d[1], prefix, depth + 1, rootIdx, skip, out, stats);
+    }
+
+    /* Supprime les dossiers vides (ou ne contenant qu'une pochette) d'un dossier, sans toucher à sa racine */
+    private boolean pruneDir(Uri tree, String docId, boolean isRoot, int depth) {
+        if (depth > 14) return false;
+        Uri kids = DocumentsContract.buildChildDocumentsUriUsingTree(tree, docId);
+        List<String[]> items = new ArrayList<>();
+        try (android.database.Cursor c = getContext().getContentResolver().query(kids, new String[]{
+                DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                DocumentsContract.Document.COLUMN_MIME_TYPE}, null, null, null)) {
+            if (c == null) return false;
+            while (c.moveToNext()) items.add(new String[]{c.getString(0), c.getString(1), c.getString(2)});
+        } catch (Exception e) {
+            return false;
+        }
+        boolean empty = true;
+        String cover = null;
+        for (String[] it : items) {
+            if (DocumentsContract.Document.MIME_TYPE_DIR.equals(it[2])) {
+                if (!pruneDir(tree, it[0], false, depth + 1)) empty = false;
+            } else if ("folder.jpg".equalsIgnoreCase(it[1])) cover = it[0];
+            else empty = false;
+        }
+        if (!empty || isRoot) return false;
+        try {
+            if (cover != null) DocumentsContract.deleteDocument(getContext().getContentResolver(), DocumentsContract.buildDocumentUriUsingTree(tree, cover));
+            return DocumentsContract.deleteDocument(getContext().getContentResolver(), DocumentsContract.buildDocumentUriUsingTree(tree, docId));
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    @PluginMethod
+    public void pruneEmpty(PluginCall call) {
+        final String s = call.getString("uri");
+        if (s == null) {
+            call.reject("Dossier manquant");
+            return;
+        }
+        new Thread(() -> {
+            try {
+                Uri u = Uri.parse(s);
+                pruneDir(u, DocumentsContract.getTreeDocumentId(u), true, 0);
+                dirCache.clear();
+                fileCache.clear();
+                call.resolve();
+            } catch (Exception e) {
+                call.reject(e.getMessage() != null ? e.getMessage() : "Nettoyage impossible");
+            }
+        }).start();
     }
 
     @PluginMethod

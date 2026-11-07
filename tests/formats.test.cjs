@@ -26,10 +26,10 @@ await p.evaluate(async()=>{
 await p.evaluate(()=>autoEnrich(true));
 let st=await p.evaluate(()=>({albums:LIB.map(r=>({album:r.album,tracks:(r.tracks||[]).map(t=>t.no+':'+t.title+':'+t.dir+'/'+t.file)})),files:[...__FS.keys()].sort(),state:$('#enrState').textContent}));
 const A=n=>st.albums.find(a=>a.album===n);
-ok(A('Absolution')?.tracks.includes('7:Sing for Absolution:Muse/Absolution (2003)/07 - Sing for Absolution.mp3'),'WAV converti en MP3 et rangé dans son album (d\'après le chemin)');
-ok(A('Absolution')?.tracks.some(t=>t.startsWith('2:Hysteria:Muse/Absolution (2003)/02 - Hysteria.mp3')),'WAV sans infos : identifié par le catalogue et rangé avec l\'album');
+ok(A('Absolution')?.tracks.includes('7:Sing for Absolution:Muse/Absolution/07 - Sing for Absolution.mp3'),'WAV converti en MP3 et rangé dans son album (d\'après le chemin)');
+ok(A('Absolution')?.tracks.some(t=>t.startsWith('2:Hysteria:Muse/Absolution/02 - Hysteria.mp3')),'WAV sans infos : identifié par le catalogue et rangé avec l\'album');
 ok(st.files.includes('_Originaux Sillon/Muse/Absolution (2003)/07 Sing for Absolution.wav')&&st.files.includes('_Originaux Sillon/Téléchargements/Muse - Hysteria.wav'),'originaux mis de côté dans « _Originaux Sillon »');
-ok(!st.files.some(f=>/^(Muse\/Absolution \(2003\)\/.*\.wav|Téléchargements\/)/.test(f)),'plus de WAV mélangé aux MP3');
+ok(!st.files.some(f=>/^(Muse\/Absolution\/.*\.wav|Téléchargements\/)/.test(f)),'plus de WAV mélangé aux MP3');
 ok(st.files.includes('Vieux/chanson.wma')&&st.files.includes('Vieux/abime.flac'),'WMA et FLAC illisible laissés en place');
 ok(/convertis? en MP3/.test(st.state)&&/illisible/.test(st.state),'bilan : '+st.state);
 const mp3=await p.evaluate(()=>{const f=[...__FS.entries()].find(([k])=>k.endsWith('07 - Sing for Absolution.mp3'))[1].b;const t=readId3(f);return {id3:t.TIT2+'|'+t.TALB+'|'+t.TPE1,sync:f.slice(10+((f[6]&127)<<21|(f[7]&127)<<14|(f[8]&127)<<7|(f[9]&127))).findIndex((x,i,a)=>x===255&&(a[i+1]&0xE0)===0xE0)>=0,size:f.length}});
@@ -66,7 +66,7 @@ ok(d1.n===1&&/Hysteria/.test(d1.txt),'un doublon listé, avec les deux tailles')
 const kept1=await p.evaluate(()=>LIB.find(x=>x.album==='Absolution').tracks.find(t=>t.title==='Hysteria').size||SIZES.get(LIB.find(x=>x.album==='Absolution').tracks.find(t=>t.title==='Hysteria').uri));
 await p.click('.dupRow .sw');await p.waitForFunction(()=>!document.querySelector('.dupRow .sw[disabled]'),null,{timeout:15000});await p.waitForTimeout(300);
 st=await p.evaluate(()=>({h:LIB.find(x=>x.album==='Absolution').tracks.filter(t=>t.title==='Hysteria').map(t=>t.dir+'/'+t.file+':'+t.size),dups:dupList().map(d=>d.file+':'+d.size),files:[...__FS.keys()].sort()}));
-ok(st.h.length===1&&st.h[0].startsWith('Muse/Absolution (2003)/02 - Hysteria.mp3'),'version échangée, au bon nom : '+st.h);
+ok(st.h.length===1&&st.h[0].startsWith('Muse/Absolution/02 - Hysteria.mp3'),'version échangée, au bon nom : '+st.h);
 ok(st.dups.length===1,'l\'ancienne version est à son tour mise de côté : '+st.dups);
 await p.click('#toolSec .all');await p.click('#toolSec .allc .danger');await p.waitForTimeout(500);
 ok(await p.evaluate(()=>!dupList().length&&![...__FS.keys()].some(k=>k.startsWith('_Doublons'))),'« Supprimer les doublons » vide le dossier');

@@ -61,7 +61,7 @@ s=await st();ok(s.albums.length===1&&s.albums[0].tracks.length===3,'3 morceaux r
 
 console.log('4. Renommer l\'album');
 await p.evaluate(()=>editAlbum(albumKey('Wolfmother',"Rock'n'Roll Baby"),{artist:'Wolfmother',album:'Rock n Roll Baby',year:'2019'}));
-s=await st();ok(s.albums.length===1&&s.albums[0].tracks.length===3,'3 morceaux');ok(s.files.every(x=>x.startsWith('Wolfmother/Rock n Roll Baby (2019)/')),'fichiers dans le nouveau dossier, ancien dossier vidé');ok(consistent(s),'cohérent');
+s=await st();ok(s.albums.length===1&&s.albums[0].tracks.length===3,'3 morceaux');ok(s.files.every(x=>x.startsWith('Wolfmother/Rock n Roll Baby/')),'fichiers dans le nouveau dossier, ancien dossier vidé');ok(consistent(s),'cohérent');
 
 console.log('5. Réunir deux albums en renommant l\'un comme l\'autre');
 await p.evaluate(async()=>{const r={key:albumKey('Wolfmother','Autre'),artist:'Wolfmother',album:'Autre',year:'',dir:'Wolfmother/Autre',sources:{tel:1},tracks:[]};
@@ -102,9 +102,9 @@ ok(al&&al.tracks.length===4,'les 4 morceaux sont retrouvés dans leur album (d\'
 await p.evaluate(()=>repairLib());ok((await st()).albums.find(a=>a.album==='Rock n Roll Baby').tracks.length===4,'une 2e réparation ne crée pas de doublons');
 
 console.log('10. Supprimer un album dont le dossier contient un fichier étranger');
-await p.evaluate(()=>writeNative('Wolfmother/Rock n Roll Baby (2019)/bonus.mp3',new Blob([new Uint8Array(10)],{type:'audio/mpeg'})));
+await p.evaluate(()=>writeNative('Wolfmother/Rock n Roll Baby/bonus.mp3',new Blob([new Uint8Array(10)],{type:'audio/mpeg'})));
 await p.evaluate(async()=>{await libLoad();const r=LIB.find(r=>r.album==='Rock n Roll Baby');r.tracks=r.tracks.filter(t=>!/bonus/.test(t.file));await libPut(r);await libLoad();await deleteAlbum(LIB.find(r=>r.album==='Rock n Roll Baby'))});
-s=await st();ok(!s.albums.some(a=>a.album==='Rock n Roll Baby'),'album retiré');ok(s.files.includes('Wolfmother/Rock n Roll Baby (2019)/bonus.mp3'),'le fichier qui n\'appartient pas à l\'album est conservé');
+s=await st();ok(!s.albums.some(a=>a.album==='Rock n Roll Baby'),'album retiré');ok(s.files.includes('Wolfmother/Rock n Roll Baby/bonus.mp3'),'le fichier qui n\'appartient pas à l\'album est conservé');
 ok(s.files.filter(x=>x.startsWith('Wolfmother/')&&x.endsWith('.mp3')).length===1,'seuls les MP3 de l\'album ont été effacés');
 
 console.log('11. Sélection multiple : ranger 3 morceaux non classés d\'un coup');

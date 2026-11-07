@@ -37,7 +37,7 @@ await p.evaluate(()=>autoEnrich(true));
 ok(await p.evaluate(()=>LIB.reduce((a,r)=>a+(r.tracks||[]).length,0))===17,'2e passage : aucun doublon d\'import');
 console.log('— avec le rangement activé');
 await p.evaluate(async()=>{localStorage.setItem('sillon.tidyManual','1');await autoEnrich(true)});
-const t=await p.evaluate(()=>({wall:[...__FS.keys()].filter(k=>k.startsWith('Pink Floyd/The Wall (1979)/')&&k.endsWith('.mp3')).length,left:[...__FS.keys()].filter(k=>k.startsWith('EXT:Music/Pink Floyd/The Wall')).length,n:LIB.reduce((a,r)=>a+(r.tracks||[]).length,0)}));
+const t=await p.evaluate(()=>({wall:[...__FS.keys()].filter(k=>k.startsWith('Pink Floyd/The Wall/')&&k.endsWith('.mp3')).length,left:[...__FS.keys()].filter(k=>k.startsWith('EXT:Music/Pink Floyd/The Wall')).length,n:LIB.reduce((a,r)=>a+(r.tracks||[]).length,0)}));
 ok(t.wall===12&&t.left===0&&t.n===17,'The Wall rangé dans un seul dossier du dossier de sauvegarde, rien perdu : '+JSON.stringify(t));
 await p.click('#watchList button');await p.waitForTimeout(200);ok(!(await p.evaluate(()=>(window.__WATCH||[]).length)),'« Retirer » arrête de surveiller le dossier');
 ok(!errs.length,'aucune erreur JavaScript '+errs.join(' | '));
