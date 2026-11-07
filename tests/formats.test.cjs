@@ -1,0 +1,94 @@
+/* Autres formats, écran Doublons, écran À vérifier. LAME_JS=chemin de lame.min.js (pris dans l'APK) */
+const { chromium } = require(require('child_process').execSync('npm root -g').toString().trim()+'/playwright');
+const fs=require('fs');const LAME=process.env.LAME_JS;
+let fails=0;const ok=(c,m)=>{console.log((c?'  ok  ':'  ÉCHEC ')+m);if(!c)fails++};
+(async()=>{const b=await chromium.launch();const p=await b.newPage({viewport:{width:360,height:900}});
+await p.route(/fonts|deezer|itunes|musicbrainz|discogs|acoustid|api\.github|coverartarchive/,r=>r.abort());
+await p.route(/lamejs.*lame\.min\.js|lib\/lame\.min\.js/,r=>r.fulfill({body:fs.readFileSync(LAME),contentType:'text/javascript'}));
+const errs=[];p.on('pageerror',e=>errs.push(e.message));
+await p.addInitScript(`localStorage.setItem('sillon.autoenrich','0');(${require('./fake-phone.cjs').toString()})()`);
+await p.goto('http://localhost:8765/index.html');await p.waitForTimeout(300);if(errs.length)console.log('erreurs au chargement',errs);
+await p.evaluate(()=>{FOLDER={uri:'root',name:'Music'};
+  CATALOG.deezer=async u=>{const q=decodeURIComponent((u.split('q=')[1]||'').split('&')[0]);if(u.startsWith('album/'))return {release_date:'2003-01-01',nb_tracks:3,tracks:{data:[{id:1},{id:2},{id:3}]}};
+    if(/hysteria|muse/i.test(q)&&u.startsWith('search/track'))return {data:[{id:2,title:'Hysteria',duration:3,artist:{name:'Muse'},album:{id:9,title:'Absolution'}}]};return {data:[]}};
+  CATALOG.itunes=async()=>[];window.mb=async()=>{throw new Error('hors ligne')};window.fetchImage=async()=>null;window.thumbOf=async()=>'data:,'});
+
+console.log('1. Fichiers WAV, FLAC, M4A et WMA déposés dans le dossier');
+await p.evaluate(async()=>{
+  const wav=(sec,sr=48000)=>{const n=sec*sr,b=new ArrayBuffer(44+n*4),v=new DataView(b);const w=(o,s)=>[...s].forEach((c,i)=>v.setUint8(o+i,c.charCodeAt(0)));
+    w(0,'RIFF');v.setUint32(4,36+n*4,true);w(8,'WAVE');w(12,'fmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,2,true);v.setUint32(24,sr,true);v.setUint32(28,sr*4,true);v.setUint16(32,4,true);v.setUint16(34,16,true);w(36,'data');v.setUint32(40,n*4,true);
+    for(let i=0;i<n;i++){const x=Math.sin(i/sr*2*Math.PI*440)*8000;v.setInt16(44+4*i,x,true);v.setInt16(46+4*i,x,true)}return new Uint8Array(b)};
+  await writeNative('Muse/Absolution (2003)/07 Sing for Absolution.wav',new Blob([wav(3)]));
+  await writeNative('Téléchargements/Muse - Hysteria.wav',new Blob([wav(2,44100)]));
+  await writeNative('Vieux/chanson.wma',new Blob([new Uint8Array(500)]));
+  await writeNative('Vieux/abime.flac',new Blob([new Uint8Array([102,76,97,67,0,0,0,0])]));
+});
+await p.evaluate(()=>autoEnrich(true));
+let st=await p.evaluate(()=>({albums:LIB.map(r=>({album:r.album,tracks:(r.tracks||[]).map(t=>t.no+':'+t.title+':'+t.dir+'/'+t.file)})),files:[...__FS.keys()].sort(),state:$('#enrState').textContent}));
+const A=n=>st.albums.find(a=>a.album===n);
+ok(A('Absolution')?.tracks.includes('7:Sing for Absolution:Muse/Absolution (2003)/07 - Sing for Absolution.mp3'),'WAV converti en MP3 et rangé dans son album (d\'après le chemin)');
+ok(A('Absolution')?.tracks.some(t=>t.startsWith('2:Hysteria:Muse/Absolution (2003)/02 - Hysteria.mp3')),'WAV sans infos : identifié par le catalogue et rangé avec l\'album');
+ok(st.files.includes('_Originaux Sillon/Muse/Absolution (2003)/07 Sing for Absolution.wav')&&st.files.includes('_Originaux Sillon/Téléchargements/Muse - Hysteria.wav'),'originaux mis de côté dans « _Originaux Sillon »');
+ok(!st.files.some(f=>/^(Muse\/Absolution \(2003\)\/.*\.wav|Téléchargements\/)/.test(f)),'plus de WAV mélangé aux MP3');
+ok(st.files.includes('Vieux/chanson.wma')&&st.files.includes('Vieux/abime.flac'),'WMA et FLAC illisible laissés en place');
+ok(/convertis? en MP3/.test(st.state)&&/illisible/.test(st.state),'bilan : '+st.state);
+const mp3=await p.evaluate(()=>{const f=[...__FS.entries()].find(([k])=>k.endsWith('07 - Sing for Absolution.mp3'))[1].b;const t=readId3(f);return {id3:t.TIT2+'|'+t.TALB+'|'+t.TPE1,sync:f.slice(10+((f[6]&127)<<21|(f[7]&127)<<14|(f[8]&127)<<7|(f[9]&127))).findIndex((x,i,a)=>x===255&&(a[i+1]&0xE0)===0xE0)>=0,size:f.length}});
+ok(mp3.id3==='Sing for Absolution|Absolution|Muse'&&mp3.sync&&mp3.size>50000,'vrai MP3 avec étiquettes : '+JSON.stringify(mp3));
+await p.evaluate(()=>autoEnrich(true));
+ok((await p.evaluate(()=>[...__FS.keys()].filter(k=>k.endsWith('.mp3')).length))===2,'2e passage : rien de reconverti');
+
+console.log('2. Lecture des étiquettes FLAC et M4A');
+const tags=await p.evaluate(()=>{const enc=new TextEncoder();
+  const vc=['ARTIST=Daft Punk','ALBUM=Discovery','TITLE=One More Time','TRACKNUMBER=1','DATE=2001-03-12'].map(x=>enc.encode(x));
+  const len=4+6+4+vc.reduce((a,x)=>a+4+x.length,0),blk=new Uint8Array(4+len),dv=new DataView(blk.buffer);blk[0]=128|4;blk[1]=len>>16;blk[2]=len>>8&255;blk[3]=len&255;
+  let o=4;dv.setUint32(o,6,true);o+=4;blk.set(enc.encode('vendor'),o);o+=6;dv.setUint32(o,vc.length,true);o+=4;for(const x of vc){dv.setUint32(o,x.length,true);o+=4;blk.set(x,o);o+=x.length}
+  const flac=new Uint8Array(4+blk.length);flac.set(enc.encode('fLaC'));flac.set(blk,4);
+  const box=(t,body)=>{const b=new Uint8Array(8+body.length),d=new DataView(b.buffer);d.setUint32(0,b.length);[...t].forEach((c,i)=>b[4+i]=c.charCodeAt(0)&255);b.set(body,8);return b};
+  const cat=(...a)=>{const u=new Uint8Array(a.reduce((s,x)=>s+x.length,0));let k=0;for(const x of a){u.set(x,k);k+=x.length}return u};
+  const item=(t,txt)=>box(t,box('data',cat(new Uint8Array(8),typeof txt==='string'?enc.encode(txt):txt)));
+  const m4a=box('moov',box('udta',box('meta',cat(new Uint8Array(4),box('ilst',cat(item('©nam','Get Lucky'),item('©ART','Daft Punk'),item('©alb','Random Access Memories'),item('trkn',new Uint8Array([0,0,0,8,0,13,0,0]))))))));
+  const a=readFlacTags(flac),b=readM4aTags(m4a);return [a.artist,a.album,a.title,a.no,a.year,b.artist,b.album,b.title,b.no].join('|')});
+ok(tags==='Daft Punk|Discovery|One More Time|1|2001|Daft Punk|Random Access Memories|Get Lucky|8','étiquettes lues : '+tags);
+
+console.log('3. Écran Doublons');
+const durs=await p.evaluate(()=>{const f=[...__FS.entries()].find(([k])=>k.endsWith('07 - Sing for Absolution.mp3'))[1].b;
+  const h=new Uint8Array(4+417);h.set([255,251,144,0]);/* trame MPEG1 128 kbit/s */return [mp3Dur(f,f.length).toFixed(1),mp3Dur(h,128000*60/8+4).toFixed(0)]});
+ok(durs[0]>=2.9&&durs[0]<=3.2&&durs[1]==='60','durée lue dans l\'en-tête MP3 (320 et 128 kbit/s) : '+durs);
+await p.evaluate(async()=>{const r=LIB.find(x=>x.album==='Absolution');const t=r.tracks.find(x=>x.title==='Hysteria');
+  const orig=[...__FS.values()].find(v=>v.uri===t.uri).b;/* même morceau, fichier un peu plus lourd */
+  await writeNative('Perso/Hysteria (copie).mp3',new Blob([orig,new Uint8Array(20000)]));
+  await autoEnrich(true)});
+await p.click('#tabLib');await p.waitForTimeout(200);
+ok(!(await p.isHidden('#toolDup')),'bouton « Doublons » visible : '+(await p.textContent('#toolDup')));
+await p.click('#toolDup');await p.waitForSelector('.dupRow');
+const d1=await p.evaluate(()=>({n:document.querySelectorAll('.dupRow').length,txt:document.querySelector('.dupRow').innerText}));
+ok(d1.n===1&&/Hysteria/.test(d1.txt),'un doublon listé, avec les deux tailles');
+const kept1=await p.evaluate(()=>LIB.find(x=>x.album==='Absolution').tracks.find(t=>t.title==='Hysteria').size||SIZES.get(LIB.find(x=>x.album==='Absolution').tracks.find(t=>t.title==='Hysteria').uri));
+await p.click('.dupRow .sw');await p.waitForFunction(()=>!document.querySelector('.dupRow .sw[disabled]'),null,{timeout:15000});await p.waitForTimeout(300);
+st=await p.evaluate(()=>({h:LIB.find(x=>x.album==='Absolution').tracks.filter(t=>t.title==='Hysteria').map(t=>t.dir+'/'+t.file+':'+t.size),dups:dupList().map(d=>d.file+':'+d.size),files:[...__FS.keys()].sort()}));
+ok(st.h.length===1&&st.h[0].startsWith('Muse/Absolution (2003)/02 - Hysteria.mp3'),'version échangée, au bon nom : '+st.h);
+ok(st.dups.length===1,'l\'ancienne version est à son tour mise de côté : '+st.dups);
+await p.click('#toolSec .all');await p.click('#toolSec .allc .danger');await p.waitForTimeout(500);
+ok(await p.evaluate(()=>!dupList().length&&![...__FS.keys()].some(k=>k.startsWith('_Doublons'))),'« Supprimer les doublons » vide le dossier');
+ok(await p.isHidden('#toolDup'),'bouton Doublons masqué quand il n\'y en a plus');
+await p.click('#toolBack');
+
+console.log('4. Écran À vérifier');
+await p.evaluate(async()=>{const u=await writeNative('Divers/xx_track07.mp3',new Blob([new Uint8Array(2000)]));const u2=await writeNative('Divers/Hysteria live.mp3',new Blob([new Uint8Array(2000)]));
+  await libPut({key:UNSORTED_KEY,artist:'',album:'Morceaux non classés',unsorted:true,dir:'Divers',sources:{tel:1},tracks:[{id:'c1',no:0,title:'xx_track07',artist:'',dur:200,dir:'Divers',file:'xx_track07.mp3',uri:u,source:'tel'},{id:'c2',no:0,title:'Hysteria live',artist:'',dur:3,dir:'Divers',file:'Hysteria live.mp3',uri:u2,source:'tel'}]});await libLoad();renderLib()});
+ok((await p.textContent('#toolChk'))==='À vérifier (2)','bouton « À vérifier (2) »');
+await p.click('#toolChk');await p.waitForSelector('.chkRow');await p.waitForTimeout(1500);
+const rows=await p.$$eval('.chkRow',r=>r.map(x=>[...x.querySelectorAll('input')].map(i=>i.value).join('|')+'|'+(!x.querySelector('.sg').hidden)));
+ok(rows[1].startsWith('Hysteria (Live)|Muse|Absolution|2|true'),'suggestion pré-remplie : '+rows[1]);
+ok(rows[0].startsWith('xx_track07|||'),'pas de suggestion inventée : '+rows[0]);
+const r0=p.locator('.chkRow').first();await r0.locator('.ct').fill('Butterflies and Hurricanes');await r0.locator('.ca').fill('Muse');await r0.locator('.cb').fill('Absolution');await r0.locator('.cn').fill('3');
+await p.click('#toolSec .okAll');await p.waitForTimeout(800);
+st=await p.evaluate(()=>({abs:LIB.find(x=>x.album==='Absolution').tracks.map(t=>t.no+':'+t.title).sort(),uns:checkList().length,rows:document.querySelectorAll('.chkRow').length}));
+ok(st.abs.includes('3:Butterflies and Hurricanes'),'ligne corrigée à la main : rangée');
+ok(st.abs.includes('2:Hysteria (Live)')&&st.abs.includes('2:Hysteria'),'suggestion acceptée : la version live garde son nom à côté de la version studio');
+ok(st.uns===0&&st.rows===0,'liste vide, plus rien à vérifier');
+await p.screenshot({path:'/tmp/claude-0/s/tools.png',fullPage:true});
+const W=await p.evaluate(()=>{const W=document.documentElement.clientWidth;return [...document.querySelectorAll('body *')].filter(e=>{const r=e.getBoundingClientRect();return r.width&&r.right>W+1}).map(e=>e.tagName+'.'+e.className).slice(0,5)});
+ok(!W.length,'rien ne déborde à 360 px '+W);
+ok(!errs.length,'aucune erreur JavaScript '+errs.join(' | '));
+await b.close();console.log(fails?`\n${fails} ÉCHEC(S)`:'\nTout est bon');process.exit(fails?1:0)})();

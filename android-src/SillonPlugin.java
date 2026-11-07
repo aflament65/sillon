@@ -491,7 +491,7 @@ public class SillonPlugin extends Plugin {
             String n = f.getName();
             if (n == null) continue;
             if (f.isDirectory()) scanInto(f, rel.isEmpty() ? n : rel + "/" + n, depth + 1, out);
-            else if (n.toLowerCase().endsWith(".mp3")) {
+            else if (n.toLowerCase().matches(".*\\.(mp3|flac|m4a|aac|ogg|oga|opus|wav|wma)$")) {
                 JSObject o = new JSObject();
                 o.put("dir", rel);
                 o.put("name", n);

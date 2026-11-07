@@ -167,6 +167,9 @@ button.big{padding:13px 16px;font-size:1rem}
 .atrk .acts{grid-column:2/-1;display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end}.atrk .acts button{padding:4px 10px;font-size:.85rem}
 .atrk.miss .tt b{color:var(--muted);font-weight:400}
 .atrk .cls,.atrk .delc{grid-column:1/-1}
+.dupRow,.chkRow{display:grid;gap:6px;padding:10px 0;border-bottom:1px solid var(--line)}.dupRow b,.dupRow small{overflow-wrap:anywhere}.dupRow small{color:var(--muted)}
+.dupPair{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 8px;align-items:center;font-size:.88rem}
+.chkRow .hint.mono{overflow-wrap:anywhere;font-size:.75rem}.chkRow .swap{align-self:end;padding:8px 9px}
 .ordRow{display:grid;grid-template-columns:2em minmax(0,1fr) auto auto;gap:6px;align-items:center;padding:4px 0;border-bottom:1px solid var(--line)}.ordRow b{font-weight:500;overflow-wrap:anywhere}.ordRow button{padding:4px 12px}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(96px + env(safe-area-inset-bottom,0px));z-index:60;background:var(--ink);color:var(--bg);padding:9px 14px;border-radius:99px;font-size:.88rem;max-width:90vw}
 .mini{position:fixed;left:0;right:0;bottom:0;z-index:40;background:var(--surface);border-top:1px solid var(--line);padding:0 max(12px,env(safe-area-inset-right,0px)) env(safe-area-inset-bottom,0px) max(12px,env(safe-area-inset-left,0px))}
@@ -206,7 +209,7 @@ body.withMini main{padding-bottom:110px}
 <g clip-path="url(#sLgC)"><circle cx="256" cy="256" r="66" fill="url(#sLgL)"/><circle cx="256" cy="256" r="9" fill="#111317"/></g>
 <rect x="272" y="221.0" width="10" height="70" rx="5" fill="#e2a640"/><rect x="288" y="196.0" width="10" height="120" rx="5" fill="#e2a640"/><rect x="304" y="166.0" width="10" height="180" rx="5" fill="#e2a640"/><rect x="320" y="136.0" width="10" height="240" rx="5" fill="#e2a640"/><rect x="336" y="176.0" width="10" height="160" rx="5" fill="#e2a640"/><rect x="352" y="126.0" width="10" height="260" rx="5" fill="#e2a640"/><rect x="368" y="156.0" width="10" height="200" rx="5" fill="#e2a640"/><rect x="384" y="191.0" width="10" height="130" rx="5" fill="#e2a640"/><rect x="400" y="151.0" width="10" height="210" rx="5" fill="#e2a640"/><rect x="416" y="206.0" width="10" height="100" rx="5" fill="#e2a640"/><rect x="432" y="181.0" width="10" height="150" rx="5" fill="#e2a640"/><rect x="448" y="216.0" width="10" height="80" rx="5" fill="#e2a640"/>
 </svg>
-  <div><h1>Sillon</h1><p>Numérise tes vinyles, face par face, en MP3 rangés et tagués.</p></div>
+  <div><h1>Sillon</h1><p>Numérise tes vinyles et ta musique en MP3 rangés et tagués.</p></div>
 </header>
 <nav class="tabs" aria-label="Sections">
   <button id="tabRec" aria-pressed="true">Numériser</button>
@@ -219,6 +222,7 @@ body.withMini main{padding-bottom:110px}
   <button id="modeTel" aria-pressed="false" hidden>Son du téléphone</button>
 </div>
 <p class="hint" id="otherHint" hidden>Radio, CD, cassette, téléphone ou ordinateur branché sur l'entrée : Sillon découpe aux silences, reconnaît chaque morceau et le range dans son dossier Artiste/Album.</p>
+<div class="row" id="albAsk" hidden><button id="albAskBtn">J'enregistre un album précis…</button><span class="hint grow">Facultatif : sinon chaque morceau est reconnu et rangé tout seul.</span></div>
 <!-- 1. ALBUM -->
 <section id="s1">
   <h2><span class="n">01</span>Album</h2>
@@ -304,7 +308,7 @@ body.withMini main{padding-bottom:110px}
       <p class="hint" id="aKeyState"></p>
     </div>
   </details>
-  <div class="row"><label class="hint" style="display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center">Ou tester avec un fichier audio : <input id="file" type="file" accept="audio/*"></label></div>
+  <div class="row" id="fileRow"><label class="hint" style="display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center">Ou tester avec un fichier audio : <input id="file" type="file" accept="audio/*"></label></div>
 </section>
 
 <!-- 3. DÉCOUPAGE -->
@@ -354,9 +358,15 @@ body.withMini main{padding-bottom:110px}
 <section id="libListSec">
   <h2>Ma discothèque</h2>
   <p class="hint" id="libStats"></p>
+  <div class="row" id="libTools" hidden><button id="toolChk">À vérifier</button><button id="toolDup">Doublons</button></div>
   <div class="row"><input id="libQ" class="grow" type="search" placeholder="Chercher un artiste, un album, un titre" autocomplete="off"><button id="libShuffle" class="main" hidden>Tout lire au hasard</button></div>
   <p class="hint" id="libEmpty">Aucun disque pour l'instant. Chaque morceau converti s'ajoute ici automatiquement, rangé dans son album, avec sa pochette et sa source.</p>
   <div id="libList" class="libList"></div>
+</section>
+<section id="toolSec" hidden>
+  <div class="row"><button id="toolBack">← Discothèque</button></div>
+  <h2 id="toolTitle"></h2>
+  <div id="toolBody"></div>
 </section>
 <section id="libDetail" hidden>
   <div class="row"><button id="albBack">← Discothèque</button></div>
@@ -1389,7 +1399,8 @@ $('#libQ').oninput=()=>renderLib();
 const srcTags=r=>Object.keys(r.sources||(r.done?{vinyle:1}:{})).map(k=>`<span class="tag src-${k}">${SRC_LABEL[k]||k}</span>`).join(' ');
 function renderLib(){
   const q=norm($('#libQ').value),box=$('#libList');box.innerHTML='';
-  $('#libListSec').hidden=!!LIBVIEW.key;$('#libDetail').hidden=!LIBVIEW.key;
+  if(LIBVIEW.tool)return;
+  $('#libListSec').hidden=!!LIBVIEW.key;$('#libDetail').hidden=!LIBVIEW.key;renderLibTools();
   const list=LIB.filter(r=>!q||norm(r.artist+' '+r.album+' '+(r.tracks||[]).map(t=>t.title).join(' ')).includes(q))
     .sort((a,b)=>(b.unsorted?1:0)-(a.unsorted?1:0));
   const nt=LIB.reduce((a,r)=>a+(r.tracks||[]).length,0);
@@ -1508,7 +1519,7 @@ function libOp(fn,removes=[]){
     await libLoad();
     const snap=LIB.map(r=>({...r,tracks:(r.tracks||[]).map(t=>({...t}))}));
     const before=new Set(snap.flatMap(r=>r.tracks.map(t=>t.id)));
-    const ctx={created:[],trash:[],dirs:new Set(),names:new Map(),renames:[],removed:[]};
+    const ctx={created:[],trash:[],dirs:new Set(),names:new Map(),renames:[],removed:[],after:[]};
     try{
       const out=await fn(ctx);
       await libLoad();
@@ -1525,6 +1536,7 @@ function libOp(fn,removes=[]){
         for(const d of ctx.dirs)if(d)await NATIVE.deletePath({path:d,onlyIfEmpty:true,pruneParent:true}).catch(()=>{});
         if(ctx.renames.length)await libLoad();
       }
+      for(const f of ctx.after)try{f()}catch(e){}
       return out;
     }catch(e){
       /* retour arrière : la discothèque redevient exactement comme avant, les copies neuves sont effacées */
@@ -1820,9 +1832,21 @@ function readId3(u8){
     o+=10+n}
   return m;
 }
+/* durée réelle d'un MP3 (en-tête de trame, Xing/Info pour le débit variable) */
+function mp3Dur(u8,size){
+  let o=0;if(u8[0]===73&&u8[1]===68&&u8[2]===51)o=10+((u8[6]&127)<<21|(u8[7]&127)<<14|(u8[8]&127)<<7|(u8[9]&127));
+  for(;o+4<u8.length;o++){if(u8[o]!==255||(u8[o+1]&0xE0)!==0xE0)continue;
+    const ver=(u8[o+1]>>3)&3,lay=(u8[o+1]>>1)&3,bi=u8[o+2]>>4,si=(u8[o+2]>>2)&3,mono=(u8[o+3]>>6)===3;if(ver===1||lay!==1||bi===0||bi===15||si===3)continue;
+    const v1=ver===3,br=(v1?[0,32,40,48,56,64,80,96,112,128,160,192,224,256,320]:[0,8,16,24,32,40,48,56,64,80,96,112,128,144,160])[bi]*1000;
+    const sr=[[11025,12000,8000],null,[22050,24000,16000],[44100,48000,32000]][ver][si],spf=v1?1152:576;
+    const x=o+(v1?(mono?21:36):(mono?13:21)),tag=String.fromCharCode(...u8.subarray(x,x+4));
+    if((tag==='Xing'||tag==='Info')&&(u8[x+7]&1)){const fr=(u8[x+8]<<24|u8[x+9]<<16|u8[x+10]<<8|u8[x+11])>>>0;if(fr)return fr*spf/sr}
+    return Math.max(0,size-o)*8/br}
+  return size*8/320000;
+}
 async function readHead(uri){const a=unb64((await NATIVE.readFile({uri,offset:0,length:10})).data);
   if(!(a[0]===73&&a[1]===68&&a[2]===51))return a;const n=10+((a[6]&127)<<21|(a[7]&127)<<14|(a[8]&127)<<7|(a[9]&127));
-  return unb64((await NATIVE.readFile({uri,offset:0,length:Math.min(n,4194304)})).data)}
+  return unb64((await NATIVE.readFile({uri,offset:0,length:Math.min(n+4096,4194304)})).data)}
 async function repairLib(){
   if(!NATIVE?.scanMp3||!FOLDER.uri){toast('Choisis d\'abord le dossier de sauvegarde (onglet Numériser).');return}
   const msg=$('#libMsg');msg.textContent='Recherche des MP3 dans '+(FOLDER.name||'le dossier')+'…';
@@ -1835,16 +1859,16 @@ async function repairLib(){
 function importOrphans(say){const msg={set textContent(v){say(v)}};
   return libOp(async()=>{
       const {files}=await NATIVE.scanMp3();const known=new Set(LIB.flatMap(r=>(r.tracks||[]).flatMap(t=>[(t.dir+'/'+t.file).toLowerCase(),t.uri])));
-      const lost=files.filter(f=>!f.dir.startsWith(DUPDIR)&&!known.has((f.dir+'/'+f.name).toLowerCase())&&!known.has(f.uri));let k=0;
+      const lost=files.filter(f=>/\.mp3$/i.test(f.name)&&!sillonDir(f.dir)&&!known.has((f.dir+'/'+f.name).toLowerCase())&&!known.has(f.uri));let k=0;
       for(const f of lost){msg.textContent=`Morceaux retrouvés : ${++k}/${lost.length}…`;
-        let m={};try{m=readId3(await readHead(f.uri))}catch(e){}
+        let m={},head=null;try{head=await readHead(f.uri);m=readId3(head)}catch(e){}
         const g=guessFromPath(f.dir,f.name);
         const artist=m.TPE2||m.TPE1||g.artist,album=m.TALB||g.album;
         const title=m.TIT2||g.title,no=parseInt(m.TRCK)||g.no;
         const unsorted=!artist||!album||/^Divers(\/|$)/.test(f.dir);const key=unsorted?UNSORTED_KEY:albumKey(artist,album);
         const r=libGet(key)||(unsorted?{key,artist:'',album:'Morceaux non classés',unsorted:true,sources:{},tracks:[],created:Date.now()}:{key,artist,album,year:(m.TYER||m.TDRC||g.year||'').slice(0,4),created:Date.now(),sources:{},tracks:[],tracklist:[]});
         const src=Object.keys(r.sources||{})[0]||'autre';
-        r.tracks=[...(r.tracks||[]),{id:uid(),no:unsorted?0:no,title,artist:m.TPE1||g.trackArtist||artist,dur:Math.round(f.size*8/320000),dir:f.dir,file:f.name,uri:f.uri,source:src,date:Date.now(),ext:true,size:f.size,artist0:m.TPE1||g.trackArtist||''}];
+        r.tracks=[...(r.tracks||[]),{id:uid(),no:unsorted?0:no,title,artist:m.TPE1||g.trackArtist||artist,dur:Math.round(head?mp3Dur(head,f.size):f.size*8/320000),dir:f.dir,file:f.name,uri:f.uri,source:src,date:Date.now(),ext:true,size:f.size,artist0:m.TPE1||g.trackArtist||''}];
         r.sources={...(r.sources||{}),[src]:1};
         if(!r.cover&&m.cover?.bytes?.length){r.cover=m.cover.bytes;r.coverMime=m.cover.mime;r.thumb=await thumbOf(r.cover,r.coverMime,160)}
         await libPut(r);await libLoad()}
@@ -1927,7 +1951,7 @@ async function enrichAlbum(r0,rep){
     /* doublons : même titre de la liste (ou même titre) et durée proche → on garde le meilleur fichier, l'autre est mis de côté */
     const tl=(a.tracklist||[]).filter(e=>e.title&&!/^\[?unknown\]?$/i.test(e.title));
     const match=t=>tl.find(x=>norm(x.title)===norm(t.title))||tl.map(x=>({x,s:sim(plain(x.title),plain(t.title))})).sort((p,q)=>q.s-p.s).filter(o=>o.s>=.75)[0]?.x;
-    const VAR=/\b(live|remix|mix|version|demo|acoustic|acoustique|instrumental|edit|reprise|unplugged)\b/i;
+    const VAR=VARRE;
     const keep=[],dups=[];
     for(const t of a.tracks||[]){const e=match(t);
       const twin=keep.find(k=>(e?match(k)===e:norm(plain(k.title))===norm(plain(t.title)))&&VAR.test(k.title)===VAR.test(t.title)&&(!k.dur||!t.dur||Math.abs(k.dur-t.dur)<=10));
@@ -1936,7 +1960,9 @@ async function enrichAlbum(r0,rep){
       if(q(t)>q(twin)){keep[keep.indexOf(twin)]=t;dups.push(twin)}else dups.push(t)}
     for(const d of dups){ctx.removed.push(d.id);rep.dups++;
       if(NATIVE&&d.uri){const dd=DUPDIR+'/'+safe(a.artist)+' - '+safe(a.album);const name=await freeName(ctx,dd,d.file||fileNameOf(d));
-        const u=await writeNative(dd+'/'+name,new Blob([await readNative(d.uri)],{type:'audio/mpeg'}));if(!u)throw new Error('doublon non déplacé');ctx.created.push(u);ctx.trash.push(d.uri);ctx.dirs.add(d.dir)}}
+        const u=await writeNative(dd+'/'+name,new Blob([await readNative(d.uri)],{type:'audio/mpeg'}));if(!u)throw new Error('doublon non déplacé');ctx.created.push(u);ctx.trash.push(d.uri);ctx.dirs.add(d.dir);
+        const kept=keep.find(k=>(match(k)&&match(k)===match(d))||norm(plain(k.title))===norm(plain(d.title)));
+        ctx.after.push(()=>{const l=dupList();l.push({uri:u,dir:dd,file:name,size:SIZES.get(d.uri)||d.size||0,title:d.title,artist:d.artist,album:a.album,key:a.key,keptId:kept?.id,no:d.no,dur:d.dur,date:Date.now()});dupSave(l)})}}
     /* titres officiels (seulement quand la correspondance est nette) et un seul dossier par album */
     const canon=albumDir(a),tidy=tidyOn(),used=new Set(),out=[];let movedAny=false;
     for(const t of keep){let e=match(t);if(e&&used.has(e))e=null;if(e)used.add(e);
@@ -1952,6 +1978,7 @@ async function enrichAlbum(r0,rep){
     a.enriched=Date.now();await libPut(a);
   });
 }
+const VARRE=/\b(live|remix|mix|version|demo|acoustic|acoustique|instrumental|edit|reprise|unplugged)\b/i;
 const DUPDIR='_Doublons Sillon',TIDYK='sillon.tidyManual',SIZES=new Map();
 const tidyOn=()=>ls(TIDYK)!=='0';
 /* un album dont des fichiers sont hors de son dossier, ou pas encore rangés */
@@ -1970,12 +1997,163 @@ function guessFromPath(dir,name){
   if(/^(divers|music|musique|download|téléchargement|sillon)/i.test(o.album))o.album='';
   return o;
 }
+/* ---------- Autres formats (FLAC, M4A, OGG, WAV…) : convertis en MP3 320 kbit/s et rangés ----------
+   L'original n'est pas effacé : il est mis de côté dans « _Originaux Sillon » (même chemin qu'avant). */
+const ORIGDIR='_Originaux Sillon',CONVSKIPK='sillon.convSkip';
+const AUDIO_OTHER=/\.(flac|m4a|aac|ogg|oga|opus|wav|wma)$/i;
+const sillonDir=d=>/^_(Doublons|Originaux) Sillon(\/|$)/.test(d||'');
+function convSkip(){try{return JSON.parse(ls(CONVSKIPK)||'{}')}catch(e){return {}}}
+/* étiquettes FLAC (Vorbis comment + image) */
+function readFlacTags(u8){const m={};if(String.fromCharCode(...u8.subarray(0,4))!=='fLaC')return m;let o=4;
+  const dv=new DataView(u8.buffer,u8.byteOffset,u8.byteLength),td=new TextDecoder();
+  while(o+4<=u8.length){const last=u8[o]&128,type=u8[o]&127,len=u8[o+1]<<16|u8[o+2]<<8|u8[o+3];o+=4;if(o+len>u8.length)break;
+    if(type===4){let p=o;const vl=dv.getUint32(p,true);p+=4+vl;const n=dv.getUint32(p,true);p+=4;
+      for(let i=0;i<n&&p<o+len;i++){const l=dv.getUint32(p,true);p+=4;const kv=td.decode(u8.subarray(p,p+l));p+=l;const e=kv.indexOf('=');if(e>0){const k=kv.slice(0,e).toUpperCase(),v=kv.slice(e+1);if(!m[k])m[k]=v}}}
+    else if(type===6&&!m.cover){let p=o+4;const ml=dv.getUint32(p);p+=4;const mime=td.decode(u8.subarray(p,p+ml));p+=ml;const dl=dv.getUint32(p);p+=4+dl+16;const n=dv.getUint32(p);p+=4;m.cover={bytes:u8.slice(p,p+n),mime:mime||'image/jpeg'}}
+    o+=len;if(last)break}
+  return {artist:m.ALBUMARTIST||m.ARTIST||'',trackArtist:m.ARTIST||'',album:m.ALBUM||'',title:m.TITLE||'',no:parseInt(m.TRACKNUMBER)||0,year:(m.DATE||m.YEAR||'').slice(0,4),genre:m.GENRE||'',cover:m.cover||null};
+}
+/* étiquettes M4A (boîte ilst) */
+function readM4aTags(u8){const m={},td=new TextDecoder(),dv=new DataView(u8.buffer,u8.byteOffset,u8.byteLength);
+  const find=(from,to,name)=>{for(let o=from;o+8<=to;){const sz=dv.getUint32(o),t=String.fromCharCode(...u8.subarray(o+4,o+8));if(sz<8)return -1;if(t===name)return o;
+    if(['moov','udta','trak','mdia'].includes(t)){const r=find(o+8,o+sz,name);if(r>=0)return r}
+    if(t==='meta'){const r=find(o+12,o+sz,name);if(r>=0)return r}o+=sz}return -1};
+  const il=find(0,Math.min(u8.length,dv.byteLength),'ilst');if(il<0)return {};
+  const end=il+dv.getUint32(il);
+  for(let o=il+8;o+8<=end;){const sz=dv.getUint32(o);if(sz<8)break;const key=String.fromCharCode(...u8.subarray(o+4,o+8)).replace('©','©');
+    const d=o+8;if(String.fromCharCode(...u8.subarray(d+4,d+8))==='data'){const dsz=dv.getUint32(d),pay=u8.subarray(d+16,d+dsz);
+      if(key==='trkn')m.no=pay[3]||0;else if(key==='covr')m.cover={bytes:pay.slice(),mime:pay[0]===0x89?'image/png':'image/jpeg'};else m[key]=td.decode(pay)}
+    o+=sz}
+  return {artist:m.aART||m['©ART']||'',trackArtist:m['©ART']||'',album:m['©alb']||'',title:m['©nam']||'',no:m.no||0,year:(m['©day']||'').slice(0,4),genre:m['©gen']||'',cover:m.cover||null};
+}
+function encodeMp3(pcm,id3){return new Promise((res,rej)=>{const w=new Worker(workerURL);
+  w.onmessage=e=>{const d=e.data;if(d.type==='track'){res(d.mp3);w.terminate()}else if(d.type==='error'){rej(new Error(d.message));w.terminate()}};
+  w.onerror=e=>{rej(new Error(e.message||'encodeur'));w.terminate()};
+  w.postMessage({pcm,tracks:[{start:0,end:pcm.length/2,id3}],gain:1},[pcm.buffer])})}
+async function convertOther(f,rep){
+  const u8=await readNative(f.uri);
+  const name=f.name.replace(AUDIO_OTHER,'');let tg={};
+  try{tg=/\.flac$/i.test(f.name)?readFlacTags(u8):/\.(m4a|aac)$/i.test(f.name)?readM4aTags(u8):{}}catch(e){}
+  const g=guessFromPath(f.dir,name+'.mp3');
+  const artist=tg.artist||g.artist,album=tg.album||g.album,title=tg.title||g.title,no=tg.no||g.no,year=tg.year||g.year,trackArtist=tg.trackArtist||g.trackArtist||artist;
+  /* décodage (le navigateur rééchantillonne en 44,1 kHz) */
+  const ac=new OfflineAudioContext(2,SR,SR);const buf=await ac.decodeAudioData(u8.buffer.slice(u8.byteOffset,u8.byteOffset+u8.byteLength));
+  const n=buf.length,L=buf.getChannelData(0),R=buf.numberOfChannels>1?buf.getChannelData(1):L,pcm=new Int16Array(n*2);
+  for(let i=0;i<n;i++){const x=L[i]*32767,y=R[i]*32767;pcm[2*i]=x>32767?32767:x<-32768?-32768:x;pcm[2*i+1]=y>32767?32767:y<-32768?-32768:y}
+  return libOp(async ctx=>{
+    const unsorted=!artist||!album;const key=unsorted?UNSORTED_KEY:albumKey(artist,album);
+    const r=libGet(key)||(unsorted?{key,artist:'',album:'Morceaux non classés',unsorted:true,dir:'Divers',sources:{},tracks:[],created:Date.now()}:{key,artist,album,year,genre:tg.genre||'',created:Date.now(),sources:{},tracks:[],tracklist:[]});
+    if(!r.cover&&tg.cover?.bytes?.length&&!unsorted){r.cover=tg.cover.bytes;r.coverMime=tg.cover.mime;r.thumb=await thumbOf(r.cover,r.coverMime,160)}
+    if(!r.year&&year&&!unsorted)r.year=year;
+    const dir=unsorted?'Divers':dirOf(r),file=await freeName(ctx,dir,unsorted?safe((trackArtist?trackArtist+' - ':'')+title)+'.mp3':fileNameOf({no:no||((r.tracks||[]).length+1),title}));
+    const id3=id3For({artist:unsorted?trackArtist:r.artist,album:unsorted?'':r.album,year:r.year||year||'',genre:(r.genre||tg.genre||'').split(',')[0]},{title,artist:trackArtist,no:no||1,total:Math.max(no||1,(r.tracks||[]).length+1)},unsorted?null:r.cover||null,r.coverMime||'image/jpeg');
+    const mp3=await encodeMp3(pcm,id3);
+    const uri=await writeNative(dir+'/'+file,new Blob([mp3],{type:'audio/mpeg'}));if(!uri)throw new Error('écriture impossible');ctx.created.push(uri);
+    const orig=await writeNative(ORIGDIR+'/'+(f.dir?f.dir+'/':'')+f.name,new Blob([u8],{type:'application/octet-stream'}));if(!orig)throw new Error('original non mis de côté');ctx.created.push(orig);
+    ctx.trash.push(f.uri);ctx.dirs.add(f.dir);
+    const src=Object.keys(r.sources||{})[0]||'autre';
+    r.tracks=[...(r.tracks||[]),{id:uid(),no:unsorted?0:(no||(r.tracks||[]).length+1),title,artist:trackArtist,dur:Math.round(buf.duration),dir,file,uri,source:src,date:Date.now(),size:mp3.length,coverDone:!!r.cover}];
+    r.sources={...(r.sources||{}),[src]:1};r.updated=Date.now();await libPut(r);rep.conv++;
+  });
+}
+async function convertOthers(files,rep){
+  const skip=convSkip(),todo=files.filter(f=>AUDIO_OTHER.test(f.name)&&!sillonDir(f.dir)&&!skip[f.uri]);
+  for(const [i,f] of todo.entries()){enrSay(`Conversion en MP3 : ${i+1}/${todo.length} · ${f.name}`);await idleRec();
+    if(f.size>300*1048576||/\.wma$/i.test(f.name)){skip[f.uri]=1;rep.skipped++;continue}
+    try{await convertOther(f,rep)}catch(e){skip[f.uri]=1;rep.skipped++}
+    await wait(200)}
+  ls(CONVSKIPK,JSON.stringify(skip));
+}
+/* ---------- Doublons mis de côté : écouter, échanger, supprimer ---------- */
+const DUPK='sillon.dups';
+function dupList(){try{return JSON.parse(ls(DUPK)||'[]')}catch(e){return []}}
+function dupSave(l){ls(DUPK,JSON.stringify(l))}
+const kb=n=>n?(n/1048576).toFixed(1).replace('.',',')+' Mo':'';
+async function dupReconcile(){if(!NATIVE?.scanMp3)return dupList();
+  try{const all=(await NATIVE.scanMp3()).files||[];for(const f of all)SIZES.set(f.uri,f.size);const have=new Set(all.map(f=>f.uri));const l=dupList().filter(d=>have.has(d.uri));dupSave(l);return l}catch(e){return dupList()}}
+function dupKept(d){const a=libGet(d.key);return {a,k:a?.tracks?.find(t=>t.id===d.keptId)||a?.tracks?.find(t=>norm(plain(t.title))===norm(plain(d.title)))}}
+async function dupSwap(d){
+  await libOp(async ctx=>{const {a,k}=dupKept(d);if(!a)throw new Error('album introuvable');
+    const nt={id:uid(),no:k?.no||d.no||0,title:k?.title||d.title,artist:k?.artist||d.artist,dir:d.dir,file:d.file,uri:d.uri,source:k?.source||'autre',dur:d.dur||k?.dur||0,ext:false};
+    if(k){ctx.removed.push(k.id);const dd=d.dir,name=await freeName(ctx,dd,k.file||fileNameOf(k));
+      const u=await writeNative(dd+'/'+name,new Blob([await readNative(k.uri)],{type:'audio/mpeg'}));if(!u)throw new Error('échange impossible');ctx.created.push(u);ctx.trash.push(k.uri);
+      ctx.after.push(()=>{const l=dupList().filter(x=>x.uri!==d.uri);l.push({...d,uri:u,file:name,size:SIZES.get(k.uri)||k.size||0,keptId:nt.id,date:Date.now()});dupSave(l)})}
+    else ctx.after.push(()=>dupSave(dupList().filter(x=>x.uri!==d.uri)));
+    const want=fileNameOf({no:nt.no||1,title:nt.title}),placed=await placeTrack(ctx,nt,a,dirOf(a),nt.no,nt.title,nt.artist);
+    if(placed.file!==want&&placed.dir===dirOf(a))ctx.renames.push({id:placed.id,uri:placed.uri,name:want});
+    a.tracks=[...a.tracks.filter(t=>t.id!==k?.id),{...placed,size:d.size}];await libPut(a)});
+}
+async function dupDelete(list){for(const d of list){try{await NATIVE.deleteFile({uri:d.uri})}catch(e){}try{await NATIVE.deletePath({path:d.dir,onlyIfEmpty:true,pruneParent:true})}catch(e){}}
+  const gone=new Set(list.map(d=>d.uri));dupSave(dupList().filter(d=>!gone.has(d.uri)))}
+async function renderDups(){
+  const box=$('#toolBody');box.innerHTML='<p class="hint">Vérification du dossier…</p>';
+  const l=await dupReconcile();box.innerHTML='';
+  $('#toolTitle').textContent='Doublons mis de côté';
+  if(!l.length){box.innerHTML='<p class="hint">Aucun doublon : rien à faire.</p>';return}
+  const head=document.createElement('div');head.innerHTML=`<p class="hint">Sillon a gardé dans l'album le fichier le plus lourd (en général le meilleur son). Écoute les deux si tu veux, garde l'autre à la place, ou supprime les doublons.</p>
+    <div class="row"><button class="danger all">${l.length>1?'Supprimer les '+l.length+' doublons':'Supprimer le doublon'}</button></div><div class="allc"></div>`;box.append(head);
+  head.querySelector('.all').onclick=()=>{const c=head.querySelector('.allc');c.innerHTML=`<div class="row delc"><span class="hint grow">Effacer définitivement ${l.length} fichier${l.length>1?'s':''} du téléphone ?</span><button class="danger">Effacer</button><button>Annuler</button></div>`;
+    const [y,n]=c.querySelectorAll('button');n.onclick=()=>{c.innerHTML=''};y.onclick=async()=>{y.disabled=true;await dupDelete(l);toast('Doublons supprimés');renderDups();renderLibTools()}};
+  for(const d of l){const {a,k}=dupKept(d);const row=document.createElement('div');row.className='dupRow';
+    row.innerHTML=`<b>${esc(d.title)}</b><small>${esc(d.artist||'')}${d.album?' · '+esc(d.album):''}</small>
+      <div class="dupPair"><span>Dans l'album <span class="mono">${kb(k?SIZES.get(k.uri)||k.size:0)}</span></span><button class="pk" ${k?.uri?'':'disabled'} aria-label="Écouter la version gardée">▶</button>
+      <span>Mis de côté <span class="mono">${kb(d.size)}</span></span><button class="pd" aria-label="Écouter le doublon">▶</button></div>
+      <div class="row"><button class="sw">Garder celui-ci à la place</button><button class="dl">Supprimer</button></div>`;
+    const it=(t,uri)=>({id:'d'+uri,title:t.title,artist:t.artist||'',album:d.album||'',thumb:a?.thumb||'',uri,dir:'',key:d.key});
+    row.querySelector('.pk').onclick=()=>k&&playItems([it(k,k.uri)],0,false);row.querySelector('.pd').onclick=()=>playItems([it(d,d.uri)],0,false);
+    row.querySelector('.sw').onclick=async e=>{e.target.disabled=true;try{await dupSwap(d);toast('Version échangée');renderDups();renderLibTools()}catch(x){toast('Rien n\'a été modifié : '+x.message);e.target.disabled=false}};
+    row.querySelector('.dl').onclick=async()=>{await dupDelete([d]);toast('Doublon supprimé');renderDups();renderLibTools()};
+    box.append(row)}
+}
+/* ---------- À vérifier : les morceaux que Sillon n'a pas su identifier, corrigés en un passage ---------- */
+function checkList(){return (libGet(UNSORTED_KEY)?.tracks||[]).slice()}
+let CHKRUN=0;
+function renderCheck(){
+  const box=$('#toolBody'),r=libGet(UNSORTED_KEY),l=checkList(),tok=++CHKRUN;box.innerHTML='';
+  $('#toolTitle').textContent='À vérifier';
+  if(!l.length){box.innerHTML='<p class="hint">Tout est identifié : rien à vérifier.</p>';return}
+  const albs=LIB.filter(x=>!x.unsorted),u=uid();
+  box.insertAdjacentHTML('beforeend',`<p class="hint">Sillon n'a pas su identifier ces morceaux. Il propose ce qu'il trouve de plus proche (« suggestion ») : écoute, corrige si besoin, puis range. Les lignes rangées disparaissent.</p>
+    <div class="row"><button class="main okAll">Ranger toutes les lignes complètes</button></div>
+    <datalist id="ca${u}">${[...new Set(albs.map(x=>x.artist))].map(a=>`<option value="${esc(a)}">`).join('')}</datalist><datalist id="cb${u}">${albs.map(a=>`<option value="${esc(a.album)}">${esc(a.artist)}</option>`).join('')}</datalist>`);
+  const rows=[];
+  for(const t of l){const row=document.createElement('div');row.className='chkRow';
+    row.innerHTML=`<div class="row"><button class="pl" aria-label="Écouter">▶</button><span class="hint grow mono">${esc(t.file||'')}</span><span class="tag sg" hidden>suggestion</span></div>
+      <div class="row"><label class="grow">Titre<input type="text" class="ct" value="${esc(t.title||'')}"></label><button class="swap" aria-label="Inverser titre et artiste">⇄</button><label class="grow">Artiste<input type="text" class="ca" list="ca${u}" value="${esc(t.artist&&t.artist!=='Artiste inconnu'?t.artist:'')}"></label></div>
+      <div class="row"><label class="grow">Album<input type="text" class="cb" list="cb${u}"></label><label style="flex:0 0 64px">N°<input type="text" class="cn" inputmode="numeric"></label></div>
+      <div class="row"><button class="main go">Ranger</button><button class="sk">Chercher</button><button class="dl">Supprimer</button><span class="hint msg"></span></div>`;
+    const q=c=>row.querySelector(c),ct=q('.ct'),ca=q('.ca'),cb=q('.cb'),cn=q('.cn'),msg=q('.msg');
+    q('.pl').onclick=()=>playItems([qItem(r,t)],0,false);
+    q('.swap').onclick=()=>{[ct.value,ca.value]=[ca.value,ct.value]};
+    cb.onchange=()=>{const a=albs.find(x=>norm(x.album)===norm(cb.value));if(a&&!ca.value)ca.value=a.artist;const e=a&&(a.tracklist||[]).find(e=>sim(e.title,ct.value)>.6);if(e&&!cn.value)cn.value=e.no};
+    const suggest=async()=>{msg.textContent='Recherche…';let x=null;try{x=await resolveTrack(ca.value.trim(),ct.value.trim(),{dur:t.dur,min:.45})}catch(e){}
+      if(tok!==CHKRUN)return;if(!x){msg.textContent='Rien de proche dans le catalogue';return}
+      const vm=VARRE.exec(ct.value);ct.value=vm&&!VARRE.test(x.title)?x.title+' ('+vm[1][0].toUpperCase()+vm[1].slice(1)+')':x.title;ca.value=x.artist;cb.value=x.album||'';cn.value=x.no||'';q('.sg').hidden=false;msg.textContent=''};
+    q('.sk').onclick=suggest;
+    const go=async()=>{const dst={artist:ca.value.trim(),album:cb.value.trim(),title:ct.value.trim()||t.title,no:+cn.value||0};
+      if(!dst.artist||!dst.album){msg.textContent='Indique l\'artiste et l\'album';return false}
+      try{const k=await moveTrack(UNSORTED_KEY,t.id,dst);if(!libGet(k)?.tracklist?.length)findTracklist(k);row.remove();return true}catch(e){msg.textContent='Rien n\'a été modifié : '+e.message;return false}};
+    q('.go').onclick=async e=>{e.target.disabled=true;if(await go())renderLibTools();else e.target.disabled=false};
+    q('.dl').onclick=async()=>{const c=q('.msg');c.innerHTML='';const y=document.createElement('button');y.className='danger';y.textContent='Effacer le fichier';y.onclick=async()=>{try{await deleteTracks(UNSORTED_KEY,[t.id]);row.remove();renderLibTools()}catch(e){c.textContent=e.message}};c.append(y)};
+    rows.push({row,go,suggest,complete:()=>ca.value.trim()&&cb.value.trim()});box.append(row)}
+  box.querySelector('.okAll').onclick=async e=>{e.target.disabled=true;let n=0;for(const x of rows)if(x.row.isConnected&&x.complete()&&await x.go())n++;toast(n?n+' morceau'+(n>1?'x':'')+' rangé'+(n>1?'s':''):'Aucune ligne complète (artiste + album)');e.target.disabled=false;renderLibTools()};
+  /* suggestions remplies une par une, sans bloquer l'écran */
+  (async()=>{for(const x of rows){if(tok!==CHKRUN)return;if(x.row.isConnected&&!x.complete())await x.suggest();await wait(250)}})();
+}
+/* Accès depuis la discothèque */
+function renderLibTools(){
+  const c=checkList().length,d=dupList().length,b=$('#libTools');b.hidden=!c&&!d;
+  $('#toolChk').hidden=!c;$('#toolChk').textContent=`À vérifier (${c})`;$('#toolDup').hidden=!d;$('#toolDup').textContent=`Doublons (${d})`;
+}
+function openTool(kind){LIBVIEW.tool=kind;$('#libListSec').hidden=true;$('#libDetail').hidden=true;$('#toolSec').hidden=false;window.scrollTo(0,0);kind==='dups'?renderDups():renderCheck()}
+function closeTool(){LIBVIEW.tool=null;CHKRUN++;$('#toolSec').hidden=true;renderLib()}
 async function autoEnrich(manual){
   if(ENRUN)return ENRUN;
-  ENRUN=(async()=>{const rep={imp:0,filed:0,merged:0,covers:0,years:0,genres:0,lists:0,names:0,moved:0,dups:0};
+  ENRUN=(async()=>{const rep={imp:0,conv:0,skipped:0,filed:0,merged:0,covers:0,years:0,genres:0,lists:0,names:0,moved:0,dups:0};
     try{await idleRec();await libLoad();
       if(NATIVE?.scanMp3&&FOLDER.uri){enrSay('Recherche de nouveaux MP3 dans le dossier…');
-        try{SIZES.clear();for(const f of (await NATIVE.scanMp3()).files||[])SIZES.set(f.uri,f.size)}catch(e){}
+        let all=[];try{all=(await NATIVE.scanMp3()).files||[];SIZES.clear();for(const f of all)SIZES.set(f.uri,f.size)}catch(e){}
+        try{await convertOthers(all,rep)}catch(e){}
         try{rep.imp=await importOrphans(t=>enrSay(t))}catch(e){}}
       const loose=(libGet(UNSORTED_KEY)?.tracks||[]).filter(t=>manual||!t.tried||Date.now()-t.tried>RETRY);
       for(const [i,t] of loose.entries()){enrSay(`Identification des morceaux non classés… ${i+1}/${loose.length}`);await idleRec();try{await enrichLoose(UNSORTED_KEY,t,rep)}catch(e){}}
@@ -1983,7 +2161,7 @@ async function autoEnrich(manual){
       const albums=LIB.filter(r=>!r.unsorted&&(manual||!r.enriched||Date.now()-r.enriched>REDO||!r.cover||!r.tracklist?.length||needsTidy(r)));
       for(const [i,r] of albums.entries()){enrSay(`Albums complétés… ${i+1}/${albums.length} : ${r.album}`);await idleRec();try{await enrichAlbum(r,rep)}catch(e){}await wait(300)}
       ls(ENRT,String(Date.now()));
-      const parts=[[rep.imp,'MP3 ajouté','MP3 ajoutés'],[rep.filed,'morceau rangé','morceaux rangés'],[rep.merged,'doublon réuni','doublons réunis'],[rep.covers,'pochette','pochettes'],[rep.lists,'liste de titres','listes de titres'],[rep.names,'titre corrigé','titres corrigés'],[rep.moved,'fichier rangé','fichiers rangés'],[rep.dups,'doublon mis de côté','doublons mis de côté'],[rep.years,'année','années'],[rep.genres,'genre','genres']]
+      const parts=[[rep.imp,'MP3 ajouté','MP3 ajoutés'],[rep.conv,'fichier converti en MP3','fichiers convertis en MP3'],[rep.skipped,'fichier illisible (WMA ou trop gros, laissé tel quel)','fichiers illisibles (WMA ou trop gros, laissés tels quels)'],[rep.filed,'morceau rangé','morceaux rangés'],[rep.merged,'doublon réuni','doublons réunis'],[rep.covers,'pochette','pochettes'],[rep.lists,'liste de titres','listes de titres'],[rep.names,'titre corrigé','titres corrigés'],[rep.moved,'fichier rangé','fichiers rangés'],[rep.dups,'doublon mis de côté','doublons mis de côté'],[rep.years,'année','années'],[rep.genres,'genre','genres']]
         .filter(p=>p[0]).map(p=>p[0]+' '+(p[0]>1?p[2]:p[1]));
       const txt='Dernier enrichissement '+new Date().toLocaleString('fr-FR',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})+' : '+(parts.length?parts.join(', ')+'.':'rien de nouveau, la discothèque est à jour.');
       ls(ENRR,txt);enrSay(txt);if(parts.length&&manual)toast(parts.join(', '));
@@ -2244,14 +2422,15 @@ const CATALOG={deezer:p=>deezer(p),itunes:u=>itunes(u)}; /* remplaçable pour le
 async function resolveTrack(artist,title,extra={}){
   const hyps=extra.strict?[{artist,title}]:trackHyps(artist,title,extra);if(!hyps.length||!title)return null;
   const dur=extra.dur>1000?extra.dur/1000:extra.dur||0;
-  const score=c=>{let s=Math.max(...hyps.map(x=>.55*sim(plain(c.title),plain(x.title))+.45*sim(plain(c.artist),plain(x.artist))));
+  /* mode suggestion (écran « À vérifier ») : sans artiste connu, le titre seul compte */
+  const score=c=>{let s=Math.max(...hyps.map(x=>extra.min&&!x.artist?sim(plain(c.title),plain(x.title)):.55*sim(plain(c.title),plain(x.title))+.45*sim(plain(c.artist),plain(x.artist))));
     if(dur&&c.dur)s+=Math.abs(c.dur-dur)<=4?.08:Math.abs(c.dur-dur)>25?-.1:0;if(COMPIL.test(c.album||''))s-=.06;return s};
   const q=plain(hyps[0].artist+' '+hyps[0].title);let best=null;const take=c=>{c.s=score(c);if(!best||c.s>best.s)best=c};
   try{const d=await CATALOG.deezer('search/track?limit=15&q='+encodeURIComponent(q));
     for(const x of d?.data||[])take({src:'dz',id:x.id,albumId:x.album?.id,artist:x.artist?.name||'',title:x.title_short||x.title||'',album:x.album?.title||'',dur:x.duration||0,cover:x.album?.cover_xl||x.album?.cover_big||''})}catch(e){}
   if(!best||best.s<.8)try{for(const x of await CATALOG.itunes(itunesUrl('search?entity=song&limit=15&term='+encodeURIComponent(q))))
     take({src:'it',artist:x.artistName||'',title:x.trackName||'',album:x.collectionName||'',year:(x.releaseDate||'').slice(0,4),no:x.trackNumber||0,total:x.trackCount||0,dur:Math.round((x.trackTimeMillis||0)/1000),cover:(x.artworkUrl100||'').replace('100x100','600x600')})}catch(e){}
-  if(!best||best.s<.62)return null;
+  if(!best||best.s<(extra.min||.62))return null;
   if(best.src==='dz')try{const al=await CATALOG.deezer('album/'+best.albumId);const pos=(al?.tracks?.data||[]).findIndex(t=>t.id===best.id);
     best.year=(al?.release_date||'').slice(0,4);best.no=pos>=0?pos+1:0;best.total=al?.nb_tracks||0}catch(e){}
   best.title=plain(best.title)||best.title;return best;
@@ -2444,10 +2623,15 @@ function setMode(m,init){
   $('#modeVinyl').setAttribute('aria-pressed',m==='vinyle');$('#modeOther').setAttribute('aria-pressed',m==='autre');$('#modeTel').setAttribute('aria-pressed',tel);
   $('#telHint').hidden=!tel;$('#npRow').hidden=!tel||!NATIVE?.hasNowPlayingAccess;if(tel)npRefreshState();$('#bubbleRow').hidden=!tel||!NATIVE?.canDrawOverlays;$('#devRow').hidden=tel;$('#lvlRow').hidden=tel;$('#lvlHelp').hidden=tel;
   $('#otherHint').textContent=tel?'Le son des applis du téléphone (radio, podcasts, fichiers audio, navigateur…) : Sillon découpe aux silences, reconnaît chaque morceau et le range dans son dossier Artiste/Album.':'Radio, CD, cassette, téléphone ou ordinateur branché sur l\'entrée : Sillon découpe aux silences, reconnaît chaque morceau et le range dans son dossier Artiste/Album.';
-  $('#s1').hidden=false;$('#otherHint').hidden=!other;$('#albOpt').hidden=!other;
+  /* Son du téléphone : pas d'étape « disque », les infos viennent du lecteur et de la reconnaissance.
+     Autre source : l'album n'est demandé que si tu le choisis (CD ou cassette d'un album précis). */
+  if(m==='vinyle')S.albOpen=true;else if(S.prevMode===undefined||S.prevMode==='vinyle')S.albOpen=false;S.prevMode=m;
+  const albShown=m==='vinyle'||(m==='autre'&&S.albOpen);
+  $('#s1').hidden=!albShown;$('#albAsk').hidden=m!=='autre';$('#albAskBtn').textContent=S.albOpen?'Ne pas lier à un album':'J\'enregistre un album précis…';
+  $('#otherHint').hidden=!other||tel;$('#albOpt').hidden=!other;$('#fileRow').hidden=tel;
   $('#s1 h2').lastChild.textContent=other?'Album (facultatif)':'Album';
-  const nums=['01','02','03','04'];
-  ['#s1','#s2','#s3','#s4'].forEach((id,k)=>{const n=document.querySelector(id+' h2 .n');if(n)n.textContent=nums[k]});
+  let k=0;['#s1','#s2','#s3','#s4'].forEach(id=>{const n=document.querySelector(id+' h2 .n');if(n&&!(id==='#s1'&&!albShown))n.textContent=String(++k).padStart(2,'0')});
+  $('#jobsEmpty').textContent=other?'Chaque enregistrement validé apparaît ici pendant sa conversion en MP3 320 kbit/s.':'Chaque face validée apparaît ici pendant sa conversion en MP3 320 kbit/s.';
   $('#identify').textContent=other?'Reconnaître les morceaux':'Reconnaître l\'album';$('#fixNames').hidden=!other;
   renderLvlHelp();stopMonitor();
   $('#autostopL').textContent=other?'Arrêt auto après 15 s de silence':'Arrêt auto en fin de face';
@@ -2457,6 +2641,7 @@ function setMode(m,init){
     $('#recHint').textContent=tel?'Touche « Enregistrer », accepte l\'avertissement d\'Android, puis lance la lecture.':other?'Branche l\'appareil sur l\'entrée audio, lance l\'enregistrement puis la lecture.':'Lance l\'enregistrement, puis pose le diamant. Vise un niveau vert franc sans passer au rouge.'}
   renderSides();pathHint();
 }
+$('#albAskBtn').onclick=()=>{S.albOpen=!S.albOpen;setMode(S.mode,true);if(S.albOpen)$('#qArtist').focus()};
 $('#modeVinyl').onclick=()=>setMode('vinyle');$('#modeOther').onclick=()=>setMode('autre');$('#modeTel').onclick=()=>setMode('tel');
 if(NATIVE?.startCapture)$('#modeTel').hidden=false;
 
@@ -2513,7 +2698,7 @@ const workerURL=URL.createObjectURL(new Blob([WORKER_SRC],{type:'text/javascript
 function freeMetaFor(i){
   const sm=S.segMeta[i]||{},title=(S.titles[i]||'').trim(),meaningful=!!title&&!/^Piste \d+$/.test(title);
   let ar=(sm.artist||'').trim(),al=(sm.album||'').trim(),year=sm.year||'',no=sm.no||0,total=sm.total||0,cover=sm.cover||null,mime=sm.coverMime||'image/jpeg';
-  const sel=S.all.length&&$('#mAlbum').value.trim()?meta():null;
+  const sel=S.mode==='autre'&&S.albOpen&&S.all.length&&$('#mAlbum').value.trim()?meta():null;
   if(sel){const e=meaningful?S.all.find(x=>sim(x.title,title)>.7):null;
     if(!al||e||norm(al)===norm(sel.album)){if(!ar||e)ar=e?.artist||sel.artist;al=sel.album;year=sel.year||year;if(e)no=e.pos;total=S.all.length;if(S.cover){cover=S.cover;mime=S.coverMime}}}
   if(!al&&ar&&meaningful)for(const r of LIB){
@@ -2687,6 +2872,7 @@ const REPO='aflament65/sillon',APK_URL='https://github.com/'+REPO+'/releases/dow
 const UPDK='sillon.updcheck',SKIPK='sillon.updskip';
 const ls=(k,v)=>{try{if(v===undefined)return localStorage.getItem(k);localStorage.setItem(k,v)}catch(e){return null}};
 /* Enrichissement automatique : réglage et lancement */
+$('#toolBack').onclick=closeTool;$('#toolChk').onclick=()=>openTool('check');$('#toolDup').onclick=()=>openTool('dups');
 $('#enrOn').checked=enrichOn();$('#enrOn').onchange=e=>{ls(ENRK,e.target.checked?'1':'0');if(e.target.checked)enrichSoon(1000)};
 $('#enrNow').onclick=async()=>{$('#enrNow').disabled=true;await autoEnrich(true);$('#enrNow').disabled=false};
 enrSay(ls(ENRR)||'');
@@ -2696,7 +2882,7 @@ $('#tidyOn').checked=tidyOn();$('#tidyOn').onchange=e=>{ls(TIDYK,e.target.checke
 let NEWCHK=0;
 async function checkNewFiles(){if(!NATIVE?.scanMp3||!FOLDER.uri||!enrichOn()||ENRUN||Date.now()-NEWCHK<10*60e3)return;NEWCHK=Date.now();
   try{await libLoad();const known=new Set(LIB.flatMap(r=>(r.tracks||[]).flatMap(t=>[(t.dir+'/'+t.file).toLowerCase(),t.uri])));
-    const {files}=await NATIVE.scanMp3();if(files.some(f=>!f.dir.startsWith(DUPDIR)&&!known.has((f.dir+'/'+f.name).toLowerCase())&&!known.has(f.uri)))autoEnrich()}catch(e){}}
+    const {files}=await NATIVE.scanMp3();const sk=convSkip();if(files.some(f=>!sillonDir(f.dir)&&!sk[f.uri]&&!known.has((f.dir+'/'+f.name).toLowerCase())&&!known.has(f.uri)))autoEnrich()}catch(e){}}
 setTimeout(checkNewFiles,12000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)checkNewFiles()});
 function openExt(url){if(NATIVE?.openUrl)return NATIVE.openUrl({url}).catch(()=>{location.href=url});window.open(url,'_blank','noopener')||(location.href=url)}
 document.querySelectorAll('a[data-ext]').forEach(a=>a.onclick=e=>{if(NATIVE){e.preventDefault();openExt(a.href)}});
