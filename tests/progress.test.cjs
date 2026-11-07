@@ -37,6 +37,18 @@ const seen2=await p.evaluate(async()=>{const log=[];const orig=drawTasks;window.
   const r=LIB.find(x=>x.unsorted);await moveTracks(r.key,r.tracks.map(t=>t.id),{artist:'Groupe',album:'Best of'});clearInterval(iv);window.drawTasks=orig;return log});
 console.log('    aperçu :',seen2[Math.floor(seen2.length/2)]);
 ok(seen2.some(x=>/^Rangement dans « Best of » [1-5]\/6 « Chanson/.test(x)),'« Rangement dans « Best of » » : morceau par morceau, sur 6');
+ok(await p.evaluate(()=>(window.__RW||0)>=6),'fichiers copiés directement par Android ('+(await p.evaluate(()=>window.__RW))+' copies)');
+ok(await p.evaluate(()=>{const f=[...__FS.entries()].find(([k])=>/^Groupe\/Best of\/.*Chanson 1\.mp3$/.test(k));const t=f&&readId3(f[1].b);return t&&t.TALB==='Best of'&&t.TIT2==='Chanson 1'}),'étiquettes réécrites par la copie Android');
+console.log('— panne pendant une copie');
+const before=await p.evaluate(()=>JSON.stringify([...__FS.keys()].sort())+JSON.stringify(LIB.map(r=>[r.key,(r.tracks||[]).map(t=>t.uri)])));
+const err=await p.evaluate(async()=>{window.__FAILREWRITE=3;const r=LIB.find(x=>x.album==='Best of');return editAlbum(r.key,{artist:'Groupe',album:'Autre nom',year:''}).then(()=>'',e=>e.message)});
+const after=await p.evaluate(async()=>{await libLoad();return JSON.stringify([...__FS.keys()].sort())+JSON.stringify(LIB.map(r=>[r.key,(r.tracks||[]).map(t=>t.uri)]))});
+ok(err&&before===after,'panne à la 3e copie : tout est remis exactement comme avant ('+err+')');
+console.log('— progression morceau par morceau pendant l\'enrichissement');
+const fine=await p.evaluate(async()=>{const log=[];const r=LIB.find(x=>x.album==='Best of');r.enriched=0;r.tracks.forEach(t=>t.ext=true);await libPut(r);await libLoad();localStorage.setItem('sillon.tidyManual','1');
+  const orig=window.task;window.task=l=>{const T=orig(l);const st=T.step;T.step=(d,n,sub)=>{log.push((+d).toFixed(2)+'|'+(sub||''));return st(d,n,sub)};return T};
+  await autoEnrich(true);window.task=orig;return log.filter(x=>/morceau \d\/6/.test(x))});
+ok(fine.length>=3&&new Set(fine.map(x=>x.split('|')[0])).size>=3,'la barre avance à chaque morceau d\'un album : '+(fine[2]||fine[0]||'rien'));
 console.log('— écran noir automatique');
 await p.evaluate(()=>{window.__DIM=[];window.__AW=[];Object.assign(NATIVE,{dim:async o=>{__DIM.push(o.on)},keepAwake:async o=>{__AW.push(o.on)}});window.__T=task('Conversion en MP3');__T.step(1,10,'x');LASTTOUCH=Date.now()-60000});
 await p.waitForTimeout(5600);

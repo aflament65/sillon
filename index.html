@@ -1612,6 +1612,10 @@ async function readNative(uri){
   while(!eof){const r=await NATIVE.readFile({uri,offset:off,length:786432});const b=unb64(r.data);parts.push(b);off+=b.length;eof=r.eof||!b.length;if(++guard>2000)throw new Error('fichier trop long ou illisible')}
   const out=new Uint8Array(off);let o=0;for(const p of parts){out.set(p,o);o+=p.length}return out;
 }
+/* copie d'un fichier (étiquette remplacée si « tag ») : faite par Android quand c'est possible, bien plus rapide */
+async function copyNative(uri,path,tag){
+  if(NATIVE.rewriteFile){const r=await NATIVE.rewriteFile({uri,path,tag:tag?b64(tag):'',strip:!!tag});return r?.uri||null}
+  const u8=await readNative(uri);return writeNative(path,new Blob(tag?[tag,stripId3(u8)]:[u8],{type:'audio/mpeg'}))}
 /* ---------- Gestion des albums : règles de sûreté ----------
  1. Un album existant n'est jamais remplacé par un nouveau : ce qui y arrive est ajouté ou fusionné.
  2. Un fichier n'en écrase jamais un autre : si le nom est pris, on en prend un libre.
@@ -1626,7 +1630,7 @@ function libOp(fn,removes=[],opt={}){
     await libLoad();
     const snap=LIB.map(r=>({...r,tracks:(r.tracks||[]).map(t=>({...t}))}));
     const before=new Set(snap.flatMap(r=>r.tracks.map(t=>t.id)));
-    const ctx={created:[],trash:[],dirs:new Set(),names:new Map(),renames:[],removed:[],after:[],task:T,n:0,total:opt.total||0};
+    const ctx={created:[],trash:[],dirs:new Set(),names:new Map(),renames:[],removed:[],after:[],task:T,n:0,total:opt.total||0,onPlace:opt.onPlace};
     if(T)T.step(0,ctx.total,opt.sub||'');
     try{
       const out=await fn(ctx);
@@ -1679,16 +1683,15 @@ async function freeName(ctx,dir,want){const s=await namesIn(ctx,dir);let n=want,
   while(s.has(n.toLowerCase()))n=want.replace(/\.mp3$/i,'')+' ('+(k++)+').mp3';s.add(n.toLowerCase());return n}
 /* Écrit le morceau à sa place (dossier, nom, étiquettes de l'album) ; l'original n'est effacé qu'à la fin de l'opération */
 async function placeTrack(ctx,t,alb,dir,no,title,artist){
-  if(ctx.task)ctx.task.step(ctx.n++,ctx.total||null,'« '+(title||t.title)+' »');
+  if(ctx.task)ctx.task.step(ctx.n,ctx.total||null,'« '+(title||t.title)+' »');ctx.onPlace?.(ctx.n,title||t.title);ctx.n++;
   const want=fileNameOf({no:no||1,title});
   const nt={...t,no,title,artist,dir,file:want};
   if(!NATIVE||!t.uri){if(t.dir!==dir)ctx.dirs.add(t.dir);return nt}
   const same=atPath(t,dir,want);
-  const audio=stripId3(await readNative(t.uri));
   const total=Math.max(alb.tracklist?.length||0,(alb.tracks||[]).length,no||1);
   const tag=id3For({artist:alb.artist,album:alb.album,year:alb.year||'',genre:(alb.genre||'').split(',')[0].trim()},{title,artist:artist||alb.artist,no:no||1,total},alb.cover||null,alb.coverMime||'image/jpeg');
   const name=await freeName(ctx,dir,same?want.replace(/\.mp3$/i,' (maj).mp3'):want);
-  const uri=await writeNative(dir+'/'+name,new Blob([tag,audio],{type:'audio/mpeg'}));
+  const uri=await copyNative(t.uri,dir+'/'+name,tag);
   if(!uri)throw new Error('impossible d\'écrire « '+name+' »');
   ctx.created.push(uri);ctx.trash.push(t.uri);
   if(t.dir&&t.dir!==dir&&inRoot(t))ctx.dirs.add(t.dir);
@@ -2066,7 +2069,7 @@ async function mergeTwins(rep){
     for(const o of list.slice(1)){try{await editAlbum(o.key,{artist:main.artist,album:main.album,year:main.year||o.year||''});rep.merged++}catch(e){}}}
 }
 /* 4 et 5. Un album : fiche complétée, titres officiels, étiquettes à jour */
-async function enrichAlbum(r0,rep){
+async function enrichAlbum(r0,rep,pos){
   const key=r0.key;
   if(!r0.tracklist?.length){if(r0.relId)await fetchTracklist(key,r0.relId);else await findTracklist(key);await wait(1100)}
   let r=libGet(key);if(!r)return;
@@ -2092,7 +2095,7 @@ async function enrichAlbum(r0,rep){
       if(q(t)>q(twin)){keep[keep.indexOf(twin)]=t;dups.push(twin)}else dups.push(t)}
     for(const d of dups){ctx.removed.push(d.id);rep.dups++;
       if(NATIVE&&d.uri){const dd=DUPDIR+'/'+safe(a.artist)+' - '+safe(a.album);const name=await freeName(ctx,dd,d.file||fileNameOf(d));
-        const u=await writeNative(dd+'/'+name,new Blob([await readNative(d.uri)],{type:'audio/mpeg'}));if(!u)throw new Error('doublon non déplacé');ctx.created.push(u);ctx.trash.push(d.uri);ctx.dirs.add(d.dir);
+        const u=await copyNative(d.uri,dd+'/'+name);if(!u)throw new Error('doublon non déplacé');ctx.created.push(u);ctx.trash.push(d.uri);ctx.dirs.add(d.dir);
         const kept=keep.find(k=>(match(k)&&match(k)===match(d))||norm(plain(k.title))===norm(plain(d.title)));
         ctx.after.push(()=>{const l=dupList();l.push({uri:u,dir:dd,file:name,size:SIZES.get(d.uri)||d.size||0,title:d.title,artist:d.artist,album:a.album,key:a.key,keptId:kept?.id,no:d.no,dur:d.dur,date:Date.now()});dupSave(l)})}}
     /* titres officiels (seulement quand la correspondance est nette) et un seul dossier par album */
@@ -2108,7 +2111,8 @@ async function enrichAlbum(r0,rep){
     a.tracks=out;if(NATIVE&&out.some(t=>t.dir===canon))a.dir=canon;
     if((cover||movedAny)&&NATIVE&&a.cover&&a.tracks.length)try{await writeNative(canon+'/folder.jpg',new Blob([a.cover],{type:'image/jpeg'}))}catch(e){}
     a.enriched=Date.now();await libPut(a);
-  });
+  },[],{onPlace:pos&&ENRTASK?(k,title)=>{const m=Math.max(1,(r0.tracks||[]).length);
+    ENRTASK.step(pos.i+Math.min(k,m)/m,pos.n,`Albums complétés… ${pos.i+1}/${pos.n} : ${r0.album} · morceau ${Math.min(k+1,m)}/${m} « ${title} »`)}:null});
 }
 const VARRE=/\b(live|remix|mix|version|demo|acoustic|acoustique|instrumental|edit|reprise|unplugged)\b/i;
 const DUPDIR='_Doublons Sillon',TIDYK='sillon.tidyManual',SIZES=new Map();
@@ -2210,7 +2214,7 @@ async function dupSwap(d){
   await libOp(async ctx=>{const {a,k}=dupKept(d);if(!a)throw new Error('album introuvable');
     const nt={id:uid(),no:k?.no||d.no||0,title:k?.title||d.title,artist:k?.artist||d.artist,dir:d.dir,file:d.file,uri:d.uri,source:k?.source||'autre',dur:d.dur||k?.dur||0,ext:false};
     if(k){ctx.removed.push(k.id);const dd=d.dir,name=await freeName(ctx,dd,k.file||fileNameOf(k));
-      const u=await writeNative(dd+'/'+name,new Blob([await readNative(k.uri)],{type:'audio/mpeg'}));if(!u)throw new Error('échange impossible');ctx.created.push(u);ctx.trash.push(k.uri);
+      const u=await copyNative(k.uri,dd+'/'+name);if(!u)throw new Error('échange impossible');ctx.created.push(u);ctx.trash.push(k.uri);
       ctx.after.push(()=>{const l=dupList().filter(x=>x.uri!==d.uri);l.push({...d,uri:u,file:name,size:SIZES.get(k.uri)||k.size||0,keptId:nt.id,date:Date.now()});dupSave(l)})}
     else ctx.after.push(()=>dupSave(dupList().filter(x=>x.uri!==d.uri)));
     const want=fileNameOf({no:nt.no||1,title:nt.title}),placed=await placeTrack(ctx,nt,a,dirOf(a),nt.no,nt.title,nt.artist);
@@ -2301,7 +2305,7 @@ async function migrateLoose(rep){const r=libGet(UNSORTED_KEY);if(!NATIVE||!r)ret
   const out=(r.tracks||[]).filter(t=>!ok(t));if(!out.length)return;
   await libOp(async ctx=>{const a=libGet(UNSORTED_KEY);const next=[];
     for(const t of a.tracks){if(ok(t)){next.push(t);continue}
-      const name=await freeName(ctx,'Divers',t.file||safe(t.title)+'.mp3');const u=await writeNative('Divers/'+name,new Blob([await readNative(t.uri)],{type:'audio/mpeg'}));
+      const name=await freeName(ctx,'Divers',t.file||safe(t.title)+'.mp3');const u=await copyNative(t.uri,'Divers/'+name);
       if(!u)throw new Error('copie impossible');ctx.created.push(u);ctx.trash.push(t.uri);next.push({...t,dir:'Divers',file:name,uri:u});rep.moved++}
     a.tracks=next;await libPut(a)})}
 async function pruneOldRoots(){if(!NATIVE?.pruneEmpty)return;const keep=[];
@@ -2330,7 +2334,7 @@ async function autoEnrich(manual){
       try{await migrateLoose(rep)}catch(e){}
       enrSay('Recherche des albums en double…');await mergeTwins(rep);
       const albums=LIB.filter(r=>!r.unsorted&&(manual||!r.enriched||Date.now()-r.enriched>REDO||!r.cover||!r.tracklist?.length||needsTidy(r)));
-      for(const [i,r] of albums.entries()){enrSay(`Albums complétés… ${i+1}/${albums.length} : ${r.album}`);await idleRec();try{await enrichAlbum(r,rep)}catch(e){}await wait(300)}
+      for(const [i,r] of albums.entries()){enrSay(`Albums complétés… ${i+1}/${albums.length} : ${r.album}`);await idleRec();try{await enrichAlbum(r,rep,{i,n:albums.length})}catch(e){}await wait(300)}
       try{await pruneOldRoots()}catch(e){}
       ls(ENRT,String(Date.now()));
       const parts=[[rep.imp,'MP3 ajouté','MP3 ajoutés'],[rep.conv,'fichier converti en MP3','fichiers convertis en MP3'],[rep.skipped,'fichier illisible (WMA ou trop gros, laissé tel quel)','fichiers illisibles (WMA ou trop gros, laissés tels quels)'],[rep.filed,'morceau rangé','morceaux rangés'],[rep.merged,'doublon réuni','doublons réunis'],[rep.covers,'pochette','pochettes'],[rep.lists,'liste de titres','listes de titres'],[rep.names,'titre corrigé','titres corrigés'],[rep.moved,'fichier rangé','fichiers rangés'],[rep.dups,'doublon mis de côté','doublons mis de côté'],[rep.years,'année','années'],[rep.genres,'genre','genres']]

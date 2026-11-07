@@ -43,6 +43,7 @@ import com.google.mlkit.vision.barcode.common.Barcode;
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions;
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning;
 
+import java.io.BufferedInputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.ArrayList;
@@ -206,6 +207,59 @@ public class SillonPlugin extends Plugin {
                 call.resolve(o);
             } catch (Exception e) {
                 call.reject(e.getMessage() != null ? e.getMessage() : "Erreur d'écriture");
+            }
+        }).start();
+    }
+
+    /* Copie d'un fichier vers un chemin du dossier Music, directement par Android (sans passer par la page) :
+       si « tag » est fourni, l'ancienne étiquette ID3 est remplacée par celle-ci. Ne remplace jamais un fichier existant. */
+    @PluginMethod
+    public void rewriteFile(PluginCall call) {
+        final String src = call.getString("uri");
+        final String path = call.getString("path");
+        final String tag = call.getString("tag", "");
+        final boolean strip = Boolean.TRUE.equals(call.getBoolean("strip", tag != null && !tag.isEmpty()));
+        final Uri root = savedFolder();
+        if (root == null || src == null || path == null || path.isEmpty()) {
+            call.reject("Paramètres manquants");
+            return;
+        }
+        new Thread(() -> {
+            Uri created = null;
+            try {
+                int slash = path.lastIndexOf('/');
+                String parentRel = slash < 0 ? "" : path.substring(0, slash);
+                String name = slash < 0 ? path : path.substring(slash + 1);
+                DocumentFile parent = dir(root, parentRel);
+                if (parent == null) throw new Exception("Impossible de créer le dossier " + parentRel);
+                if (parent.findFile(name) != null) throw new Exception("« " + name + " » existe déjà");
+                DocumentFile f = parent.createFile("audio/mpeg", name);
+                if (f == null) throw new Exception("Impossible de créer " + name);
+                created = f.getUri();
+                byte[] tagBytes = tag == null || tag.isEmpty() ? new byte[0] : Base64.decode(tag, Base64.DEFAULT);
+                try (InputStream in = new BufferedInputStream(getContext().getContentResolver().openInputStream(Uri.parse(src)), 262144);
+                     OutputStream os = getContext().getContentResolver().openOutputStream(created, "wt")) {
+                    if (in == null || os == null) throw new Exception("Lecture ou écriture refusée");
+                    os.write(tagBytes);
+                    byte[] head = new byte[10];
+                    int n = 0;
+                    while (n < 10) { int r = in.read(head, n, 10 - n); if (r < 0) break; n += r; }
+                    if (strip && n == 10 && head[0] == 'I' && head[1] == 'D' && head[2] == '3') {
+                        long size = ((head[6] & 127) << 21) | ((head[7] & 127) << 14) | ((head[8] & 127) << 7) | (head[9] & 127);
+                        if ((head[5] & 16) != 0) size += 10;
+                        long left = size;
+                        while (left > 0) { long k = in.skip(left); if (k <= 0) { if (in.read() < 0) break; k = 1; } left -= k; }
+                    } else os.write(head, 0, n);
+                    byte[] buf = new byte[262144];
+                    int r;
+                    while ((r = in.read(buf)) > 0) os.write(buf, 0, r);
+                }
+                JSObject o = new JSObject();
+                o.put("uri", created.toString());
+                call.resolve(o);
+            } catch (Exception e) {
+                if (created != null) try { DocumentsContract.deleteDocument(getContext().getContentResolver(), created); } catch (Exception x) { }
+                call.reject(e.getMessage() != null ? e.getMessage() : "Copie impossible");
             }
         }).start();
     }

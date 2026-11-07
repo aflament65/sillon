@@ -10,6 +10,11 @@ module.exports=()=>{
     readFile:async({uri,offset,length})=>{const e=byUri(uri);if(!e)throw new Error('introuvable');const s=e[1].b.subarray(offset,offset+length);return {data:b64e(s),eof:offset+length>=e[1].b.length}},
     deleteFile:async({uri})=>{const e=byUri(uri);if(e)F.delete(e[0]);return {deleted:!!e}},
     deletePath:async({path,onlyIfEmpty})=>{const inside=[...F.keys()].filter(k=>k.startsWith(path+'/'));if(onlyIfEmpty&&inside.some(k=>!/folder\.jpg$/.test(k)))return {deleted:false};inside.forEach(k=>F.delete(k));return {deleted:true}},
+    /* copie faite « par Android » : étiquette ID3 remplacée si demandée, jamais d'écrasement */
+    rewriteFile:async({uri,path,tag,strip})=>{const e=byUri(uri);if(!e)throw new Error('introuvable');if(F.has(path))throw new Error('existe déjà');
+      if(window.__FAILREWRITE&&--window.__FAILREWRITE===0)throw new Error('carte pleine (test)');
+      let b=e[1].b;if(strip&&b[0]===73&&b[1]===68&&b[2]===51)b=b.subarray(10+((b[6]&127)<<21|(b[7]&127)<<14|(b[8]&127)<<7|(b[9]&127))+((b[5]&16)?10:0));
+      const t=tag?b64d(tag):new Uint8Array(0),o=new Uint8Array(t.length+b.length);o.set(t);o.set(b,t.length);window.__RW=(window.__RW||0)+1;const u='fs://'+(++n);F.set(path,{uri:u,b:o});return {uri:u}},
     renameFile:async({uri,name})=>{const e=byUri(uri);const np=e[0].slice(0,e[0].lastIndexOf('/')+1)+name;if(F.has(np))throw new Error('existe');F.delete(e[0]);F.set(np,e[1]);return {uri:e[1].uri}},
     /* dossiers surveillés : les chemins « EXT:<nom>/… » sont hors du dossier de sauvegarde */
     listWatchFolders:async()=>({folders:(window.__WATCH||[]).map(n=>({uri:'w:'+n,name:n}))}),
