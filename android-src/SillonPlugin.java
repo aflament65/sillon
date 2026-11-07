@@ -220,6 +220,18 @@ public class SillonPlugin extends Plugin {
         });
     }
 
+    /* Luminosité au minimum (écran noir pendant les tâches) ou rendue au réglage du téléphone */
+    @PluginMethod
+    public void dim(PluginCall call) {
+        final boolean on = Boolean.TRUE.equals(call.getBoolean("on", true));
+        getActivity().runOnUiThread(() -> {
+            WindowManager.LayoutParams lp = getActivity().getWindow().getAttributes();
+            lp.screenBrightness = on ? 0.01f : WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE;
+            getActivity().getWindow().setAttributes(lp);
+            call.resolve();
+        });
+    }
+
     /* ---------- Tâches longues : service de premier plan + notification de progression ---------- */
     static volatile boolean WORKING = false;
 

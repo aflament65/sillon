@@ -34,8 +34,19 @@ const seen2=await p.evaluate(async()=>{const log=[];const orig=drawTasks;window.
   const r=LIB.find(x=>x.unsorted);await moveTracks(r.key,r.tracks.map(t=>t.id),{artist:'Groupe',album:'Best of'});clearInterval(iv);window.drawTasks=orig;return log});
 console.log('    aperçu :',seen2[Math.floor(seen2.length/2)]);
 ok(seen2.some(x=>/^Rangement dans « Best of » [1-5]\/6 « Chanson/.test(x)),'« Rangement dans « Best of » » : morceau par morceau, sur 6');
-console.log('— écran noir');
-await p.evaluate(()=>{task('Test')});await p.waitForTimeout(300);await p.click('#blackBtn');ok(!(await p.isHidden('#black')),'écran noir affiché');await p.click('#black');ok(await p.isHidden('#black'),'touché : retour à l\'appli');
+console.log('— écran noir automatique');
+await p.evaluate(()=>{window.__DIM=[];window.__AW=[];Object.assign(NATIVE,{dim:async o=>{__DIM.push(o.on)},keepAwake:async o=>{__AW.push(o.on)}});window.__T=task('Conversion en MP3');__T.step(1,10,'x');LASTTOUCH=Date.now()-60000});
+await p.waitForTimeout(5600);
+ok(!(await p.isHidden('#black'))&&(await p.evaluate(()=>__DIM.includes(true)&&__AW.includes(true))),'après 40 s sans toucher : écran noir, luminosité au minimum, écran maintenu');
+await p.click('#black');ok(await p.isHidden('#black')&&(await p.evaluate(()=>__DIM[__DIM.length-1]===false)),'un toucher : écran normal, luminosité rendue');
+await p.evaluate(()=>{blackOn();__T.end()});await p.waitForTimeout(300);
+ok((await p.textContent('#black'))?.includes('Terminé')&&(await p.evaluate(()=>__DIM[__DIM.length-1]===false&&__AW[__AW.length-1]===false)),'fin de tâche : « Terminé », le téléphone peut se mettre en veille');
+await p.click('#black');
+console.log('— mesure écran éteint');
+const diag=await p.evaluate(async()=>{const T=task('Enrichissement de la discothèque');T.step(2,10,'x');let hidden=true;Object.defineProperty(document,'hidden',{get:()=>hidden,configurable:true});
+  document.dispatchEvent(new Event('visibilitychange'));HID.at-=120000;/* 2 min « éteint », aucun battement */
+  hidden=false;document.dispatchEvent(new Event('visibilitychange'));T.end();return localStorage.getItem('sillon.bgDiag')});
+ok(/Écran éteint 2 min pendant « Enrichissement de la discothèque » : Android a mis Sillon en pause \(avance de 0 %\)/.test(diag||''),'diagnostic au retour : '+diag);
 await p.screenshot({path:'/tmp/claude-0/s/prog.png',clip:{x:0,y:0,width:360,height:260}});
 const over=await p.evaluate(()=>{const W=document.documentElement.clientWidth;return [...document.querySelectorAll('#tasks *')].filter(e=>e.getBoundingClientRect().right>W+1).length});ok(!over,'rien ne déborde à 360 px');
 ok(!errs.length,'aucune erreur JavaScript '+errs.join(' | '));
