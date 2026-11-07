@@ -50,6 +50,8 @@ const diag=await p.evaluate(async()=>{const T=task('Enrichissement de la discoth
   document.dispatchEvent(new Event('visibilitychange'));HID.at-=120000;/* 2 min « éteint », aucun battement */
   hidden=false;document.dispatchEvent(new Event('visibilitychange'));T.end();return localStorage.getItem('sillon.bgDiag')});
 ok(/Écran éteint 2 min pendant « Enrichissement de la discothèque » : Android a mis Sillon en pause \(avance de 0 %\)/.test(diag||''),'diagnostic au retour : '+diag);
+ok(!(await p.isHidden('#diagBox'))&&/Mesures : 0 battements sur 120 s, 0 réponses d'Android/.test(await p.textContent('#diagBox')),'message affiché en permanence avec les mesures');
+await p.click('#diagOk');ok(await p.isHidden('#diagBox'),'« J\'ai lu » le ferme');ok(/Dernier contrôle écran éteint/.test(await p.textContent('#diagLast')),'gardé dans la rubrique Enrichissement');
 await p.screenshot({path:'/tmp/claude-0/s/prog.png',clip:{x:0,y:0,width:360,height:260}});
 const over=await p.evaluate(()=>{const W=document.documentElement.clientWidth;return [...document.querySelectorAll('#tasks *')].filter(e=>e.getBoundingClientRect().right>W+1).length});ok(!over,'rien ne déborde à 360 px');
 ok(!errs.length,'aucune erreur JavaScript '+errs.join(' | '));

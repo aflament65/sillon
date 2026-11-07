@@ -225,6 +225,8 @@ body.withMini main{padding-bottom:110px}
 </nav>
 <div id="tasks" class="tasks" hidden><div class="tl"></div><div class="row" id="battRow" hidden><span class="hint grow">Pour que Sillon continue écran éteint, autorise-le à ignorer l'optimisation de la batterie.</span><button id="battBtn" class="main">Autoriser</button></div>
   <div class="row tActs"><button id="blackBtn">Écran noir</button><label class="hint" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="keepOn"> Écran noir automatique pendant les tâches (recommandé)</label></div></div>
+<div id="diagBox" class="nudge" hidden style="margin-bottom:10px"><b>Contrôle écran éteint</b><p class="hint" style="white-space:pre-line;user-select:text"></p>
+  <div class="row"><button id="diagCopy">Copier le message</button><button id="diagOk" class="main">J'ai lu</button></div></div>
 <div id="black" hidden><span>Sillon travaille. Touche l'écran pour revenir.</span></div>
 <div id="musicBanner" class="nudge" hidden style="margin-bottom:12px"><p class="hint" id="musicTxt"></p><div class="row"><button id="musicBtn" class="main">Choisir le dossier Music</button></div></div>
 <div id="viewRec" class="view">
@@ -405,6 +407,7 @@ body.withMini main{padding-bottom:110px}
     <div class="row"><button id="watchAdd">+ Ajouter un dossier</button></div>
     <p class="hint">Si tes albums sont ailleurs que dans le dossier de sauvegarde (par exemple dans « Music » alors que Sillon enregistre dans un sous-dossier), ajoute ce dossier ici.</p></div>
   <p class="hint" id="enrState"></p>
+  <p class="hint" id="diagLast" style="white-space:pre-line;user-select:text"></p>
 </section>
 <section>
   <h2>Sauvegarde</h2>
@@ -463,7 +466,11 @@ const S={rel:null,all:[],sides:[],side:-1,cover:null,coverMime:'image/jpeg',
   chunks:[],starts:[],frames:0,env:[],acc:0,cnt:0,bounds:[],titles:[],labels:[],sel:-1,cursor:null,
   floor:-90,peak:0,thr:-60,recording:false,mode:'vinyle',segMeta:[]};
 let ctx=null, stream=null, proc=null, src=null, wake=null, player=null;
-const NATIVE=(window.Capacitor?.isNativePlatform?.()&&window.Capacitor.Plugins?.Sillon)||null;
+const NATIVE0=(window.Capacitor?.isNativePlatform?.()&&window.Capacitor.Plugins?.Sillon)||null;
+/* mesure écran éteint : on compte les réponses d'Android reçues pendant que l'écran est éteint */
+let NCALLS=0,WMSG=0;
+const NATIVE=NATIVE0&&new Proxy(NATIVE0,{get(t,k){const v=t[k];if(typeof v!=='function')return v;
+  return (...a)=>{const p=v.apply(t,a);if(p&&p.then)p.then(()=>{if(document.hidden)NCALLS++},()=>{});return p}}});
 let FOLDER={};
 
 const fmt=t=>{t=Math.max(0,t);const m=Math.floor(t/60),s=t-m*60;return m+':'+(s<10?'0':'')+s.toFixed(t<600&&s%1?1:0).replace('.',',')};
@@ -538,12 +545,15 @@ setInterval(()=>{if(TASKS.size&&keepOn()&&NATIVE&&!S.recording&&!document.hidden
 /* mesure : la tâche avance-t-elle quand l'écran est éteint ? (affichée au retour) */
 let HID=null,BEAT=0;setTimeout(async()=>{for(;;){await wait(1000);if(document.hidden)BEAT++}},0);/* lancé après le chargement : le worker des minuteries est défini plus bas */
 document.addEventListener('visibilitychange',()=>{const t=[...TASKS.values()][0];
-  if(document.hidden){HID={at:Date.now(),beat:BEAT,label:t?.label,f:t&&t.total?t.done/t.total:null,id:t?.id};return}
+  if(document.hidden){HID={at:Date.now(),beat:BEAT,nc:NCALLS,wm:WMSG,label:t?.label,f:t&&t.total?t.done/t.total:null,id:t?.id};return}
   if(!HID)return;const h=HID;HID=null;const away=Date.now()-h.at;if(away<20000||!h.label)return;
   const t2=TASKS.get(h.id),f2=t2&&t2.total?t2.done/t2.total:(t2?null:1),beats=BEAT-h.beat,ran=beats>=Math.min(10,away/1000*.5);
   const moved=h.f!=null&&f2!=null?Math.round((f2-h.f)*100):null;
   const txt=`Écran éteint ${fmtDur(away)} pendant « ${h.label} » : ${ran?'Sillon a continué de travailler':'Android a mis Sillon en pause'}${moved!=null?` (avance de ${moved} %)`:''}.`+(ran?'':' Pour les longues tâches, laisse le téléphone posé sans appuyer sur le bouton marche : l\'écran passe tout seul en noir.');
-  ls('sillon.bgDiag',txt+' ['+new Date().toLocaleString('fr-FR')+', '+beats+' battements]');toast(txt)});
+  const det=`Mesures : ${beats} battements sur ${Math.round(away/1000)} s, ${NCALLS-h.nc} réponses d'Android, ${WMSG-h.wm} messages de conversion, batterie ${BATT==null?'inconnue':BATT?'sans restriction':'optimisée (à autoriser)'}, ${new Date().toLocaleString('fr-FR')}, version 1.${APP_BUILD}.`;
+  ls('sillon.bgDiag',txt+'\n'+det);showDiag()});
+function showDiag(){const d=ls('sillon.bgDiag');const b=$('#diagBox');if(!b||!d)return;b.querySelector('p').textContent=d;b.hidden=false;
+  const l=$('#diagLast');if(l)l.textContent='Dernier contrôle écran éteint : '+d}
 const KEEPK='sillon.keepOn';
 setInterval(()=>{if(TASKS.size)drawTasks()},1000);
 /* tâches « automatiques » : messages de reconnaissance et conversion */
@@ -2951,7 +2961,7 @@ function runJobs(){
     if(err){job.status='erreur';job.msg=err}else{job.status='fini';await saveJobToLib(job)}
     jobRunning=false;renderJobs();renderSides();runJobs();
   };
-  w.onmessage=e=>{const d=e.data;
+  w.onmessage=e=>{const d=e.data;if(document.hidden)WMSG++;
     if(d.type==='progress'){job.p=(d.track+d.p)/job.tracks.length;updJob(job)}
     else if(d.type==='track'){const t=job.tracks[d.track],blob=new Blob([d.mp3],{type:'audio/mpeg'});job.done=d.track+1;job.p=job.done/job.tracks.length;
       if(NATIVE)writing=writing.then(()=>writeNative(t.dir+'/'+fileNameOf(t),blob)).then(u=>{t.uri=u;t.done=true});else{job.outputs.push({name:fileNameOf(t),dir:t.dir,blob});t.blob=blob;t.done=true}
@@ -3042,6 +3052,9 @@ const UPDK='sillon.updcheck',SKIPK='sillon.updskip';
 const ls=(k,v)=>{try{if(v===undefined)return localStorage.getItem(k);localStorage.setItem(k,v)}catch(e){return null}};
 /* Enrichissement automatique : réglage et lancement */
 $('#keepOn').checked=keepOn();$('#keepOn').onchange=e=>{ls(KEEPK,e.target.checked?'1':'0');if(!e.target.checked&&!S.recording)NATIVE?.keepAwake({on:false}).catch(()=>{});workSync(true)};
+$('#diagOk').onclick=()=>{$('#diagBox').hidden=true};
+$('#diagCopy').onclick=async()=>{const t=ls('sillon.bgDiag')||'';try{await navigator.clipboard.writeText(t);toast('Message copié : colle-le dans la conversation')}catch(e){const r=document.createRange();r.selectNodeContents($('#diagBox p'));const sel=getSelection();sel.removeAllRanges();sel.addRange(r);toast('Texte sélectionné : appuie sur Copier')}};
+{const d=ls('sillon.bgDiag');if(d&&$('#diagLast'))$('#diagLast').textContent='Dernier contrôle écran éteint : '+d}
 $('#blackBtn').onclick=blackOn;$('#battBtn').onclick=()=>NATIVE?.requestBatteryExempt?.().catch(e=>toast(e.message||String(e)));
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)battCheck(false)});$('#black').onclick=blackOff;
 $('#toolBack').onclick=closeTool;if(NATIVE?.addWatchFolder){$('#watchBox').hidden=false;$('#watchAdd').onclick=addWatch;setTimeout(renderWatch,1500)}$('#toolChk').onclick=()=>openTool('check');$('#toolDup').onclick=()=>openTool('dups');
