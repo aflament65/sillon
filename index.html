@@ -167,6 +167,7 @@ button.big{padding:13px 16px;font-size:1rem}
 .atrk .acts{grid-column:2/-1;display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end}.atrk .acts button{padding:4px 10px;font-size:.85rem}
 .atrk.miss .tt b{color:var(--muted);font-weight:400}
 .atrk .cls,.atrk .delc{grid-column:1/-1}
+.wRow{display:flex;gap:8px;align-items:center;padding:4px 0}.wRow .grow{min-width:0;overflow-wrap:anywhere}.wRow small{color:var(--muted)}
 .dupRow,.chkRow{display:grid;gap:6px;padding:10px 0;border-bottom:1px solid var(--line)}.dupRow b,.dupRow small{overflow-wrap:anywhere}.dupRow small{color:var(--muted)}
 .dupPair{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 8px;align-items:center;font-size:.88rem}
 .chkRow .hint.mono{overflow-wrap:anywhere;font-size:.75rem}.chkRow .swap{align-self:end;padding:8px 9px}
@@ -389,6 +390,9 @@ body.withMini main{padding-bottom:110px}
   <label class="row" style="display:flex;gap:8px;align-items:center"><input id="tidyOn" type="checkbox" checked> Ranger et étiqueter aussi les MP3 que j'ajoute à la main</label>
   <p class="hint">Chaque album va dans un seul dossier « Artiste/Album (année) », fichiers nommés « 01 - Titre.mp3 » avec pochette et infos. Un morceau en double n'est jamais effacé : le moins bon fichier est mis de côté dans « _Doublons Sillon », que tu peux vider quand tu veux.</p>
   <div class="row"><button id="enrNow" class="main">Enrichir maintenant</button></div>
+  <div id="watchBox" hidden><p class="hint" style="margin-bottom:4px">Dossiers analysés (sous-dossiers compris) :</p><div id="watchList"></div>
+    <div class="row"><button id="watchAdd">+ Ajouter un dossier</button></div>
+    <p class="hint">Si tes albums sont ailleurs que dans le dossier de sauvegarde (par exemple dans « Music » alors que Sillon enregistre dans un sous-dossier), ajoute ce dossier ici.</p></div>
   <p class="hint" id="enrState"></p>
 </section>
 <section>
@@ -1851,28 +1855,42 @@ async function repairLib(){
   if(!NATIVE?.scanMp3||!FOLDER.uri){toast('Choisis d\'abord le dossier de sauvegarde (onglet Numériser).');return}
   const msg=$('#libMsg');msg.textContent='Recherche des MP3 dans '+(FOLDER.name||'le dossier')+'…';
   try{const n=await importOrphans(t=>{msg.textContent=t});
-    msg.textContent=n?`${n} morceau${n>1?'x':''} retrouvé${n>1?'s':''} et remis dans la discothèque.`:'Rien à réparer : tous les MP3 du dossier sont dans la discothèque.';
+    msg.textContent=(n?`${n} morceau${n>1?'x':''} retrouvé${n>1?'s':''} et remis dans la discothèque. `:'Rien à réparer : tous les MP3 sont déjà dans la discothèque. ')+scanReport();
     renderLib()}
   catch(e){msg.textContent='Réparation impossible : '+e.message}
 }
 /* MP3 du dossier de sauvegarde absents de la discothèque : ajoutés d'après leurs étiquettes */
-function importOrphans(say){const msg={set textContent(v){say(v)}};
+/* identité d'un fichier, la même quel que soit le dossier surveillé par lequel on l'atteint */
+const docIdOf=u=>{if(!u)return '';const i=u.indexOf('/document/');return i<0?u:decodeURIComponent(u.slice(i+10))};
+let LASTSCAN=null;
+async function scanAll(){const r=await NATIVE.scanMp3();LASTSCAN={roots:r.roots||[{name:FOLDER.name,files:(r.files||[]).length}],files:(r.files||[]).length,at:Date.now()};
+  SIZES.clear();for(const f of r.files||[])SIZES.set(f.uri,f.size);return r.files||[]}
+const knownIds=()=>new Set(LIB.flatMap(r=>(r.tracks||[]).flatMap(t=>[(t.dir+'/'+t.file).toLowerCase(),docIdOf(t.uri)])));
+const isKnown=(k,f)=>k.has(docIdOf(f.uri))||k.has((f.dir+'/'+f.name).toLowerCase());
+/* MP3 des dossiers analysés absents de la discothèque : ajoutés d'après leurs étiquettes, sinon leur chemin.
+   Un fichier illisible n'empêche jamais d'ajouter les autres. */
+function importOrphans(say,files0){
   return libOp(async()=>{
-      const {files}=await NATIVE.scanMp3();const known=new Set(LIB.flatMap(r=>(r.tracks||[]).flatMap(t=>[(t.dir+'/'+t.file).toLowerCase(),t.uri])));
-      const lost=files.filter(f=>/\.mp3$/i.test(f.name)&&!sillonDir(f.dir)&&!known.has((f.dir+'/'+f.name).toLowerCase())&&!known.has(f.uri));let k=0;
-      for(const f of lost){msg.textContent=`Morceaux retrouvés : ${++k}/${lost.length}…`;
-        let m={},head=null;try{head=await readHead(f.uri);m=readId3(head)}catch(e){}
+    const files=files0||await scanAll(),known=knownIds();
+    const lost=files.filter(f=>/\.mp3$/i.test(f.name)&&!sillonDir(f.dir)&&!isKnown(known,f));
+    const touched=new Map(),get=k=>touched.get(k)||libGet(k);let k=0,bad=0;
+    for(const f of lost){if(++k%5===1||k===lost.length)say(`Ajout des MP3 trouvés : ${k}/${lost.length}…`);
+      try{let m={},head=null;try{head=await readHead(f.uri);m=readId3(head)}catch(e){bad++}
         const g=guessFromPath(f.dir,f.name);
-        const artist=m.TPE2||m.TPE1||g.artist,album=m.TALB||g.album;
-        const title=m.TIT2||g.title,no=parseInt(m.TRCK)||g.no;
+        const artist=(m.TPE2||m.TPE1||g.artist||'').trim(),album=(m.TALB||g.album||'').trim();
+        const title=(m.TIT2||g.title||f.name).trim(),no=parseInt(m.TRCK)||g.no;
         const unsorted=!artist||!album||/^Divers(\/|$)/.test(f.dir);const key=unsorted?UNSORTED_KEY:albumKey(artist,album);
-        const r=libGet(key)||(unsorted?{key,artist:'',album:'Morceaux non classés',unsorted:true,sources:{},tracks:[],created:Date.now()}:{key,artist,album,year:(m.TYER||m.TDRC||g.year||'').slice(0,4),created:Date.now(),sources:{},tracks:[],tracklist:[]});
+        const r=get(key)||(unsorted?{key,artist:'',album:'Morceaux non classés',unsorted:true,sources:{},tracks:[],created:Date.now()}:{key,artist,album,year:(m.TYER||m.TDRC||g.year||'').slice(0,4),created:Date.now(),sources:{},tracks:[],tracklist:[]});
         const src=Object.keys(r.sources||{})[0]||'autre';
         r.tracks=[...(r.tracks||[]),{id:uid(),no:unsorted?0:no,title,artist:m.TPE1||g.trackArtist||artist,dur:Math.round(head?mp3Dur(head,f.size):f.size*8/320000),dir:f.dir,file:f.name,uri:f.uri,source:src,date:Date.now(),ext:true,size:f.size,artist0:m.TPE1||g.trackArtist||''}];
         r.sources={...(r.sources||{}),[src]:1};
-        if(!r.cover&&m.cover?.bytes?.length){r.cover=m.cover.bytes;r.coverMime=m.cover.mime;r.thumb=await thumbOf(r.cover,r.coverMime,160)}
-        await libPut(r);await libLoad()}
-      return lost.length});
+        if(!r.cover&&m.cover?.bytes?.length)try{r.thumb=await thumbOf(m.cover.bytes,m.cover.mime,160);r.cover=m.cover.bytes;r.coverMime=m.cover.mime}catch(e){}
+        touched.set(key,r);known.add(docIdOf(f.uri))}
+      catch(e){bad++}}
+    say('Enregistrement dans la discothèque…');
+    for(const r of touched.values())await libPut(r);
+    if(LASTSCAN){LASTSCAN.added=lost.length;LASTSCAN.unreadable=bad}
+    return lost.length});
 }
 /* ---------- Enrichissement automatique de la discothèque ----------
    Tourne seul en arrière-plan (à l'ouverture et après chaque conversion), jamais pendant un enregistrement :
@@ -1985,9 +2003,11 @@ const tidyOn=()=>ls(TIDYK)!=='0';
 const needsTidy=r=>NATIVE&&(r.tracks||[]).some(t=>t.uri&&((t.ext&&tidyOn())||(!t.ext&&t.dir!==albumDir(r))));
 /* infos tirées du chemin quand le MP3 n'a pas d'étiquettes : « Artiste/Album (2005)/03 - Titre.mp3 », « Artiste - Titre.mp3 »… */
 function guessFromPath(dir,name){
-  const base=name.replace(/\.mp3$/i,'').replace(/_/g,' ').trim(),parts=(dir||'').split('/').filter(Boolean),o={artist:'',album:'',title:base,no:0,year:'',trackArtist:''};
+  const base=name.replace(/\.mp3$/i,'').replace(/_/g,' ').trim(),parts=(dir||'').split('/').filter((x,i)=>x&&!(i===0&&x[0]==='@')),o={artist:'',album:'',title:base,no:0,year:'',trackArtist:''};
   let m=/^(\d{1,3})[\s.\-_)]+\s*(.+)$/.exec(base);let rest=base;if(m&&+m[1]<200){o.no=+m[1];rest=m[2]}
   m=/^(.+?)\s+-\s+(.+)$/.exec(rest);if(m){o.trackArtist=m[1].trim();o.title=m[2].trim()}else o.title=rest;
+  /* « Album/CD1 », « Album/Disc 2 » : le vrai album est le dossier du dessus */
+  if(parts.length>1&&/^(cd|disc|disk|disque|dvd)\s*\d+$/i.test(parts[parts.length-1]))parts.pop();
   const last=parts[parts.length-1]||'',prev=parts[parts.length-2]||'';
   const ym=/^(.*?)\s*[\(\[](\d{4})[\)\]]\s*$/.exec(last);const alb=ym?ym[1]:last;if(ym)o.year=ym[2];
   const am=/^(.+?)\s+-\s+(.+)$/.exec(alb);
@@ -2147,14 +2167,24 @@ function renderLibTools(){
 }
 function openTool(kind){LIBVIEW.tool=kind;$('#libListSec').hidden=true;$('#libDetail').hidden=true;$('#toolSec').hidden=false;window.scrollTo(0,0);kind==='dups'?renderDups():renderCheck()}
 function closeTool(){LIBVIEW.tool=null;CHKRUN++;$('#toolSec').hidden=true;renderLib()}
+function scanReport(){const L=LASTSCAN;if(!L)return '';
+  return 'Dossiers analysés : '+L.roots.map(r=>`${r.name} (${r.files} fichier${r.files>1?'s':''} audio${r.errors?', '+r.errors+' dossier'+(r.errors>1?'s':'')+' illisible'+(r.errors>1?'s':''):''})`).join(', ')+'.'+(L.unreadable?` ${L.unreadable} fichier${L.unreadable>1?'s':''} sans étiquettes lisibles, ajouté${L.unreadable>1?'s':''} d'après son chemin.`:'')}
+async function renderWatch(){const box=$('#watchList');if(!box||!NATIVE?.listWatchFolders)return;
+  let l=[];try{l=(await NATIVE.listWatchFolders()).folders||[]}catch(e){}
+  const cnt=n=>{const r=LASTSCAN?.roots?.find(x=>x.name===n);return r?` · ${r.files} fichier${r.files>1?'s':''} audio`:''};
+  box.innerHTML=`<div class="wRow"><span class="grow"><b>${esc(FOLDER.name||'non choisi')}</b> <small>dossier de sauvegarde${cnt(FOLDER.name)}</small></span></div>`+
+    l.map((f,i)=>`<div class="wRow"><span class="grow"><b>${esc(f.name)}</b> <small>surveillé${cnt(f.name)}</small></span><button data-i="${i}">Retirer</button></div>`).join('');
+  box.querySelectorAll('button[data-i]').forEach(b=>b.onclick=async()=>{await NATIVE.removeWatchFolder({uri:l[+b.dataset.i].uri});renderWatch()});
+}
+async function addWatch(){try{const f=await NATIVE.addWatchFolder();toast('Dossier « '+f.name+' » ajouté : analyse en cours');await renderWatch();NEWCHK=0;autoEnrich(true)}catch(e){if(!/Aucun/.test(e.message||''))toast(e.message||String(e))}}
 async function autoEnrich(manual){
   if(ENRUN)return ENRUN;
   ENRUN=(async()=>{const rep={imp:0,conv:0,skipped:0,filed:0,merged:0,covers:0,years:0,genres:0,lists:0,names:0,moved:0,dups:0};
     try{await idleRec();await libLoad();
       if(NATIVE?.scanMp3&&FOLDER.uri){enrSay('Recherche de nouveaux MP3 dans le dossier…');
-        let all=[];try{all=(await NATIVE.scanMp3()).files||[];SIZES.clear();for(const f of all)SIZES.set(f.uri,f.size)}catch(e){}
+        let all=[];try{all=await scanAll()}catch(e){enrSay('Lecture du dossier impossible : '+e.message)}
         try{await convertOthers(all,rep)}catch(e){}
-        try{rep.imp=await importOrphans(t=>enrSay(t))}catch(e){}}
+        try{rep.imp=await importOrphans(t=>enrSay(t),all.filter(f=>!AUDIO_OTHER.test(f.name)))}catch(e){rep.err='ajout des MP3 : '+e.message}}
       const loose=(libGet(UNSORTED_KEY)?.tracks||[]).filter(t=>manual||!t.tried||Date.now()-t.tried>RETRY);
       for(const [i,t] of loose.entries()){enrSay(`Identification des morceaux non classés… ${i+1}/${loose.length}`);await idleRec();try{await enrichLoose(UNSORTED_KEY,t,rep)}catch(e){}}
       enrSay('Recherche des albums en double…');await mergeTwins(rep);
@@ -2164,7 +2194,7 @@ async function autoEnrich(manual){
       const parts=[[rep.imp,'MP3 ajouté','MP3 ajoutés'],[rep.conv,'fichier converti en MP3','fichiers convertis en MP3'],[rep.skipped,'fichier illisible (WMA ou trop gros, laissé tel quel)','fichiers illisibles (WMA ou trop gros, laissés tels quels)'],[rep.filed,'morceau rangé','morceaux rangés'],[rep.merged,'doublon réuni','doublons réunis'],[rep.covers,'pochette','pochettes'],[rep.lists,'liste de titres','listes de titres'],[rep.names,'titre corrigé','titres corrigés'],[rep.moved,'fichier rangé','fichiers rangés'],[rep.dups,'doublon mis de côté','doublons mis de côté'],[rep.years,'année','années'],[rep.genres,'genre','genres']]
         .filter(p=>p[0]).map(p=>p[0]+' '+(p[0]>1?p[2]:p[1]));
       const txt='Dernier enrichissement '+new Date().toLocaleString('fr-FR',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})+' : '+(parts.length?parts.join(', ')+'.':'rien de nouveau, la discothèque est à jour.');
-      ls(ENRR,txt);enrSay(txt);if(parts.length&&manual)toast(parts.join(', '));
+      const full=txt+(rep.err?' Problème : '+rep.err+'.':'')+(LASTSCAN?' '+scanReport():'');ls(ENRR,full);enrSay(full);if(parts.length&&manual)toast(parts.join(', '));
     }catch(e){enrSay('Enrichissement interrompu : '+e.message)}
     finally{ENRUN=null;await libLoad();if($('#viewLib')&&!$('#viewLib').hidden)LIBVIEW.key?renderAlbum():renderLib()}
   })();
@@ -2872,7 +2902,7 @@ const REPO='aflament65/sillon',APK_URL='https://github.com/'+REPO+'/releases/dow
 const UPDK='sillon.updcheck',SKIPK='sillon.updskip';
 const ls=(k,v)=>{try{if(v===undefined)return localStorage.getItem(k);localStorage.setItem(k,v)}catch(e){return null}};
 /* Enrichissement automatique : réglage et lancement */
-$('#toolBack').onclick=closeTool;$('#toolChk').onclick=()=>openTool('check');$('#toolDup').onclick=()=>openTool('dups');
+$('#toolBack').onclick=closeTool;if(NATIVE?.addWatchFolder){$('#watchBox').hidden=false;$('#watchAdd').onclick=addWatch;setTimeout(renderWatch,1500)}$('#toolChk').onclick=()=>openTool('check');$('#toolDup').onclick=()=>openTool('dups');
 $('#enrOn').checked=enrichOn();$('#enrOn').onchange=e=>{ls(ENRK,e.target.checked?'1':'0');if(e.target.checked)enrichSoon(1000)};
 $('#enrNow').onclick=async()=>{$('#enrNow').disabled=true;await autoEnrich(true);$('#enrNow').disabled=false};
 enrSay(ls(ENRR)||'');
@@ -2881,8 +2911,8 @@ $('#tidyOn').checked=tidyOn();$('#tidyOn').onchange=e=>{ls(TIDYK,e.target.checke
 /* MP3 déposés dans le dossier depuis la dernière fois : pris en compte dès l'ouverture */
 let NEWCHK=0;
 async function checkNewFiles(){if(!NATIVE?.scanMp3||!FOLDER.uri||!enrichOn()||ENRUN||Date.now()-NEWCHK<10*60e3)return;NEWCHK=Date.now();
-  try{await libLoad();const known=new Set(LIB.flatMap(r=>(r.tracks||[]).flatMap(t=>[(t.dir+'/'+t.file).toLowerCase(),t.uri])));
-    const {files}=await NATIVE.scanMp3();const sk=convSkip();if(files.some(f=>!sillonDir(f.dir)&&!sk[f.uri]&&!known.has((f.dir+'/'+f.name).toLowerCase())&&!known.has(f.uri)))autoEnrich()}catch(e){}}
+  try{await libLoad();const known=knownIds();const files=await scanAll();const sk=convSkip();
+    if(files.some(f=>!sillonDir(f.dir)&&!sk[f.uri]&&!isKnown(known,f)))autoEnrich();renderWatch()}catch(e){}}
 setTimeout(checkNewFiles,12000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)checkNewFiles()});
 function openExt(url){if(NATIVE?.openUrl)return NATIVE.openUrl({url}).catch(()=>{location.href=url});window.open(url,'_blank','noopener')||(location.href=url)}
 document.querySelectorAll('a[data-ext]').forEach(a=>a.onclick=e=>{if(NATIVE){e.preventDefault();openExt(a.href)}});

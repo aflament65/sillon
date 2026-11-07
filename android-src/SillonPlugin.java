@@ -484,22 +484,143 @@ public class SillonPlugin extends Plugin {
         }).start();
     }
 
-    /* Liste tous les MP3 du dossier de sauvegarde (sous-dossiers compris) */
-    private void scanInto(DocumentFile d, String rel, int depth, JSArray out) {
-        if (d == null || depth > 4) return;
-        for (DocumentFile f : d.listFiles()) {
-            String n = f.getName();
-            if (n == null) continue;
-            if (f.isDirectory()) scanInto(f, rel.isEmpty() ? n : rel + "/" + n, depth + 1, out);
-            else if (n.toLowerCase().matches(".*\\.(mp3|flac|m4a|aac|ogg|oga|opus|wav|wma)$")) {
-                JSObject o = new JSObject();
-                o.put("dir", rel);
-                o.put("name", n);
-                o.put("uri", f.getUri().toString());
-                o.put("size", f.length());
-                out.put(o);
+    /* ---------- Dossiers analysés : le dossier de sauvegarde + les dossiers à surveiller ---------- */
+    private static final String KEY_WATCH = "watchFolders";
+    private static final java.util.regex.Pattern AUDIO = java.util.regex.Pattern.compile(".*\\.(mp3|flac|m4a|aac|ogg|oga|opus|wav|wma)$");
+
+    private boolean canRead(Uri u) {
+        for (UriPermission p : getContext().getContentResolver().getPersistedUriPermissions())
+            if (p.getUri().equals(u) && p.isReadPermission()) return true;
+        return false;
+    }
+
+    private List<Uri> watchFolders() {
+        List<Uri> out = new ArrayList<>();
+        try {
+            org.json.JSONArray a = new org.json.JSONArray(prefs().getString(KEY_WATCH, "[]"));
+            for (int i = 0; i < a.length(); i++) {
+                Uri u = Uri.parse(a.getString(i));
+                if (canRead(u)) out.add(u);
+            }
+        } catch (Exception e) { }
+        return out;
+    }
+
+    private void saveWatch(List<Uri> l) {
+        org.json.JSONArray a = new org.json.JSONArray();
+        for (Uri u : l) a.put(u.toString());
+        prefs().edit().putString(KEY_WATCH, a.toString()).apply();
+    }
+
+    private String folderName(Uri u) {
+        DocumentFile d = DocumentFile.fromTreeUri(getContext(), u);
+        String n = d != null ? d.getName() : null;
+        return n != null ? n : "Dossier";
+    }
+
+    @PluginMethod
+    public void listWatchFolders(PluginCall call) {
+        JSArray arr = new JSArray();
+        for (Uri u : watchFolders()) {
+            JSObject o = new JSObject();
+            o.put("uri", u.toString());
+            o.put("name", folderName(u));
+            arr.put(o);
+        }
+        JSObject res = new JSObject();
+        res.put("folders", arr);
+        call.resolve(res);
+    }
+
+    @PluginMethod
+    public void addWatchFolder(PluginCall call) {
+        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
+                | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
+                | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
+        startActivityForResult(call, i, "watchResult");
+    }
+
+    @ActivityCallback
+    private void watchResult(PluginCall call, ActivityResult result) {
+        if (call == null) return;
+        if (result.getResultCode() != Activity.RESULT_OK || result.getData() == null || result.getData().getData() == null) {
+            call.reject("Aucun dossier choisi");
+            return;
+        }
+        Uri u = result.getData().getData();
+        try {
+            getContext().getContentResolver().takePersistableUriPermission(u,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+        } catch (SecurityException e) {
+            try {
+                getContext().getContentResolver().takePersistableUriPermission(u, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            } catch (SecurityException e2) {
+                call.reject("Android refuse l'accès à ce dossier");
+                return;
             }
         }
+        List<Uri> l = watchFolders();
+        if (!l.contains(u) && !u.equals(savedFolder())) l.add(u);
+        saveWatch(l);
+        JSObject o = new JSObject();
+        o.put("uri", u.toString());
+        o.put("name", folderName(u));
+        call.resolve(o);
+    }
+
+    @PluginMethod
+    public void removeWatchFolder(PluginCall call) {
+        String s = call.getString("uri");
+        List<Uri> l = watchFolders();
+        if (s != null) {
+            Uri u = Uri.parse(s);
+            l.remove(u);
+            if (!u.equals(savedFolder())) {
+                try {
+                    getContext().getContentResolver().releasePersistableUriPermission(u,
+                            Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+                } catch (Exception e) { }
+            }
+        }
+        saveWatch(l);
+        call.resolve();
+    }
+
+    /* Parcours rapide : une seule requête par dossier (bien plus rapide que DocumentFile sur les grosses collections) */
+    private void walk(Uri tree, String docId, String rel, String prefix, int depth, int rootIdx,
+                      java.util.Set<String> skip, JSArray out, int[] stats) {
+        if (depth > 12) return;
+        Uri kids = DocumentsContract.buildChildDocumentsUriUsingTree(tree, docId);
+        List<String[]> dirs = new ArrayList<>();
+        try (android.database.Cursor c = getContext().getContentResolver().query(kids, new String[]{
+                DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                DocumentsContract.Document.COLUMN_MIME_TYPE, DocumentsContract.Document.COLUMN_SIZE}, null, null, null)) {
+            if (c == null) return;
+            stats[0]++;
+            while (c.moveToNext()) {
+                String id = c.getString(0), n = c.getString(1), m = c.getString(2);
+                if (id == null || n == null) continue;
+                if (DocumentsContract.Document.MIME_TYPE_DIR.equals(m)) {
+                    if (!skip.contains(id)) dirs.add(new String[]{id, n});
+                } else if (AUDIO.matcher(n.toLowerCase()).matches()) {
+                    JSObject o = new JSObject();
+                    String d = rel.isEmpty() ? prefix : (prefix.isEmpty() ? rel : prefix + "/" + rel);
+                    o.put("dir", d);
+                    o.put("name", n);
+                    o.put("uri", DocumentsContract.buildDocumentUriUsingTree(tree, id).toString());
+                    o.put("docId", id);
+                    o.put("size", c.isNull(3) ? 0 : c.getLong(3));
+                    o.put("root", rootIdx);
+                    out.put(o);
+                }
+            }
+        } catch (Exception e) {
+            stats[1]++;
+            return;
+        }
+        for (String[] d : dirs) walk(tree, d[0], rel.isEmpty() ? d[1] : rel + "/" + d[1], prefix, depth + 1, rootIdx, skip, out, stats);
     }
 
     @PluginMethod
@@ -511,10 +632,32 @@ public class SillonPlugin extends Plugin {
         }
         new Thread(() -> {
             try {
-                JSArray arr = new JSArray();
-                scanInto(DocumentFile.fromTreeUri(getContext(), root), "", 0, arr);
+                List<Uri> roots = new ArrayList<>();
+                roots.add(root);
+                for (Uri u : watchFolders()) if (!roots.contains(u)) roots.add(u);
+                java.util.Set<String> ids = new java.util.HashSet<>();
+                for (Uri u : roots) ids.add(DocumentsContract.getTreeDocumentId(u));
+                JSArray arr = new JSArray(), info = new JSArray();
+                for (int i = 0; i < roots.size(); i++) {
+                    Uri u = roots.get(i);
+                    String id = DocumentsContract.getTreeDocumentId(u);
+                    java.util.Set<String> skip = new java.util.HashSet<>(ids);
+                    skip.remove(id); /* un dossier surveillé qui en contient un autre ne le compte pas deux fois */
+                    int[] st = new int[2];
+                    int before = arr.length();
+                    String name = folderName(u);
+                    walk(u, id, "", i == 0 ? "" : "@" + name, 0, i, skip, arr, st);
+                    JSObject o = new JSObject();
+                    o.put("name", name);
+                    o.put("uri", u.toString());
+                    o.put("files", arr.length() - before);
+                    o.put("dirs", st[0]);
+                    o.put("errors", st[1]);
+                    info.put(o);
+                }
                 JSObject res = new JSObject();
                 res.put("files", arr);
+                res.put("roots", info);
                 call.resolve(res);
             } catch (Exception e) {
                 call.reject(e.getMessage() != null ? e.getMessage() : "Lecture du dossier impossible");

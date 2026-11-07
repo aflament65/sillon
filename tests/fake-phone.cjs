@@ -11,5 +11,14 @@ module.exports=()=>{
     deleteFile:async({uri})=>{const e=byUri(uri);if(e)F.delete(e[0]);return {deleted:!!e}},
     deletePath:async({path,onlyIfEmpty})=>{const inside=[...F.keys()].filter(k=>k.startsWith(path+'/'));if(onlyIfEmpty&&inside.some(k=>!/folder\.jpg$/.test(k)))return {deleted:false};inside.forEach(k=>F.delete(k));return {deleted:true}},
     renameFile:async({uri,name})=>{const e=byUri(uri);const np=e[0].slice(0,e[0].lastIndexOf('/')+1)+name;if(F.has(np))throw new Error('existe');F.delete(e[0]);F.set(np,e[1]);return {uri:e[1].uri}},
-    scanMp3:async()=>({files:[...F.entries()].filter(([k])=>/\.(mp3|flac|m4a|aac|ogg|oga|opus|wav|wma)$/i.test(k)).map(([k,v])=>({dir:k.slice(0,k.lastIndexOf('/')),name:k.slice(k.lastIndexOf('/')+1),uri:v.uri,size:v.b.length}))})}}};
+    /* dossiers surveillés : les chemins « EXT:<nom>/… » sont hors du dossier de sauvegarde */
+    listWatchFolders:async()=>({folders:(window.__WATCH||[]).map(n=>({uri:'w:'+n,name:n}))}),
+    addWatchFolder:async()=>{const n=window.__NEXTWATCH;(window.__WATCH=window.__WATCH||[]).push(n);return {uri:'w:'+n,name:n}},
+    removeWatchFolder:async({uri})=>{window.__WATCH=(window.__WATCH||[]).filter(n=>'w:'+n!==uri)},
+    readFile:async({uri,offset,length})=>{const e=byUri(uri);if(!e)throw new Error('introuvable');if(e[1].bad)throw new Error('illisible');const s=e[1].b.subarray(offset,offset+length);return {data:b64e(s),eof:offset+length>=e[1].b.length}},
+    scanMp3:async()=>{const W=window.__WATCH||[],files=[];
+      for(const [k,v] of F.entries()){if(!/\.(mp3|flac|m4a|aac|ogg|oga|opus|wav|wma)$/i.test(k))continue;
+        const ext=/^EXT:([^/]+)\/(.*)$/.exec(k);if(ext&&!W.includes(ext[1]))continue;
+        const path=ext?'@'+ext[1]+'/'+ext[2]:k;files.push({dir:path.slice(0,path.lastIndexOf('/')),name:path.slice(path.lastIndexOf('/')+1),uri:v.uri,size:v.b.length,docId:k})}
+      return {files,roots:[{name:'Sillon',files:files.filter(f=>f.dir[0]!=='@').length},...W.map(n=>({name:n,files:files.filter(f=>f.dir.startsWith('@'+n)).length}))]}}}}};
 };

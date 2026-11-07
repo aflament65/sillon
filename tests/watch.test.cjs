@@ -1,0 +1,44 @@
+/* Albums présents sur le téléphone mais hors du dossier de sauvegarde, gros dossiers, fichiers abîmés */
+const { chromium } = require(require('child_process').execSync('npm root -g').toString().trim()+'/playwright');
+let fails=0;const ok=(c,m)=>{console.log((c?'  ok  ':'  ÉCHEC ')+m);if(!c)fails++};
+(async()=>{const b=await chromium.launch();const p=await b.newPage({viewport:{width:360,height:900}});
+await p.route(/fonts|deezer|itunes|musicbrainz|discogs|acoustid|api\.github|coverartarchive/,r=>r.abort());
+const errs=[];p.on('pageerror',e=>errs.push(e.message));
+await p.addInitScript(`localStorage.setItem('sillon.autoenrich','0');(${require('./fake-phone.cjs').toString()})()`);
+await p.goto('http://localhost:8765/index.html');await p.waitForTimeout(300);if(errs.length)console.log('erreurs au chargement',errs);
+await p.evaluate(async()=>{FOLDER={uri:'root',name:'Sillon'};CATALOG.deezer=async()=>({data:[]});CATALOG.itunes=async()=>[];window.mb=async()=>{throw new Error('hors ligne')};window.fetchImage=async()=>null;window.thumbOf=async()=>'data:,';
+  const put=(path,tag)=>{const F=__FS;const uri='x:'+path;F.set(path,{uri,b:new Uint8Array([...(tag||[]),...new Uint8Array(3000)])});return uri};
+  /* collection existante, hors du dossier de sauvegarde « Sillon » */
+  for(let i=1;i<=12;i++)put(`EXT:Music/Pink Floyd/The Wall (1979)/CD${i<7?1:2}/${String(i).padStart(2,'0')} Brick ${i}.mp3`,id3For({artist:'Pink Floyd',album:'The Wall',year:'1979'},{title:'Brick '+i,artist:'Pink Floyd',no:i,total:12},null));
+  put('EXT:Music/A/B/C/D/E/F/Very Deep - Song.mp3');
+  put('EXT:Music/Radiohead/OK Computer/CD1/02 Paranoid Android.mp3');
+  put('EXT:Music/AC_DC - Back in Black/01 Hells Bells.mp3');
+  const bad=put('EXT:Music/Pink Floyd/Animals (1977)/01 Dogs.mp3');__FS.get('EXT:Music/Pink Floyd/Animals (1977)/01 Dogs.mp3').bad=true;
+  /* le dossier « Sillon » est dans « Music » : déjà connu, ne doit pas être réimporté */
+  const own=put('Gesaffelstein/Aleph (2013)/02 - Pursuit.mp3');
+  await libPut({key:albumKey('Gesaffelstein','Aleph'),artist:'Gesaffelstein',album:'Aleph',year:'2013',sources:{tel:1},tracks:[{id:'o',no:2,title:'Pursuit',artist:'Gesaffelstein',dur:200,dir:'Gesaffelstein/Aleph (2013)',file:'02 - Pursuit.mp3',uri:own,source:'tel'}]});
+  localStorage.setItem('sillon.tidyManual','0');await libLoad()});
+await p.evaluate(()=>autoEnrich(true));
+ok(await p.evaluate(()=>LIB.length===1),'sans dossier surveillé, la collection de « Music » n\'est pas vue (cas signalé)');
+await p.click('#tabLib');await p.waitForTimeout(300);
+ok(!(await p.isHidden('#watchBox')),'rubrique « Dossiers analysés » visible');
+await p.evaluate(()=>{window.__NEXTWATCH='Music'});await p.click('#watchAdd');
+await p.waitForFunction(()=>!ENRUN&&LIB.length>1,null,{timeout:20000});await p.waitForTimeout(300);
+const st=await p.evaluate(()=>({albums:LIB.map(r=>r.album+':'+(r.tracks||[]).length).sort(),state:$('#enrState').textContent,watch:$('#watchList').innerText}));
+ok(st.albums.includes('The Wall:12'),'The Wall et ses 12 morceaux (2 CD, sous-sous-dossiers) : '+st.albums);
+ok(st.albums.includes('Back in Black:1'),'« AC_DC - Back in Black » reconnu par le nom du dossier');
+ok(st.albums.includes('Animals:1'),'fichier illisible ajouté quand même, d\'après son chemin');
+ok(st.albums.includes('F:1'),'fichier très profond (7 niveaux) trouvé');
+ok(st.albums.includes('Aleph:1'),'le dossier de sauvegarde n\'est pas compté deux fois');
+ok(st.albums.includes('OK Computer:1'),'« OK Computer/CD1/ » sans étiquettes : album OK Computer, pas « CD1 »');
+ok(/Music \(16 fichiers audio\)/.test(st.state)&&/sans étiquettes lisibles/.test(st.state),'bilan explicite : '+st.state);
+ok(/Sillon/.test(st.watch)&&/Music/.test(st.watch),'liste des dossiers : '+st.watch.replace(/\n/g,' | '));
+await p.evaluate(()=>autoEnrich(true));
+ok(await p.evaluate(()=>LIB.reduce((a,r)=>a+(r.tracks||[]).length,0))===17,'2e passage : aucun doublon d\'import');
+console.log('— avec le rangement activé');
+await p.evaluate(async()=>{localStorage.setItem('sillon.tidyManual','1');await autoEnrich(true)});
+const t=await p.evaluate(()=>({wall:[...__FS.keys()].filter(k=>k.startsWith('Pink Floyd/The Wall (1979)/')&&k.endsWith('.mp3')).length,left:[...__FS.keys()].filter(k=>k.startsWith('EXT:Music/Pink Floyd/The Wall')).length,n:LIB.reduce((a,r)=>a+(r.tracks||[]).length,0)}));
+ok(t.wall===12&&t.left===0&&t.n===17,'The Wall rangé dans un seul dossier du dossier de sauvegarde, rien perdu : '+JSON.stringify(t));
+await p.click('#watchList button');await p.waitForTimeout(200);ok(!(await p.evaluate(()=>(window.__WATCH||[]).length)),'« Retirer » arrête de surveiller le dossier');
+ok(!errs.length,'aucune erreur JavaScript '+errs.join(' | '));
+await b.close();console.log(fails?`\n${fails} ÉCHEC(S)`:'\nTout est bon');process.exit(fails?1:0)})();
