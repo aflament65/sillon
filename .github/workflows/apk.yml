@@ -47,6 +47,7 @@ jobs:
           path: sillon.apk
 
       - name: Publier la version à télécharger
+        if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
           COMMIT_MSG: ${{ github.event.head_commit.message }}

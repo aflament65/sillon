@@ -23,7 +23,7 @@ grep -q "const APP_BUILD=${RUN};" www/index.html
 npx cap add android
 JAVA_DIR=android/app/src/main/java/fr/aflament/sillon
 test -d "$JAVA_DIR"
-cp android-src/MainActivity.java android-src/SillonPlugin.java android-src/CaptureService.java android-src/PlayerService.java android-src/NowPlayingListener.java android-src/WorkService.java "$JAVA_DIR/"
+cp android-src/MainActivity.java android-src/SillonPlugin.java android-src/CaptureService.java android-src/PlayerService.java android-src/NowPlayingListener.java android-src/WorkService.java android-src/Lame.java android-src/PcmTools.java android-src/AudioDecoder.java "$JAVA_DIR/"
 
 # Icône et écran de démarrage Sillon (remplacent ceux de Capacitor)
 RES=android/app/src/main/res
@@ -55,6 +55,18 @@ sed -i -E "s/versionCode [0-9]+/versionCode ${RUN}/; s/versionName \"[^\"]*\"/ve
 grep -q documentfile "$GR"
 grep -q code-scanner "$GR"
 
+# Encodeur MP3 LAME compilé pour le téléphone (NDK) : conversion faite par Android, écran éteint compris
+mkdir -p android/app/src/main/cpp
+cp -r android-src/cpp/. android/app/src/main/cpp/
+NDKV=$(ls "$ANDROID_HOME/ndk" 2>/dev/null | sort -V | tail -1)
+CMV=$(ls "$ANDROID_HOME/cmake" 2>/dev/null | sort -V | tail -1)
+echo "NDK $NDKV, CMake $CMV"
+test -n "$NDKV"
+sed -i "0,/^android {/s//android {\n    ndkVersion \"$NDKV\"\n    externalNativeBuild { cmake { path \"src\/main\/cpp\/CMakeLists.txt\"${CMV:+; version \"$CMV\"} } }/" "$GR"
+sed -i '0,/defaultConfig {/s//defaultConfig {\n        ndk { abiFilters "arm64-v8a", "armeabi-v7a", "x86_64" }/' "$GR"
+grep -q externalNativeBuild "$GR"
+grep -q abiFilters "$GR"
+
 npx cap sync android
 
 # 3. Compilation et signature
@@ -66,3 +78,4 @@ UNSIGNED=$(ls android/app/build/outputs/apk/release/*-unsigned.apk | head -1)
   --ks-pass pass:sillon-perso --key-pass pass:sillon-perso --out sillon.apk aligned.apk
 "$BT/apksigner" verify sillon.apk
 ls -la sillon.apk
+unzip -l sillon.apk | grep -q "lib/arm64-v8a/libsillonlame.so"

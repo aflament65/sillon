@@ -19,6 +19,19 @@ public class WorkService extends Service {
     static final int ID = 7303;
     private PowerManager.WakeLock lock;
     private boolean started = false;
+    static volatile WorkService inst;
+
+    /* mise à jour de la notification sans redémarrer le service ; false s'il ne tourne pas */
+    static boolean update(Context c, String label, String sub, int done, int total) {
+        WorkService w = inst;
+        if (w == null || !w.started) return false;
+        try {
+            ((NotificationManager) w.getSystemService(Context.NOTIFICATION_SERVICE)).notify(ID, w.build(label, sub, done, total));
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
 
     @Override
     public IBinder onBind(Intent i) { return null; }
@@ -53,6 +66,7 @@ public class WorkService extends Service {
             if (Build.VERSION.SDK_INT >= 29) startForeground(ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
             else startForeground(ID, n);
             started = true;
+            inst = this;
             PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
             lock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "sillon:work");
             lock.acquire(6 * 3600 * 1000L);
@@ -64,6 +78,7 @@ public class WorkService extends Service {
 
     @Override
     public void onDestroy() {
+        inst = null;
         if (lock != null && lock.isHeld()) lock.release();
         if (Build.VERSION.SDK_INT >= 24) stopForeground(STOP_FOREGROUND_REMOVE); else stopForeground(true);
         super.onDestroy();

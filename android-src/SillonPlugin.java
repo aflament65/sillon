@@ -274,6 +274,206 @@ public class SillonPlugin extends Plugin {
         });
     }
 
+    /* ---------- Moteur audio Android : décodage, découpe et encodage MP3 hors de la page (fonctionne écran éteint) ---------- */
+    private java.io.File albumPcm() { return new java.io.File(getContext().getCacheDir(), "album.pcm"); }
+    private volatile int albumRate = 44100;
+    private long lastProg = 0;
+
+    private void audioProg(String op, int track, double p, String label, String sub) {
+        long now = System.currentTimeMillis();
+        if (now - lastProg < 400 && p < 1) return;
+        lastProg = now;
+        JSObject o = new JSObject();
+        o.put("op", op);
+        o.put("track", track);
+        o.put("p", p);
+        notifyListeners("audioProgress", o);
+        if (label != null) WorkService.update(getContext(), label, sub + " · " + Math.round(p * 100) + " %", (int) Math.round(p * 1000), 1000);
+    }
+
+    /* fichier MP3 neuf dans le dossier Music (jamais par-dessus un fichier existant) */
+    private DocumentFile newFile(String path) throws Exception {
+        Uri root = savedFolder();
+        if (root == null) throw new Exception("Choisis d'abord le dossier Music");
+        int slash = path.lastIndexOf('/');
+        String parentRel = slash < 0 ? "" : path.substring(0, slash);
+        String name = slash < 0 ? path : path.substring(slash + 1);
+        DocumentFile parent = dir(root, parentRel);
+        if (parent == null) throw new Exception("Impossible de créer le dossier " + parentRel);
+        if (parent.findFile(name) != null) throw new Exception("« " + name + " » existe déjà");
+        DocumentFile f = parent.createFile("audio/mpeg", name);
+        if (f == null) throw new Exception("Impossible de créer " + name);
+        return f;
+    }
+
+    @PluginMethod
+    public void audioInfo(PluginCall call) {
+        final String u = call.getString("uri");
+        new Thread(() -> {
+            android.media.MediaMetadataRetriever r = new android.media.MediaMetadataRetriever();
+            try {
+                r.setDataSource(getContext(), Uri.parse(u));
+                JSObject o = new JSObject();
+                o.put("title", r.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_TITLE));
+                o.put("artist", r.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_ARTIST));
+                o.put("albumArtist", r.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_ALBUMARTIST));
+                o.put("album", r.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_ALBUM));
+                o.put("track", r.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_CD_TRACK_NUMBER));
+                o.put("year", r.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_YEAR));
+                o.put("genre", r.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_GENRE));
+                String d = r.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION);
+                o.put("duration", d == null ? 0 : Long.parseLong(d) / 1000.0);
+                byte[] pic = r.getEmbeddedPicture();
+                if (pic != null && pic.length < 4 * 1024 * 1024) o.put("cover", Base64.encodeToString(pic, Base64.NO_WRAP));
+                call.resolve(o);
+            } catch (Exception e) {
+                call.reject(e.getMessage() != null ? e.getMessage() : "Fichier illisible");
+            } finally {
+                try { r.release(); } catch (Exception e) { }
+            }
+        }).start();
+    }
+
+    @PluginMethod
+    public void pickAudio(PluginCall call) {
+        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        i.addCategory(Intent.CATEGORY_OPENABLE);
+        i.setType("audio/*");
+        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+        startActivityForResult(call, i, "pickAudioResult");
+    }
+
+    @ActivityCallback
+    private void pickAudioResult(PluginCall call, ActivityResult result) {
+        if (call == null) return;
+        if (result.getResultCode() != Activity.RESULT_OK || result.getData() == null || result.getData().getData() == null) {
+            call.reject("Aucun fichier choisi");
+            return;
+        }
+        Uri u = result.getData().getData();
+        try { getContext().getContentResolver().takePersistableUriPermission(u, Intent.FLAG_GRANT_READ_URI_PERMISSION); } catch (Exception e) { }
+        DocumentFile f = DocumentFile.fromSingleUri(getContext(), u);
+        JSObject o = new JSObject();
+        o.put("uri", u.toString());
+        o.put("name", f != null && f.getName() != null ? f.getName() : "fichier audio");
+        o.put("size", f != null ? f.length() : 0);
+        call.resolve(o);
+    }
+
+    /* Album entier dans un fichier : décodé dans le cache ; renvoie le volume toutes les 50 ms pour trouver les morceaux */
+    @PluginMethod
+    public void decodeAlbum(PluginCall call) {
+        final String u = call.getString("uri");
+        final String label = call.getString("label", "Lecture de l'album");
+        new Thread(() -> {
+            try {
+                PcmTools.Sink sink = new PcmTools.Sink().toFile(albumPcm());
+                AudioDecoder.decode(getContext(), Uri.parse(u), sink, p -> audioProg("decode", 0, p, label, "Décodage"));
+                albumRate = sink.rate;
+                JSObject o = new JSObject();
+                o.put("rate", sink.rate);
+                o.put("frames", sink.frames);
+                o.put("duration", sink.frames / (double) sink.rate);
+                o.put("peak", sink.peak);
+                o.put("env", Base64.encodeToString(sink.envBytes(), Base64.NO_WRAP));
+                call.resolve(o);
+            } catch (Exception e) {
+                call.reject(e.getMessage() != null ? e.getMessage() : "Décodage impossible");
+            }
+        }).start();
+    }
+
+    @PluginMethod
+    public void readAlbumPcm(PluginCall call) {
+        final double a = call.getData().optDouble("start", 0), b = call.getData().optDouble("end", 0);
+        final boolean mono = Boolean.TRUE.equals(call.getBoolean("mono", false));
+        new Thread(() -> {
+            try {
+                byte[] raw = PcmTools.readRange(albumPcm(), albumRate, a, b, mono);
+                JSObject o = new JSObject();
+                o.put("data", Base64.encodeToString(raw, Base64.NO_WRAP));
+                o.put("rate", mono ? 11025 : albumRate);
+                o.put("channels", mono ? 1 : 2);
+                call.resolve(o);
+            } catch (Exception e) {
+                call.reject(e.getMessage() != null ? e.getMessage() : "Lecture impossible");
+            }
+        }).start();
+    }
+
+    /* Les morceaux de l'album → MP3 dans Music ; un fichier raté n'arrête pas les autres */
+    @PluginMethod
+    public void encodeAlbum(PluginCall call) {
+        final JSArray tracks = call.getArray("tracks");
+        final double gain = call.getData().optDouble("gain", 1);
+        final String label = call.getString("label", "Conversion en MP3");
+        new Thread(() -> {
+            JSArray out = new JSArray();
+            try {
+                int n = tracks.length();
+                for (int i = 0; i < n; i++) {
+                    org.json.JSONObject t = tracks.getJSONObject(i);
+                    final int ti = i;
+                    JSObject r = new JSObject();
+                    DocumentFile f = null;
+                    try {
+                        f = newFile(t.getString("path"));
+                        byte[] tag = Base64.decode(t.optString("tag", ""), Base64.DEFAULT);
+                        try (OutputStream os = new java.io.BufferedOutputStream(getContext().getContentResolver().openOutputStream(f.getUri(), "wt"), 1 << 18)) {
+                            PcmTools.encodeRange(albumPcm(), albumRate, t.getDouble("start"), t.getDouble("end"), gain, tag, os,
+                                    p -> audioProg("encode", ti, (ti + p) / n, label, "Morceau " + (ti + 1) + "/" + n));
+                        }
+                        r.put("uri", f.getUri().toString());
+                        r.put("size", f.length());
+                    } catch (Exception e) {
+                        if (f != null) try { f.delete(); } catch (Exception x) { }
+                        r.put("error", e.getMessage() != null ? e.getMessage() : "échec");
+                    }
+                    out.put(r);
+                }
+                JSObject res = new JSObject();
+                res.put("tracks", out);
+                call.resolve(res);
+            } catch (Exception e) {
+                call.reject(e.getMessage() != null ? e.getMessage() : "Conversion impossible");
+            }
+        }).start();
+    }
+
+    @PluginMethod
+    public void freeAlbum(PluginCall call) {
+        try { albumPcm().delete(); } catch (Exception e) { }
+        call.resolve();
+    }
+
+    /* Un fichier entier (FLAC, M4A…) → MP3 320 kbit/s dans Music, directement */
+    @PluginMethod
+    public void convertAudio(PluginCall call) {
+        final String u = call.getString("uri"), path = call.getString("path"), tag = call.getString("tag", "");
+        final String label = call.getString("label", "Conversion en MP3");
+        new Thread(() -> {
+            DocumentFile f = null;
+            try {
+                f = newFile(path);
+                long durUs;
+                PcmTools.Sink sink;
+                try (OutputStream os = new java.io.BufferedOutputStream(getContext().getContentResolver().openOutputStream(f.getUri(), "wt"), 1 << 18)) {
+                    if (!tag.isEmpty()) os.write(Base64.decode(tag, Base64.DEFAULT));
+                    sink = new PcmTools.Sink().toMp3(os);
+                    durUs = AudioDecoder.decode(getContext(), Uri.parse(u), sink, p -> audioProg("convert", 0, p, label, path.substring(path.lastIndexOf('/') + 1)));
+                }
+                JSObject o = new JSObject();
+                o.put("uri", f.getUri().toString());
+                o.put("size", f.length());
+                o.put("duration", sink.frames / (double) sink.rate);
+                call.resolve(o);
+            } catch (Exception e) {
+                if (f != null) try { f.delete(); } catch (Exception x) { }
+                call.reject(e.getMessage() != null ? e.getMessage() : "Conversion impossible");
+            }
+        }).start();
+    }
+
     /* Optimisation de la batterie : tant qu'elle est active, Android coupe le réseau et endort Sillon écran éteint */
     @PluginMethod
     public void batteryExempt(PluginCall call) {
@@ -320,6 +520,12 @@ public class SillonPlugin extends Plugin {
 
     @PluginMethod
     public void workUpdate(PluginCall call) {
+        if (WorkService.update(getContext(), call.getString("label", "Sillon travaille"), call.getString("sub", ""),
+                call.getData().optInt("done", 0), call.getData().optInt("total", 0))) {
+            WORKING = true;
+            call.resolve();
+            return;
+        }
         Intent i = new Intent(getContext(), WorkService.class);
         i.putExtra("label", call.getString("label", "Sillon travaille"));
         i.putExtra("sub", call.getString("sub", ""));
