@@ -23,6 +23,7 @@ await run;
 console.log('    aperçu :',seen.find(x=>/Conversion en MP3/.test(x))||seen[0]);
 ok(seen.some(x=>/Enrichissement de la discothèque/.test(x)),'tâche « Enrichissement » affichée');
 ok(seen.some(x=>/Conversion en MP3 : \d\/4/.test(x)&&/\d+ %/.test(x)),'compteur et pourcentage pendant la conversion');
+ok(seen.some(x=>/· (lecture|décodage|encodage|enregistrement) \d+ %/.test(x)),'avancement à l\'intérieur de chaque fichier converti');
 ok(seen.some(x=>/depuis \d+ s/.test(x)),'temps écoulé affiché');
 ok(seen.some(x=>/reste ≈/.test(x)),'temps restant estimé');
 await p.waitForTimeout(600);
@@ -62,6 +63,7 @@ const diag=await p.evaluate(async()=>{const T=task('Enrichissement de la discoth
   document.dispatchEvent(new Event('visibilitychange'));HID.at-=120000;/* 2 min « éteint », aucun battement */
   hidden=false;document.dispatchEvent(new Event('visibilitychange'));T.end();return localStorage.getItem('sillon.bgDiag')});
 ok(/Écran éteint 2 min pendant « Enrichissement de la discothèque » : Android a mis Sillon en pause \(avance de 0 %\)/.test(diag||''),'diagnostic au retour : '+diag);
+ok(/Étape au départ : « x » \(2\.0\/10\)\nÉtape au retour : « x » \(2\.0\/10\)/.test(diag),'étape et compteurs indiqués');
 ok(!(await p.isHidden('#diagBox'))&&/Mesures : 0 battements sur 120 s, 0 réponses d'Android/.test(await p.textContent('#diagBox')),'message affiché en permanence avec les mesures');
 await p.click('#diagOk');ok(await p.isHidden('#diagBox'),'« J\'ai lu » le ferme');ok(/Dernier contrôle écran éteint/.test(await p.textContent('#diagLast')),'gardé dans la rubrique Enrichissement');
 await p.screenshot({path:'/tmp/claude-0/s/prog.png',clip:{x:0,y:0,width:360,height:260}});

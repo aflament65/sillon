@@ -545,12 +545,13 @@ setInterval(()=>{if(TASKS.size&&keepOn()&&NATIVE&&!S.recording&&!document.hidden
 /* mesure : la tâche avance-t-elle quand l'écran est éteint ? (affichée au retour) */
 let HID=null,BEAT=0;setTimeout(async()=>{for(;;){await wait(1000);if(document.hidden)BEAT++}},0);/* lancé après le chargement : le worker des minuteries est défini plus bas */
 document.addEventListener('visibilitychange',()=>{const t=[...TASKS.values()][0];
-  if(document.hidden){HID={at:Date.now(),beat:BEAT,nc:NCALLS,wm:WMSG,label:t?.label,f:t&&t.total?t.done/t.total:null,id:t?.id};return}
+  if(document.hidden){HID={at:Date.now(),beat:BEAT,nc:NCALLS,wm:WMSG,label:t?.label,f:t&&t.total?t.done/t.total:null,id:t?.id,sub:t?.sub||'',d:t?.done,n:t?.total};return}
   if(!HID)return;const h=HID;HID=null;const away=Date.now()-h.at;if(away<20000||!h.label)return;
   const t2=TASKS.get(h.id),f2=t2&&t2.total?t2.done/t2.total:(t2?null:1),beats=BEAT-h.beat,ran=beats>=Math.min(10,away/1000*.5);
-  const moved=h.f!=null&&f2!=null?Math.round((f2-h.f)*100):null;
-  const txt=`Écran éteint ${fmtDur(away)} pendant « ${h.label} » : ${ran?'Sillon a continué de travailler':'Android a mis Sillon en pause'}${moved!=null?` (avance de ${moved} %)`:''}.`+(ran?'':' Pour les longues tâches, laisse le téléphone posé sans appuyer sur le bouton marche : l\'écran passe tout seul en noir.');
-  const det=`Mesures : ${beats} battements sur ${Math.round(away/1000)} s, ${NCALLS-h.nc} réponses d'Android, ${WMSG-h.wm} messages de conversion, batterie ${BATT==null?'inconnue':BATT?'sans restriction':'optimisée (à autoriser)'}, ${new Date().toLocaleString('fr-FR')}, version 1.${APP_BUILD}.`;
+  const moved=h.f!=null&&f2!=null?Math.round((f2-h.f)*1000)/10:null;
+  const txt=`Écran éteint ${fmtDur(away)} pendant « ${h.label} » : ${ran?'Sillon a continué de travailler':'Android a mis Sillon en pause'}${moved!=null?` (avance de ${String(moved).replace('.',',')} %)`:''}.`+(ran?'':' Pour les longues tâches, laisse le téléphone posé sans appuyer sur le bouton marche : l\'écran passe tout seul en noir.');
+  const st=x=>x?`« ${String(x).slice(0,90)} »`:'(sans détail)';
+  const det=`Étape au départ : ${st(h.sub)}${h.n?` (${(+h.d).toFixed(1)}/${h.n})`:''}\nÉtape au retour : ${t2?st(t2.sub)+(t2.total?` (${(+t2.done).toFixed(1)}/${t2.total})`:''):'terminée'}\nMesures : ${beats} battements sur ${Math.round(away/1000)} s, ${NCALLS-h.nc} réponses d'Android, ${WMSG-h.wm} messages de conversion, batterie ${BATT==null?'inconnue':BATT?'sans restriction':'optimisée (à autoriser)'}, ${new Date().toLocaleString('fr-FR')}, version 1.${APP_BUILD}.`;
   ls('sillon.bgDiag',txt+'\n'+det);showDiag()});
 function showDiag(){const d=ls('sillon.bgDiag');const b=$('#diagBox');if(!b||!d)return;b.querySelector('p').textContent=d;b.hidden=false;
   const l=$('#diagLast');if(l)l.textContent='Dernier contrôle écran éteint : '+d}
@@ -1606,10 +1607,10 @@ function stripId3(u8){
   if(u8[0]===73&&u8[1]===68&&u8[2]===51){const sz=(u8[6]&127)<<21|(u8[7]&127)<<14|(u8[8]&127)<<7|(u8[9]&127);return u8.subarray(10+sz+((u8[5]&16)?10:0))}
   return u8;
 }
-async function readNative(uri){
+async function readNative(uri,onP){
   const parts=[];let off=0,eof=false;
-  let guard=0;
-  while(!eof){const r=await NATIVE.readFile({uri,offset:off,length:786432});const b=unb64(r.data);parts.push(b);off+=b.length;eof=r.eof||!b.length;if(++guard>2000)throw new Error('fichier trop long ou illisible')}
+  let guard=0;const size=SIZES.get(uri)||0;
+  while(!eof){const r=await NATIVE.readFile({uri,offset:off,length:3145728});const b=unb64(r.data);parts.push(b);off+=b.length;eof=r.eof||!b.length;if(size&&onP)onP(Math.min(1,off/size));if(++guard>2000)throw new Error('fichier trop long ou illisible')}
   const out=new Uint8Array(off);let o=0;for(const p of parts){out.set(p,o);o+=p.length}return out;
 }
 /* copie d'un fichier (étiquette remplacée si « tag ») : faite par Android quand c'est possible, bien plus rapide */
@@ -1990,7 +1991,7 @@ function importOrphans(say,files0){
     const files=files0||await scanAll(),known=knownIds();
     const lost=files.filter(f=>/\.mp3$/i.test(f.name)&&!sillonDir(f.dir)&&!isKnown(known,f));
     const touched=new Map(),get=k=>touched.get(k)||libGet(k);let k=0,bad=0;
-    for(const f of lost){if(++k%5===1||k===lost.length)say(`Ajout des MP3 trouvés : ${k}/${lost.length}…`);
+    for(const f of lost){++k;say(`Ajout des MP3 trouvés : ${k}/${lost.length}…`);
       try{let m={},head=null;try{head=await readHead(f.uri);m=readId3(head)}catch(e){bad++}
         const g=guessFromPath(f.dir,f.name);
         const artist=(m.TPE2||m.TPE1||g.artist||'').trim(),album=(m.TALB||g.album||'').trim();
@@ -2164,12 +2165,12 @@ function readM4aTags(u8){const m={},td=new TextDecoder(),dv=new DataView(u8.buff
     o+=sz}
   return {artist:m.aART||m['©ART']||'',trackArtist:m['©ART']||'',album:m['©alb']||'',title:m['©nam']||'',no:m.no||0,year:(m['©day']||'').slice(0,4),genre:m['©gen']||'',cover:m.cover||null};
 }
-function encodeMp3(pcm,id3){return new Promise((res,rej)=>{const w=new Worker(workerURL);
-  w.onmessage=e=>{const d=e.data;if(d.type==='track'){res(d.mp3);w.terminate()}else if(d.type==='error'){rej(new Error(d.message));w.terminate()}};
+function encodeMp3(pcm,id3,onP){return new Promise((res,rej)=>{const w=new Worker(workerURL);
+  w.onmessage=e=>{const d=e.data;if(document.hidden)WMSG++;if(d.type==='progress')onP?.(d.p);else if(d.type==='track'){res(d.mp3);w.terminate()}else if(d.type==='error'){rej(new Error(d.message));w.terminate()}};
   w.onerror=e=>{rej(new Error(e.message||'encodeur'));w.terminate()};
   w.postMessage({pcm,tracks:[{start:0,end:pcm.length/2,id3}],gain:1},[pcm.buffer])})}
-async function convertOther(f,rep){
-  const u8=await readNative(f.uri);
+async function convertOther(f,rep,onP=()=>{}){
+  onP(0,'lecture');const u8=await readNative(f.uri,p=>onP(p*.3,'lecture'));onP(.3,'décodage');
   const name=f.name.replace(AUDIO_OTHER,'');let tg={};
   try{tg=/\.flac$/i.test(f.name)?readFlacTags(u8):/\.(m4a|aac)$/i.test(f.name)?readM4aTags(u8):{}}catch(e){}
   const g=guessFromPath(f.dir,name+'.mp3');
@@ -2185,7 +2186,7 @@ async function convertOther(f,rep){
     if(!r.year&&year&&!unsorted)r.year=year;
     const dir=unsorted?'Divers':dirOf(r),file=await freeName(ctx,dir,unsorted?safe((trackArtist?trackArtist+' - ':'')+title)+'.mp3':fileNameOf({no:no||((r.tracks||[]).length+1),title}));
     const id3=id3For({artist:unsorted?trackArtist:r.artist,album:unsorted?'':r.album,year:r.year||year||'',genre:(r.genre||tg.genre||'').split(',')[0]},{title,artist:trackArtist,no:no||1,total:Math.max(no||1,(r.tracks||[]).length+1)},unsorted?null:r.cover||null,r.coverMime||'image/jpeg');
-    const mp3=await encodeMp3(pcm,id3);
+    onP(.4,'encodage');const mp3=await encodeMp3(pcm,id3,p=>onP(.4+p*.55,'encodage'));onP(.95,'enregistrement');
     const uri=await writeNative(dir+'/'+file,new Blob([mp3],{type:'audio/mpeg'}));if(!uri)throw new Error('écriture impossible');ctx.created.push(uri);
     const orig=await writeNative(ORIGDIR+'/'+(f.dir?f.dir+'/':'')+f.name,new Blob([u8],{type:'application/octet-stream'}));if(!orig)throw new Error('original non mis de côté');ctx.created.push(orig);
     ctx.trash.push(f.uri);ctx.dirs.add(f.dir);
@@ -2197,8 +2198,9 @@ async function convertOther(f,rep){
 async function convertOthers(files,rep){
   const skip=convSkip(),todo=files.filter(f=>AUDIO_OTHER.test(f.name)&&!sillonDir(f.dir)&&!skip[f.uri]);
   for(const [i,f] of todo.entries()){enrSay(`Conversion en MP3 : ${i+1}/${todo.length} · ${f.name}`);await idleRec();
+    const onP=(p,what)=>ENRTASK?.step(i+p,todo.length,`Conversion en MP3 : ${i+1}/${todo.length} · ${f.name} · ${what} ${Math.round(p*100)} %`);
     if(f.size>300*1048576||/\.wma$/i.test(f.name)){skip[f.uri]=1;rep.skipped++;continue}
-    try{await convertOther(f,rep)}catch(e){skip[f.uri]=1;rep.skipped++}
+    try{await convertOther(f,rep,onP)}catch(e){skip[f.uri]=1;rep.skipped++}
     await wait(200)}
   ls(CONVSKIPK,JSON.stringify(skip));
 }
