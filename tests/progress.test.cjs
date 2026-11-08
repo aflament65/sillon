@@ -5,7 +5,7 @@ const fs=require('fs');let fails=0;const ok=(c,m)=>{console.log((c?'  ok  ':'  Ã
 await p.route(/fonts|deezer|itunes|musicbrainz|discogs|acoustid|api\.github|coverartarchive/,r=>r.abort());
 await p.route(/lamejs.*lame\.min\.js|lib\/lame\.min\.js/,r=>r.fulfill({body:fs.readFileSync(process.env.LAME_JS),contentType:'text/javascript'}));
 const errs=[];p.on('pageerror',e=>errs.push(e.message));
-await p.addInitScript(`localStorage.setItem('sillon.autoenrich','0');(${require('./fake-phone.cjs').toString()})();
+await p.addInitScript(`localStorage.setItem('sillon.autoenrich','0');window.__NOAUDIO=1;(${require('./fake-phone.cjs').toString()})();
   window.__WORK=[];window.__BATT=[];Object.assign(window.Capacitor.Plugins.Sillon,{workUpdate:async o=>{__WORK.push(o)},workStop:async()=>{__WORK.push('stop')},
     batteryExempt:async()=>({exempt:false}),requestBatteryExempt:async()=>{__BATT.push(1)}});`);
 await p.goto('http://localhost:8765/index.html');await p.waitForTimeout(300);

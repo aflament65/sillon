@@ -234,9 +234,17 @@ body.withMini main{padding-bottom:110px}
   <button id="modeVinyl" aria-pressed="true">Vinyle</button>
   <button id="modeOther" aria-pressed="false">Autre source</button>
   <button id="modeTel" aria-pressed="false" hidden>Son du téléphone</button>
+  <button id="modeFile" aria-pressed="false" hidden>Album dans un fichier</button>
 </div>
 <p class="hint" id="otherHint" hidden>Radio, CD, cassette, téléphone ou ordinateur branché sur l'entrée : Sillon découpe aux silences, reconnaît chaque morceau et le range dans son dossier Artiste/Album.</p>
 <div class="row" id="albAsk" hidden><button id="albAskBtn">J'enregistre un album précis…</button><span class="hint grow">Facultatif : sinon chaque morceau est reconnu et rangé tout seul.</span></div>
+<section id="s2f" hidden>
+  <h2><span class="n">01</span>Le fichier</h2>
+  <p class="hint">Un album entier dans un seul fichier (M4A, MP3, FLAC…, par exemple une vidéo « Full album ») : Sillon le découpe en morceaux, calés sur la liste officielle des titres, et les range dans Music/Artiste/Album/. Tout se fait côté Android, écran éteint compris.</p>
+  <div class="row"><button id="filePick" class="main">Choisir le fichier</button><span class="hint grow mono" id="fileName"></span></div>
+  <div id="albFiles"></div>
+  <p class="hint" id="fileHint"></p>
+</section>
 <!-- 1. ALBUM -->
 <section id="s1">
   <h2><span class="n">01</span>Album</h2>
@@ -372,7 +380,7 @@ body.withMini main{padding-bottom:110px}
 <section id="libListSec">
   <h2>Ma discothèque</h2>
   <p class="hint" id="libStats"></p>
-  <div class="row" id="libTools" hidden><button id="toolChk">À vérifier</button><button id="toolDup">Doublons</button></div>
+  <div class="row" id="libTools" hidden><button id="toolChk">À vérifier</button><button id="toolDup">Doublons</button><button id="toolAlb" hidden>Albums à découper</button></div>
   <div class="row"><input id="libQ" class="grow" type="search" placeholder="Chercher un artiste, un album, un titre" autocomplete="off"><button id="libShuffle" class="main" hidden>Tout lire au hasard</button></div>
   <p class="hint" id="libEmpty">Aucun disque pour l'instant. Chaque morceau converti s'ajoute ici automatiquement, rangé dans son album, avec sa pochette et sa source.</p>
   <div id="libList" class="libList"></div>
@@ -1041,8 +1049,8 @@ $('#coverFile').onchange=async e=>{
   S.cover=new Uint8Array(await b.arrayBuffer());S.coverMime='image/jpeg';$('#cover').src=URL.createObjectURL(b);
 };
 ['#mArtist','#mAlbum','#mYear'].forEach(s=>$(s).oninput=pathHint);
-const freeMode=()=>S.mode!=='vinyle';
-const sideTracks=()=>{if(freeMode())return[];const s=S.side>=0&&S.sides[S.side];if(!s)return[];return S.range?s.tracks.slice(S.range[0],S.range[1]+1):s.tracks};
+const freeMode=()=>S.mode==='autre'||S.mode==='tel';
+const sideTracks=()=>{if(freeMode())return[];if(S.mode==='fichier')return S.all.length?S.sides.flatMap(s=>s.tracks):[];const s=S.side>=0&&S.sides[S.side];if(!s)return[];return S.range?s.tracks.slice(S.range[0],S.range[1]+1):s.tracks};
 
 /* ---------- 2. Enregistrement ---------- */
 async function listDevices(){
@@ -1052,7 +1060,7 @@ async function listDevices(){
     sel.value=cur;}catch(e){}
 }
 navigator.mediaDevices?.addEventListener?.('devicechange',listDevices);
-function clearAudio(){const sb=document.getElementById('sortBar');if(sb){sb.dataset.built='';sb.innerHTML='';sb.hidden=true}IDRUN++;NPRUN++;S.np=[];Object.assign(S,{chunks:[],starts:[],frames:0,env:[],acc:0,cnt:0,bounds:[],bounds0:[],titles:[],labels:[],segMeta:[],sel:-1,cursor:null})}
+function clearAudio(){if(S.file){const id=S.file.id;S.file=null;if(!JOBS.some(j=>j.file?.id===id&&(j.status==='attente'||j.status==='conversion')))NATIVE?.freeAlbum?.({id}).catch(()=>{})}const sb=document.getElementById('sortBar');if(sb){sb.dataset.built='';sb.innerHTML='';sb.hidden=true}IDRUN++;NPRUN++;S.np=[];Object.assign(S,{chunks:[],starts:[],frames:0,env:[],acc:0,cnt:0,bounds:[],bounds0:[],titles:[],labels:[],segMeta:[],sel:-1,cursor:null})}
 function pushAudio(L,R){
   const n=L.length,a=new Int16Array(n*2);let pk=0;
   for(let k=0;k<n;k++){const l=L[k],r=R[k];a[2*k]=l<-1?-32768:l>1?32767:l*32767;a[2*k+1]=r<-1?-32768:r>1?32767:r*32767;
@@ -1394,6 +1402,7 @@ function renderTracks(){
   if(extra){const p=document.createElement('p');p.className='hint';p.textContent=`${S.bounds.length-1} pistes trouvées pour ${sideTracks().length} titres attendus. Ajuste la sensibilité ou ajoute/supprime des coupures.`;box.append(p)}
 }
 function play(a,b){
+  if(S.file){filePlay(a,b).catch(e=>toast('Écoute impossible : '+e.message));return}
   stopPlay();const {L,R}=getFrames(Math.round(a*SR),Math.round(b*SR));if(!L.length)return;
   const c=getCtx();c.resume();const buf=c.createBuffer(2,L.length,SR);buf.copyToChannel(L,0);buf.copyToChannel(R,1);
   player=c.createBufferSource();player.buffer=buf;player.connect(c.destination);player.start();
@@ -1465,7 +1474,7 @@ async function saveJobToLib0(j,ctx){
     }
     if(j.kind==='vinyle'){
       rec.src=j.src||old.src||null;rec.sides=j.sides.length?j.sides:old.sides||[];
-      rec.done={...(old.done||{}),[j.label]:{date:Date.now(),tracks:list.length}};
+      rec.done={...(old.done||{}),...(j.file?Object.fromEntries((rec.sides||[]).map(s=>[s.name,{date:Date.now(),tracks:s.tracks.length}])):{}),[j.label]:{date:Date.now(),tracks:list.length}};
       rec.tracklist=rec.sides.flatMap(s=>s.tracks).map(t=>({no:t.pos,number:t.number,title:t.title,length:t.length||0}));
       rec.dir=j.dir;
     }
@@ -2001,6 +2010,7 @@ function importOrphans(say,files0){
         const src=Object.keys(r.sources||{})[0]||'autre';
         r.tracks=[...(r.tracks||[]),{id:uid(),no:unsorted?0:no,title,artist:m.TPE1||g.trackArtist||artist,dur:Math.round(head?mp3Dur(head,f.size):f.size*8/320000),dir:f.dir,file:f.name,uri:f.uri,source:src,date:Date.now(),ext:true,size:f.size,artist0:m.TPE1||g.trackArtist||''}];
         r.sources={...(r.sources||{}),[src]:1};
+        const dur0=head?mp3Dur(head,f.size):0;if(dur0>25*60){const l=albumFiles();if(!l.some(x=>x.uri===f.uri)){l.push({uri:f.uri,name:f.name,dur:dur0,size:f.size});albumFilesSave(l)}}
         if(!r.cover&&m.cover?.bytes?.length)try{r.thumb=await thumbOf(m.cover.bytes,m.cover.mime,160);r.cover=m.cover.bytes;r.coverMime=m.cover.mime}catch(e){}
         touched.set(key,r);known.add(docIdOf(f.uri))}
       catch(e){bad++}}
@@ -2195,12 +2205,41 @@ async function convertOther(f,rep,onP=()=>{}){
     r.sources={...(r.sources||{}),[src]:1};r.updated=Date.now();await libPut(r);rep.conv++;
   });
 }
+/* même travail, fait par Android : rapide et sans s'arrêter écran éteint */
+async function convertOtherNative(f,rep,onP,info){
+  const name=f.name.replace(AUDIO_OTHER,''),g=guessFromPath(f.dir,name+'.mp3');
+  const artist=(info.albumArtist||info.artist||g.artist||'').trim(),album=(info.album||g.album||'').trim(),title=(info.title||g.title||name).trim();
+  const no=parseInt(info.track)||g.no,year=String(info.year||g.year||'').slice(0,4),trackArtist=(info.artist||g.trackArtist||artist||'').trim(),genre=info.genre||'';
+  const cover=info.cover?{bytes:unb64(info.cover),mime:'image/jpeg'}:null;
+  return libOp(async ctx=>{
+    const unsorted=!artist||!album;const key=unsorted?UNSORTED_KEY:albumKey(artist,album);
+    const r=libGet(key)||(unsorted?{key,artist:'',album:'Morceaux non classés',unsorted:true,dir:'Divers',sources:{},tracks:[],created:Date.now()}:{key,artist,album,year,genre,created:Date.now(),sources:{},tracks:[],tracklist:[]});
+    if(!r.cover&&cover?.bytes?.length&&!unsorted)try{r.thumb=await thumbOf(cover.bytes,cover.mime,160);r.cover=cover.bytes;r.coverMime=cover.mime}catch(e){}
+    if(!r.year&&year&&!unsorted)r.year=year;
+    const dir=unsorted?'Divers':dirOf(r),file=await freeName(ctx,dir,unsorted?safe((trackArtist?trackArtist+' - ':'')+title)+'.mp3':fileNameOf({no:no||((r.tracks||[]).length+1),title}));
+    const id3=id3For({artist:unsorted?trackArtist:r.artist,album:unsorted?'':r.album,year:r.year||year||'',genre:(r.genre||genre||'').split(',')[0]},{title,artist:trackArtist,no:no||1,total:Math.max(no||1,(r.tracks||[]).length+1)},unsorted?null:r.cover||null,r.coverMime||'image/jpeg');
+    const off=AUDIOP.on(d=>{if(d.op==='convert')onP(d.p*.95,'conversion')});
+    let out;try{out=await NATIVE.convertAudio({uri:f.uri,path:dir+'/'+file,tag:b64(id3),label:'Conversion en MP3'})}finally{off()}
+    ctx.created.push(out.uri);onP(.96,'original mis de côté');
+    const orig=await copyNative(f.uri,ORIGDIR+'/'+(f.dir?f.dir+'/':'')+f.name);if(!orig)throw new Error('original non mis de côté');ctx.created.push(orig);
+    ctx.trash.push(f.uri);ctx.dirs.add(f.dir);
+    const src=Object.keys(r.sources||{})[0]||'autre';
+    r.tracks=[...(r.tracks||[]),{id:uid(),no:unsorted?0:(no||(r.tracks||[]).length+1),title,artist:trackArtist,dur:Math.round(out.duration||info.duration||0),dir,file,uri:out.uri,source:src,date:Date.now(),size:out.size||0,coverDone:!!r.cover}];
+    r.sources={...(r.sources||{}),[src]:1};r.updated=Date.now();await libPut(r);rep.conv++;
+  });
+}
 async function convertOthers(files,rep){
   const skip=convSkip(),todo=files.filter(f=>AUDIO_OTHER.test(f.name)&&!sillonDir(f.dir)&&!skip[f.uri]);
   for(const [i,f] of todo.entries()){enrSay(`Conversion en MP3 : ${i+1}/${todo.length} · ${f.name}`);await idleRec();
     const onP=(p,what)=>ENRTASK?.step(i+p,todo.length,`Conversion en MP3 : ${i+1}/${todo.length} · ${f.name} · ${what} ${Math.round(p*100)} %`);
-    if(f.size>300*1048576||/\.wma$/i.test(f.name)){skip[f.uri]=1;rep.skipped++;continue}
-    try{await convertOther(f,rep,onP)}catch(e){skip[f.uri]=1;rep.skipped++}
+    if(NATIVE?.convertAudio){
+      let info={};try{info=await NATIVE.audioInfo({uri:f.uri})}catch(e){skip[f.uri]=1;rep.skipped++;continue}
+      /* un album entier dans un fichier : à découper, pas à convertir en un seul morceau */
+      if(looksAlbum(f.name,info.duration||0,f.size)){skip[f.uri]='album';const l=albumFiles();if(!l.some(x=>x.uri===f.uri)){l.push({uri:f.uri,name:f.name,dur:info.duration||0,size:f.size});albumFilesSave(l)}rep.albums=(rep.albums||0)+1;continue}
+      try{await convertOtherNative(f,rep,onP,info)}catch(e){skip[f.uri]=1;rep.skipped++}
+    }else{
+      if(f.size>300*1048576||/\.wma$/i.test(f.name)){skip[f.uri]=1;rep.skipped++;continue}
+      try{await convertOther(f,rep,onP)}catch(e){skip[f.uri]=1;rep.skipped++}}
     await wait(200)}
   ls(CONVSKIPK,JSON.stringify(skip));
 }
@@ -2283,7 +2322,8 @@ function renderCheck(){
 }
 /* Accès depuis la discothèque */
 function renderLibTools(){
-  const c=checkList().length,d=dupList().length,b=$('#libTools');b.hidden=!c&&!d;
+  const c=checkList().length,d=dupList().length,af=albumFiles().length,b=$('#libTools');b.hidden=!c&&!d&&!af;
+  $('#toolAlb').hidden=!af;$('#toolAlb').textContent=`Albums à découper (${af})`;
   $('#toolChk').hidden=!c;$('#toolChk').textContent=`À vérifier (${c})`;$('#toolDup').hidden=!d;$('#toolDup').textContent=`Doublons (${d})`;
 }
 function openTool(kind){LIBVIEW.tool=kind;$('#libListSec').hidden=true;$('#libDetail').hidden=true;$('#toolSec').hidden=false;window.scrollTo(0,0);kind==='dups'?renderDups():renderCheck()}
@@ -2339,7 +2379,7 @@ async function autoEnrich(manual){
       for(const [i,r] of albums.entries()){enrSay(`Albums complétés… ${i+1}/${albums.length} : ${r.album}`);await idleRec();try{await enrichAlbum(r,rep,{i,n:albums.length})}catch(e){}await wait(300)}
       try{await pruneOldRoots()}catch(e){}
       ls(ENRT,String(Date.now()));
-      const parts=[[rep.imp,'MP3 ajouté','MP3 ajoutés'],[rep.conv,'fichier converti en MP3','fichiers convertis en MP3'],[rep.skipped,'fichier illisible (WMA ou trop gros, laissé tel quel)','fichiers illisibles (WMA ou trop gros, laissés tels quels)'],[rep.filed,'morceau rangé','morceaux rangés'],[rep.merged,'doublon réuni','doublons réunis'],[rep.covers,'pochette','pochettes'],[rep.lists,'liste de titres','listes de titres'],[rep.names,'titre corrigé','titres corrigés'],[rep.moved,'fichier rangé','fichiers rangés'],[rep.dups,'doublon mis de côté','doublons mis de côté'],[rep.years,'année','années'],[rep.genres,'genre','genres']]
+      const parts=[[rep.imp,'MP3 ajouté','MP3 ajoutés'],[rep.albums||0,'album entier à découper (Numériser → Album dans un fichier)','albums entiers à découper (Numériser → Album dans un fichier)'],[rep.conv,'fichier converti en MP3','fichiers convertis en MP3'],[rep.skipped,'fichier illisible (WMA ou trop gros, laissé tel quel)','fichiers illisibles (WMA ou trop gros, laissés tels quels)'],[rep.filed,'morceau rangé','morceaux rangés'],[rep.merged,'doublon réuni','doublons réunis'],[rep.covers,'pochette','pochettes'],[rep.lists,'liste de titres','listes de titres'],[rep.names,'titre corrigé','titres corrigés'],[rep.moved,'fichier rangé','fichiers rangés'],[rep.dups,'doublon mis de côté','doublons mis de côté'],[rep.years,'année','années'],[rep.genres,'genre','genres']]
         .filter(p=>p[0]).map(p=>p[0]+' '+(p[0]>1?p[2]:p[1]));
       const txt='Dernier enrichissement '+new Date().toLocaleString('fr-FR',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})+' : '+(parts.length?parts.join(', ')+'.':'rien de nouveau, la discothèque est à jour.');
       const full=txt+(rep.err?' Problème : '+rep.err+'.':'')+(LASTSCAN?' '+scanReport():'');ls(ENRR,full);enrSay(full);if(parts.length&&manual)toast(parts.join(', '));
@@ -2709,9 +2749,11 @@ function trackPosIn(rel,recTitle){
   return null;
 }
 async function identifySegment(i){
-  const pcm=segSamples(i);if(pcm.length<SR*2*12)return null;
+  let pcm,rate=SR,ch=2;
+  if(S.file){const x=await fileRange(S.bounds[i],Math.min(S.bounds[i+1],S.bounds[i]+120),true);pcm=x.pcm;rate=x.rate;ch=x.channels}else pcm=segSamples(i);
+  if(pcm.length<rate*ch*12)return null;
   const cp=await loadChromaprint();
-  const r=cp.fingerprintFromSamples(SR,2,pcm);const fp=r.compressed;try{r.free()}catch(e){}
+  const r=cp.fingerprintFromSamples(rate,ch,pcm);const fp=r.compressed;try{r.free()}catch(e){}
   return recCands(await acoustLookup(fp,S.bounds[i+1]-S.bounds[i]));
 }
 const idMsg=t=>{const e=$('#idMsg');e.hidden=!t;e.textContent=t||'';idTaskSay(t||'')};
@@ -2795,20 +2837,22 @@ $('#identify').onclick=()=>identify();$('#fixNames').onclick=()=>fixNames();
 /* ---------- Mode d'enregistrement : vinyle ou autre source ---------- */
 const MODEK='sillon.mode';
 function setMode(m,init){
-  if(m==='tel'&&!NATIVE?.startCapture)m='autre';
+  if(m==='tel'&&!NATIVE?.startCapture)m='autre';if(m==='fichier'&&!NATIVE?.decodeAlbum)m='vinyle';
   S.mode=m;try{localStorage.setItem(MODEK,m)}catch(e){}
-  const other=m!=='vinyle',tel=m==='tel';
-  $('#modeVinyl').setAttribute('aria-pressed',m==='vinyle');$('#modeOther').setAttribute('aria-pressed',m==='autre');$('#modeTel').setAttribute('aria-pressed',tel);
+  const other=m==='autre'||m==='tel',tel=m==='tel',fic=m==='fichier';
+  $('#modeVinyl').setAttribute('aria-pressed',m==='vinyle');$('#modeOther').setAttribute('aria-pressed',m==='autre');$('#modeTel').setAttribute('aria-pressed',tel);$('#modeFile').setAttribute('aria-pressed',fic);
+  $('#s2').hidden=fic;$('#s2f').hidden=!fic;if(fic)renderAlbFiles();
   $('#telHint').hidden=!tel;$('#npRow').hidden=!tel||!NATIVE?.hasNowPlayingAccess;if(tel)npRefreshState();$('#bubbleRow').hidden=!tel||!NATIVE?.canDrawOverlays;$('#devRow').hidden=tel;$('#lvlRow').hidden=tel;$('#lvlHelp').hidden=tel;
   $('#otherHint').textContent=tel?'Le son des applis du téléphone (radio, podcasts, fichiers audio, navigateur…) : Sillon découpe aux silences, reconnaît chaque morceau et le range dans son dossier Artiste/Album.':'Radio, CD, cassette, téléphone ou ordinateur branché sur l\'entrée : Sillon découpe aux silences, reconnaît chaque morceau et le range dans son dossier Artiste/Album.';
   /* Son du téléphone : pas d'étape « disque », les infos viennent du lecteur et de la reconnaissance.
      Autre source : l'album n'est demandé que si tu le choisis (CD ou cassette d'un album précis). */
-  if(m==='vinyle')S.albOpen=true;else if(S.prevMode===undefined||S.prevMode==='vinyle')S.albOpen=false;S.prevMode=m;
-  const albShown=m==='vinyle'||(m==='autre'&&S.albOpen);
+  if(m==='vinyle'||fic)S.albOpen=true;else if(S.prevMode===undefined||S.prevMode==='vinyle'||S.prevMode==='fichier')S.albOpen=false;S.prevMode=m;
+  const albShown=m==='vinyle'||fic||(m==='autre'&&S.albOpen);
   $('#s1').hidden=!albShown;$('#albAsk').hidden=m!=='autre';$('#albAskBtn').textContent=S.albOpen?'Ne pas lier à un album':'J\'enregistre un album précis…';
   $('#otherHint').hidden=!other||tel;$('#albOpt').hidden=!other;$('#fileRow').hidden=tel;
   $('#s1 h2').lastChild.textContent=other?'Album (facultatif)':'Album';
-  let k=0;['#s1','#s2','#s3','#s4'].forEach(id=>{const n=document.querySelector(id+' h2 .n');if(n&&!(id==='#s1'&&!albShown))n.textContent=String(++k).padStart(2,'0')});
+  let k=0;(fic?['#s2f','#s1','#s3','#s4']:['#s1','#s2','#s3','#s4']).forEach(id=>{const n=document.querySelector(id+' h2 .n');if(n&&!(id==='#s1'&&!albShown))n.textContent=String(++k).padStart(2,'0')});
+  $('#s1 h2').lastChild.textContent=fic?'Album (pour la liste des titres)':other?'Album (facultatif)':'Album';
   $('#jobsEmpty').textContent=other?'Chaque enregistrement validé apparaît ici pendant sa conversion en MP3 320 kbit/s.':'Chaque face validée apparaît ici pendant sa conversion en MP3 320 kbit/s.';
   $('#identify').textContent=other?'Reconnaître les morceaux':'Reconnaître l\'album';$('#fixNames').hidden=!other;
   renderLvlHelp();stopMonitor();
@@ -2820,7 +2864,8 @@ function setMode(m,init){
   renderSides();pathHint();
 }
 $('#albAskBtn').onclick=()=>{S.albOpen=!S.albOpen;setMode(S.mode,true);if(S.albOpen)$('#qArtist').focus()};
-$('#modeVinyl').onclick=()=>setMode('vinyle');$('#modeOther').onclick=()=>setMode('autre');$('#modeTel').onclick=()=>setMode('tel');
+$('#modeVinyl').onclick=()=>setMode('vinyle');$('#modeOther').onclick=()=>setMode('autre');$('#modeTel').onclick=()=>setMode('tel');$('#modeFile').onclick=()=>setMode('fichier');
+if(NATIVE?.decodeAlbum){$('#modeFile').hidden=false;$('#filePick').onclick=pickAlbumFile}
 if(NATIVE?.startCapture)$('#modeTel').hidden=false;
 
 function autoIdentify(){
@@ -2828,6 +2873,74 @@ function autoIdentify(){
   if(freeMode())identifyTracks();
   else if(!S.all.length)identifyAlbum();
 }
+/* ---------- Album entier dans un seul fichier : décodé et découpé par Android ---------- */
+const ALBFK='sillon.albumFiles';
+function albumFiles(){try{return JSON.parse(ls(ALBFK)||'[]')}catch(e){return []}}
+function albumFilesSave(l){ls(ALBFK,JSON.stringify(l));renderAlbFiles();renderLibTools()}
+/* « Justice - A Cross The Universe (Full album).m4a » → artiste et album */
+function guessAlbumName(name){
+  let b=name.replace(/\.[a-z0-9]{2,4}$/i,'').replace(/[_]+/g,' ');
+  b=b.replace(/[\(\[]?\s*\b(full\s*(album|lp|ep)|album\s*(complet|entier|int[ée]gral)|int[ée]grale|complete\s*album|hq|hd|320\s*kbps?|flac|official\s*audio|remaster(ed)?(\s*\d{4})?)\b\s*[\)\]]?/ig,' ');
+  let year='';b=b.replace(/[\(\[]\s*((19|20)\d\d)\s*[\)\]]/,(x,y)=>{year=y;return ' '}).replace(/\s+/g,' ').trim().replace(/[-–—\s]+$/,'');
+  const m=/^(.+?)\s+[-–—]\s+(.+)$/.exec(b);return m?{artist:m[1].trim(),album:m[2].trim(),year}:{artist:'',album:b,year};
+}
+const looksAlbum=(name,dur,size)=>/full\s*(album|lp)|album\s*(complet|entier)|int[ée]grale|complete\s*album/i.test(name)||dur>25*60||(!dur&&size>60*1048576);
+function renderAlbFiles(){const box=$('#albFiles');if(!box)return;const l=albumFiles();
+  box.innerHTML=l.length?'<p class="hint">Albums entiers trouvés dans ta musique :</p>'+l.map((f,i)=>`<div class="wRow"><span class="grow">${esc(f.name)}${f.dur?` <small>${fmtI(f.dur)}</small>`:''}</span><button data-i="${i}">Découper</button></div>`).join(''):'';
+  box.querySelectorAll('button[data-i]').forEach(b=>b.onclick=()=>loadAlbumFile(l[+b.dataset.i]))}
+async function pickAlbumFile(){try{const f=await NATIVE.pickAudio();await loadAlbumFile(f)}catch(e){if(!/Aucun/.test(e.message||''))toast(e.message||String(e))}}
+async function loadAlbumFile(f){
+  if(S.mode!=='fichier')setMode('fichier');
+  clearAudio();hideEdit();idMsg('');
+  const hint=$('#fileHint'),g=guessAlbumName(f.name);
+  hint.textContent='Lecture de « '+f.name+' »…';$('#fileName').textContent=f.name;
+  /* nouveau fichier : on repart d'un album vierge, cherché pendant le décodage */
+  S.all=[];S.sides=[];S.side=0;S.range=null;S.rel=null;S.src=null;S.cover=null;S.coverMime=null;S.edited=false;
+  ['#mArtist','#mAlbum','#mYear'].forEach(x=>$(x).value='');$('#cover')?.removeAttribute('src');renderSides();
+  if(g.artist||g.album){$('#qArtist').value=g.artist;$('#q').value=g.album;$('#qRef').value='';search().catch(()=>{});
+    if(!$('#mArtist').value.trim())$('#mArtist').value=g.artist;if(!$('#mAlbum').value.trim())$('#mAlbum').value=g.album;if(g.year&&!$('#mYear').value.trim())$('#mYear').value=g.year;pathHint()}
+  const T=task('Lecture de l\'album');
+  const off=AUDIOP.on(d=>{if(d.op==='decode'){T.step(d.p*100,100,`Décodage de « ${f.name} » · ${Math.round(d.p*100)} %`);hint.textContent=`Lecture de « ${f.name} »… ${Math.round(d.p*100)} %`}});
+  const id=uid();
+  try{const r=await NATIVE.decodeAlbum({uri:f.uri,id,label:'Lecture de l\'album'});
+    const env=new Float32Array(unb64(r.env).buffer);
+    S.env=Array.from(env);S.frames=Math.round(r.duration*SR);S.file={id,uri:f.uri,name:f.name,rate:r.rate,peak:r.peak,duration:r.duration};
+    $('#clock').textContent=fmtI(r.duration);
+    hint.textContent=`« ${f.name} » : ${fmtI(r.duration)}. ${S.all.length?'Les coupures suivent la liste des titres de l\'album.':'Choisis l\'album dans la recherche ci-dessus pour caler les coupures sur la liste officielle des titres, sinon Sillon coupe aux silences.'}`;
+    albumFilesSave(albumFiles().filter(x=>x.uri!==f.uri));
+    analyze();$('#s3').scrollIntoView({behavior:'smooth'});
+    if(!S.all.length)autoIdentify();
+  }catch(e){hint.textContent='Lecture impossible : '+(e.message||e)}
+  finally{off();T.end()}
+}
+/* l'album choisi après coup recale les coupures */
+function fileAlbumChanged(){if(S.mode==='fichier'&&S.file&&S.env.length&&!S.edited)analyze()}
+/* écoute d'un passage et empreinte sonore : lus dans le fichier décodé par Android */
+async function fileRange(a,b,mono){const r=await NATIVE.readAlbumPcm({id:S.file.id,rate:S.file.rate,start:a,end:b,mono:!!mono});const u=unb64(r.data);return {pcm:new Int16Array(u.buffer,u.byteOffset,u.byteLength>>1),rate:r.rate,channels:r.channels}}
+async function filePlay(a,b){stopPlay();const {pcm,rate}=await fileRange(a,Math.min(b,a+30));const n=pcm.length>>1;if(!n)return;
+  const c=getCtx();c.resume();const buf=c.createBuffer(2,n,rate),L=buf.getChannelData(0),R=buf.getChannelData(1);
+  for(let k=0;k<n;k++){L[k]=pcm[2*k]/32768;R[k]=pcm[2*k+1]/32768}
+  player=c.createBufferSource();player.buffer=buf;player.connect(c.destination);player.start()}
+/* conversion des morceaux d'un album-fichier, entièrement par Android */
+async function runFileJob(job){
+  const T=task('Conversion en MP3 · '+(job.meta.album||'album'));
+  const off=AUDIOP.on(d=>{if(d.op==='encode'){job.p=d.p;job.done=Math.floor(d.p*job.tracks.length);updJob(job);T.step(d.p*job.tracks.length,job.tracks.length,`Morceau ${Math.min(job.tracks.length,d.track+1)}/${job.tracks.length} « ${job.tracks[d.track]?.title||''} »`)}});
+  try{
+    const ctx={names:new Map()};const list=[];
+    for(const t of job.tracks){const name=await freeName(ctx,t.dir,fileNameOf(t));t.file=name;list.push({start:t.sec0,end:t.sec1,path:t.dir+'/'+name,tag:b64(t.id3)})}
+    for(const f of job.folders)try{await writeNative(f.dir+'/folder.jpg',new Blob([f.cover],{type:f.coverMime}))}catch(e){}
+    const r=await NATIVE.encodeAlbum({id:job.file.id,rate:job.file.rate,tracks:list,gain:job.gain,label:'Conversion en MP3 · '+(job.meta.album||'')});
+    const errs=[];(r.tracks||[]).forEach((x,i)=>{const t=job.tracks[i];if(x.uri){t.uri=x.uri;t.done=true;t.size=x.size}else errs.push(t.title+' : '+x.error)});
+    job.tracks=job.tracks.filter(t=>t.done);job.done=job.tracks.length;job.p=1;
+    if(!job.tracks.length)throw new Error(errs[0]||'aucun morceau converti');
+    if(errs.length)job.msg=errs.length+' morceau'+(errs.length>1?'x':'')+' non converti'+(errs.length>1?'s':'')+' : '+errs.join(' ; ');
+    await saveJobToLib(job);await NATIVE.freeAlbum({id:job.file.id}).catch(()=>{});job.status='fini';
+  }catch(e){job.status='erreur';job.msg=e.message||String(e)}
+  finally{off();T.end();if(job.status!=='fini')NATIVE.freeAlbum({id:job.file.id}).catch(()=>{});jobRunning=false;renderJobs();renderSides();runJobs()}
+}
+/* événements de progression envoyés par Android */
+const AUDIOP={fns:new Set(),on(f){this.fns.add(f);return()=>this.fns.delete(f)}};
+if(NATIVE0?.addListener)try{NATIVE0.addListener('audioProgress',d=>{for(const f of AUDIOP.fns)try{f(d)}catch(e){}})}catch(e){}
 /* ---------- 4. Export ---------- */
 const meta=()=>({artist:$('#mArtist').value.trim()||'Artiste inconnu',album:$('#mAlbum').value.trim()||'Album inconnu',year:$('#mYear').value.trim()});
 function folder(){const m=meta();return safe(m.artist)+'/'+safe(m.album)}
@@ -2904,21 +3017,21 @@ async function validateSide(){
   if(NATIVE&&!FOLDER.uri&&!(await chooseFolder()))return;
   stopPlay();
   const m=meta(),side=S.sides[S.side],label=sideLabel(),tr=sideTracks(),total=totalNo();
-  const a0=Math.round(S.bounds[0]*SR),a1=Math.round(S.bounds[N]*SR),len=a1-a0;
-  const pcm=new Int16Array(len*2);
+  const a0=Math.round(S.bounds[0]*SR),a1=Math.round(S.bounds[N]*SR),len=a1-a0,FILE=S.file;
+  const pcm=FILE?new Int16Array(0):new Int16Array(len*2);
   /* copie des morceaux d'enregistrement, libérés au fur et à mesure pour limiter la mémoire */
-  let o=0;for(let c=0;c<S.chunks.length&&o<len;c++){const ch=S.chunks[c],st=S.starts[c],cl=ch.length/2;
+  let o=0;for(let c=0;!FILE&&c<S.chunks.length&&o<len;c++){const ch=S.chunks[c],st=S.starts[c],cl=ch.length/2;
     if(st+cl<=a0){S.chunks[c]=null;continue}
     const from=Math.max(0,a0-st),to=Math.min(cl,a1-st);if(to>from){pcm.set(ch.subarray(from*2,to*2),o*2);o+=to-from}
     S.chunks[c]=null}
   /* remontée du volume si l'enregistrement est faible (crête visée : −1 dB, +18 dB au plus) */
-  let peak=0;for(let k=0;k<pcm.length;k+=2){const a=Math.abs(pcm[k]),b=Math.abs(pcm[k+1]);if(a>peak)peak=a;if(b>peak)peak=b}
+  let peak=FILE?FILE.peak:0;for(let k=0;k<pcm.length;k+=2){const a=Math.abs(pcm[k]),b=Math.abs(pcm[k+1]);if(a>peak)peak=a;if(b>peak)peak=b}
   const gain=$('#normOpt').checked&&peak>0&&peak<0.7*32767?Math.min(8,0.89*32767/peak):1;
   try{localStorage.setItem('sillon.norm',$('#normOpt').checked?'1':'0')}catch(e){}
   const cover=S.cover,coverMime=S.coverMime;
   const tracks=[];for(let i=0;i<N;i++){
     const t={title:(S.titles[i]||'Piste '+(i+1)).trim(),artist:tr[i]?.artist||m.artist,no:tr[i]?.pos||i+1,total};
-    t.id3=id3For(m,t,cover,coverMime);t.start=Math.round(S.bounds[i]*SR)-a0;t.end=Math.min(len,Math.round(S.bounds[i+1]*SR)-a0);tracks.push(t)}
+    t.id3=id3For(m,t,cover,coverMime);t.sec0=S.bounds[i];t.sec1=S.bounds[i+1];t.start=Math.round(S.bounds[i]*SR)-a0;t.end=Math.min(len,Math.round(S.bounds[i+1]*SR)-a0);tracks.push(t)}
   const other=freeMode(),stamp=new Date().toISOString().slice(0,10);
   if(other)tracks.forEach((t,i)=>{const f=freeMetaFor(i);t.fm=f;
     const tm={artist:f.ar||'Artiste inconnu',album:f.al||'Divers',year:f.year||''};
@@ -2940,16 +3053,18 @@ async function validateSide(){
     $('#s2').scrollIntoView({behavior:'smooth'});return}
   if(dups.length)toast(dups.length+' morceau'+(dups.length>1?'x':'')+' déjà présent'+(dups.length>1?'s':'')+', non réenregistré'+(dups.length>1?'s':'')+' : '+dups.join(', '));
   const job={id:++jobSeq,gain,source:S.mode,kind:other?'autre':'vinyle',folders,label,meta:other?{artist:tracks.length+' morceau'+(tracks.length>1?'x':''),album:S.mode==='tel'?'Son du téléphone':'Autre source',year:''}:m,dir:folder(),cover,coverMime,src:S.src,sides:JSON.parse(JSON.stringify(S.sides)),
-    key:albumKey(m.artist,m.album),tracks,pcm,status:'attente',done:0,p:0,outputs:[],msg:''};
+    key:albumKey(m.artist,m.album),tracks,pcm,status:'attente',done:0,p:0,outputs:[],msg:'',file:FILE?{id:FILE.id,rate:FILE.rate,name:FILE.name}:null};
+  if(FILE){job.label='Album complet';S.file=null;/* le son décodé reste à Android jusqu'à la fin de la conversion */}
   JOBS.push(job);
   clearAudio();hideEdit();$('#clock').textContent='0:00';
   /* face suivante */
   const cs=S.sides[S.side];
-  if(other){}
+  if(other||FILE){}
   else if(S.range&&cs&&S.range[1]<cs.tracks.length-1){S.range=[S.range[1]+1,cs.tracks.length-1]}
   else{const nx=S.sides.findIndex((s,i)=>i!==S.side&&sideStatus(s.name)==='todo');if(nx>=0){S.side=nx;S.range=null}}
   renderSides();renderJobs();runJobs();
   const next=S.sides[S.side],nextFree=next&&sideStatus(next.name)==='todo';
+  if(FILE){$('#fileHint').textContent='Album envoyé en conversion. Tu peux ouvrir le fichier suivant tout de suite.';$('#fileName').textContent='';$('#s2f').scrollIntoView({behavior:'smooth'});return}
   if(other)$('#recHint').textContent='Enregistrement envoyé en conversion. Tu peux en lancer un autre tout de suite.';
   else $('#recHint').textContent=nextFree?`${label} envoyée en conversion. Retourne le disque et enregistre la ${next.name}.`:`${label} envoyée en conversion. Toutes les faces de l'album sont faites.`;
   $('#s2').scrollIntoView({behavior:'smooth'});
@@ -2957,6 +3072,7 @@ async function validateSide(){
 function runJobs(){
   if(jobRunning)return;const job=JOBS.find(j=>j.status==='attente');if(!job)return;
   jobRunning=true;job.status='conversion';renderJobs();
+  if(job.file){runFileJob(job);return}
   let w;try{w=new Worker(workerURL)}catch(e){job.status='erreur';job.msg='conversion impossible sur cet appareil';jobRunning=false;renderJobs();return}
   let writing=Promise.resolve();
   if(NATIVE)for(const f of job.folders)writing=writing.then(()=>writeNative(f.dir+'/folder.jpg',new Blob([f.cover],{type:f.coverMime}))).catch(()=>{});
@@ -3063,6 +3179,7 @@ $('#diagCopy').onclick=async()=>{const t=ls('sillon.bgDiag')||'';try{await navig
 {const d=ls('sillon.bgDiag');if(d&&$('#diagLast'))$('#diagLast').textContent='Dernier contrôle écran éteint : '+d}
 $('#blackBtn').onclick=blackOn;$('#battBtn').onclick=()=>NATIVE?.requestBatteryExempt?.().catch(e=>toast(e.message||String(e)));
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)battCheck(false)});$('#black').onclick=blackOff;
+$('#toolAlb').onclick=()=>{$('#tabRec').click();setMode('fichier');$('#s2f').scrollIntoView({behavior:'smooth'})};
 $('#toolBack').onclick=closeTool;if(NATIVE?.addWatchFolder){$('#watchBox').hidden=false;$('#watchAdd').onclick=addWatch;setTimeout(renderWatch,1500)}$('#toolChk').onclick=()=>openTool('check');$('#toolDup').onclick=()=>openTool('dups');
 $('#enrOn').checked=enrichOn();$('#enrOn').onchange=e=>{ls(ENRK,e.target.checked?'1':'0');if(e.target.checked)enrichSoon(1000)};
 $('#enrNow').onclick=async()=>{$('#enrNow').disabled=true;await autoEnrich(true);$('#enrNow').disabled=false};

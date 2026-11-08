@@ -275,8 +275,11 @@ public class SillonPlugin extends Plugin {
     }
 
     /* ---------- Moteur audio Android : décodage, découpe et encodage MP3 hors de la page (fonctionne écran éteint) ---------- */
-    private java.io.File albumPcm() { return new java.io.File(getContext().getCacheDir(), "album.pcm"); }
-    private volatile int albumRate = 44100;
+    /* un fichier de son décodé par album ouvert (un album peut être converti pendant qu'on prépare le suivant) */
+    private java.io.File albumPcm(PluginCall c) {
+        String id = c.getString("id", "album").replaceAll("[^A-Za-z0-9_-]", "");
+        return new java.io.File(getContext().getCacheDir(), "album-" + id + ".pcm");
+    }
     private long lastProg = 0;
 
     private void audioProg(String op, int track, double p, String label, String sub) {
@@ -367,9 +370,8 @@ public class SillonPlugin extends Plugin {
         final String label = call.getString("label", "Lecture de l'album");
         new Thread(() -> {
             try {
-                PcmTools.Sink sink = new PcmTools.Sink().toFile(albumPcm());
+                PcmTools.Sink sink = new PcmTools.Sink().toFile(albumPcm(call));
                 AudioDecoder.decode(getContext(), Uri.parse(u), sink, p -> audioProg("decode", 0, p, label, "Décodage"));
-                albumRate = sink.rate;
                 JSObject o = new JSObject();
                 o.put("rate", sink.rate);
                 o.put("frames", sink.frames);
@@ -387,12 +389,14 @@ public class SillonPlugin extends Plugin {
     public void readAlbumPcm(PluginCall call) {
         final double a = call.getData().optDouble("start", 0), b = call.getData().optDouble("end", 0);
         final boolean mono = Boolean.TRUE.equals(call.getBoolean("mono", false));
+        final int rate = call.getData().optInt("rate", 44100);
+        final java.io.File pcm = albumPcm(call);
         new Thread(() -> {
             try {
-                byte[] raw = PcmTools.readRange(albumPcm(), albumRate, a, b, mono);
+                byte[] raw = PcmTools.readRange(pcm, rate, a, b, mono);
                 JSObject o = new JSObject();
                 o.put("data", Base64.encodeToString(raw, Base64.NO_WRAP));
-                o.put("rate", mono ? 11025 : albumRate);
+                o.put("rate", mono ? 11025 : rate);
                 o.put("channels", mono ? 1 : 2);
                 call.resolve(o);
             } catch (Exception e) {
@@ -407,6 +411,8 @@ public class SillonPlugin extends Plugin {
         final JSArray tracks = call.getArray("tracks");
         final double gain = call.getData().optDouble("gain", 1);
         final String label = call.getString("label", "Conversion en MP3");
+        final int rate = call.getData().optInt("rate", 44100);
+        final java.io.File pcm = albumPcm(call);
         new Thread(() -> {
             JSArray out = new JSArray();
             try {
@@ -420,7 +426,7 @@ public class SillonPlugin extends Plugin {
                         f = newFile(t.getString("path"));
                         byte[] tag = Base64.decode(t.optString("tag", ""), Base64.DEFAULT);
                         try (OutputStream os = new java.io.BufferedOutputStream(getContext().getContentResolver().openOutputStream(f.getUri(), "wt"), 1 << 18)) {
-                            PcmTools.encodeRange(albumPcm(), albumRate, t.getDouble("start"), t.getDouble("end"), gain, tag, os,
+                            PcmTools.encodeRange(pcm, rate, t.getDouble("start"), t.getDouble("end"), gain, tag, os,
                                     p -> audioProg("encode", ti, (ti + p) / n, label, "Morceau " + (ti + 1) + "/" + n));
                         }
                         r.put("uri", f.getUri().toString());
@@ -442,7 +448,7 @@ public class SillonPlugin extends Plugin {
 
     @PluginMethod
     public void freeAlbum(PluginCall call) {
-        try { albumPcm().delete(); } catch (Exception e) { }
+        try { albumPcm(call).delete(); } catch (Exception e) { }
         call.resolve();
     }
 

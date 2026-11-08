@@ -3,7 +3,21 @@ module.exports=()=>{
   const F=new Map();let n=0;window.__FS=F;const b64d=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
   const b64e=u=>{let s='';for(let i=0;i<u.length;i+=8192)s+=String.fromCharCode(...u.subarray(i,i+8192));return btoa(s)};
   const byUri=u=>[...F.entries()].find(([k,v])=>v.uri===u);
-  window.Capacitor={isNativePlatform:()=>true,Plugins:{Sillon:{getFolder:async()=>({uri:'root',name:'Music'}),keepAwake:async()=>{},addListener:async()=>({remove:async()=>{}}),
+  window.__L={};const emit=(ev,d)=>(window.__L[ev]||[]).forEach(f=>f(d));window.__CALLS=[];
+  /* faux moteur audio Android : « album » = morceaux séparés de 2 s de silence (durées dans __ALB) */
+  const AUDIO={
+    pickAudio:async()=>window.__PICK,
+    audioInfo:async({uri})=>{const e=byUri(uri);return e?.[1].info||{duration:120,title:'',artist:''}},
+    decodeAlbum:async({uri,id})=>{__CALLS.push(['decode',id]);const L=window.__ALB||[60,60,60],env=[];for(const d of L){for(let i=0;i<d*20;i++)env.push(-20+Math.sin(i)*3);for(let i=0;i<40;i++)env.push(-120)}
+      for(const p of [.25,.5,1])emit('audioProgress',{op:'decode',track:0,p});const f=new Float32Array(env);return {rate:48000,frames:env.length*2400,duration:env.length*.05,peak:16000,env:b64e(new Uint8Array(f.buffer))}},
+    readAlbumPcm:async o=>{__CALLS.push(['read',o.id,o.rate,o.mono]);return {data:b64e(new Uint8Array(o.mono?11025*2*Math.max(1,Math.round(o.end-o.start)):4800*4)),rate:o.mono?11025:o.rate,channels:o.mono?1:2}},
+    encodeAlbum:async({id,rate,tracks,gain})=>{__CALLS.push(['encode',id,rate,gain,tracks.map(t=>t.path+'@'+t.start.toFixed(1)+'-'+t.end.toFixed(1))]);
+      const out=[];tracks.forEach((t,i)=>{emit('audioProgress',{op:'encode',track:i,p:(i+1)/tracks.length});if(F.has(t.path)){out.push({error:'existe déjà'});return}const uri='fs://'+(++n);F.set(t.path,{uri,b:new Uint8Array([...b64d(t.tag),...new Uint8Array(1000)])});out.push({uri,size:1000})});return {tracks:out}},
+    freeAlbum:async({id})=>{__CALLS.push(['free',id])},
+    convertAudio:async({uri,path,tag})=>{const e=byUri(uri);if(!e)throw new Error('introuvable');if(/\.wma$/i.test(e[0])||e[1].b.length<50)throw new Error('format non pris en charge');if(F.has(path))throw new Error('existe déjà');emit('audioProgress',{op:'convert',track:0,p:.5});
+      const u='fs://'+(++n);F.set(path,{uri:u,b:new Uint8Array([...b64d(tag),...new Uint8Array(2000)])});__CALLS.push(['convert',path]);return {uri:u,size:2000,duration:e[1].info?.duration||100}}};
+  /* window.__NOAUDIO : téléphone sans moteur audio Android (conversion faite dans la page) */
+  window.Capacitor={isNativePlatform:()=>true,Plugins:{Sillon:{...(window.__NOAUDIO?{}:AUDIO),getFolder:async()=>({uri:'root',name:'Music'}),keepAwake:async()=>{},addListener:async(ev,f)=>{(window.__L[ev]=window.__L[ev]||[]).push(f);return {remove:async()=>{}}},
     playerSetQueue:async()=>{},playerSetRepeat:async()=>{},playerStop:async()=>{},
     writeFile:async({path,data,append})=>{const d=b64d(data);const e=F.get(path);if(append&&e){const u=new Uint8Array(e.b.length+d.length);u.set(e.b);u.set(d,e.b.length);e.b=u;return {uri:e.uri}}F.delete(path);const uri='fs://'+(++n);F.set(path,{uri,b:d});return {uri}},
     listDir:async({path})=>({exists:true,files:[...F.entries()].filter(([k])=>k.slice(0,k.lastIndexOf('/'))===path).map(([k,v])=>({name:k.slice(k.lastIndexOf('/')+1),uri:v.uri,size:v.b.length}))}),

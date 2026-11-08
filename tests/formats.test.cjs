@@ -6,7 +6,7 @@ let fails=0;const ok=(c,m)=>{console.log((c?'  ok  ':'  ÉCHEC ')+m);if(!c)fails
 await p.route(/fonts|deezer|itunes|musicbrainz|discogs|acoustid|api\.github|coverartarchive/,r=>r.abort());
 await p.route(/lamejs.*lame\.min\.js|lib\/lame\.min\.js/,r=>r.fulfill({body:fs.readFileSync(LAME),contentType:'text/javascript'}));
 const errs=[];p.on('pageerror',e=>errs.push(e.message));
-await p.addInitScript(`localStorage.setItem('sillon.autoenrich','0');(${require('./fake-phone.cjs').toString()})()`);
+await p.addInitScript(`localStorage.setItem('sillon.autoenrich','0');window.__NOAUDIO=1;(${require('./fake-phone.cjs').toString()})()`);
 await p.goto('http://localhost:8765/index.html');await p.waitForTimeout(300);if(errs.length)console.log('erreurs au chargement',errs);
 await p.evaluate(()=>{FOLDER={uri:'root',name:'Music'};
   CATALOG.deezer=async u=>{const q=decodeURIComponent((u.split('q=')[1]||'').split('&')[0]);if(u.startsWith('album/'))return {release_date:'2003-01-01',nb_tracks:3,tracks:{data:[{id:1},{id:2},{id:3}]}};
