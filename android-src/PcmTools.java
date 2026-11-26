@@ -100,47 +100,76 @@ final class PcmTools {
         }
     }
 
-    /* Un morceau [start, end] (secondes) du fichier brut → MP3 320 kbit/s, avec volume et fondus de 30 ms */
-    static void encodeRange(File pcm, int rate, double start, double end, double gain, byte[] tag, OutputStream os, Prog prog) throws IOException {
+    /* Un morceau [start, end] (secondes) du fichier brut → MP3 320 kbit/s, avec volume et fondus de 30 ms.
+       declick > 0 : craquements retirés (avec 512 trames de contexte autour de chaque bloc).
+       flac non nul : la même chose, sans perte, en FLAC. Renvoie le nombre de clics retirés. */
+    static int encodeRange(File pcm, int rate, double start, double end, double gain, byte[] tag, OutputStream os, Prog prog) throws IOException {
+        return encodeRange(pcm, rate, start, end, gain, 0, tag, os, null, prog);
+    }
+    static int encodeRange(File pcm, int rate, double start, double end, double gain, int declick, byte[] tag, OutputStream os, Flac flac, Prog prog) throws IOException {
         long total = pcm.length() / 4;
         long a = Math.max(0, Math.round(start * rate)), b = Math.min(total, Math.round(end * rate));
         if (b <= a) throw new IOException("Morceau vide");
-        int fade = (int) Math.round(rate * 0.03);
+        int fade = (int) Math.round(rate * 0.03), clicks = 0;
         long h = Lame.init(rate, 2, 44100, 320);
         if (h == 0) throw new IOException("Encodeur MP3 indisponible");
         try (RandomAccessFile f = new RandomAccessFile(pcm, "r")) {
             if (tag != null) os.write(tag);
-            f.seek(a * 4);
-            final int B = 16384;
-            byte[] raw = new byte[B * 4];
+            final int B = declick > 0 ? 65536 : 16384, O = declick > 0 ? 512 : 0;
+            byte[] raw = new byte[(B + 2 * O) * 4];
+            short[] buf = new short[(B + 2 * O) * 2];
             short[] s = new short[B * 2];
             byte[] out = new byte[(int) (B * 1.25) + 7200];
             long n = b - a, done = 0;
             while (done < n) {
                 int k = (int) Math.min(B, n - done);
-                f.readFully(raw, 0, k * 4);
+                long p0 = a + done, r0 = Math.max(0, p0 - O), r1 = Math.min(total, p0 + k + O);
+                int m = (int) (r1 - r0), off = (int) (p0 - r0);
+                f.seek(r0 * 4);
+                f.readFully(raw, 0, m * 4);
+                for (int i = 0; i < m * 2; i++) buf[i] = (short) ((raw[2 * i] & 255) | (raw[2 * i + 1] << 8));
+                if (declick > 0) clicks += Declick.stereo(buf, m, off, off + k, declick, rate);
                 for (int i = 0; i < k; i++) {
                     long pos = done + i;
                     double g = gain;
                     if (pos < fade) g *= pos / (double) fade;
                     else if (n - pos <= fade) g *= (n - pos - 1) / (double) fade;
                     for (int c = 0; c < 2; c++) {
-                        int v = (short) ((raw[4 * i + 2 * c] & 255) | (raw[4 * i + 2 * c + 1] << 8));
-                        double x = v * g;
+                        double x = buf[2 * (off + i) + c] * g;
                         s[2 * i + c] = (short) (x > 32767 ? 32767 : x < -32768 ? -32768 : x);
                     }
                 }
                 int w = Lame.encode(h, s, k, out);
                 if (w < 0) throw new IOException("Erreur d'encodage MP3 (" + w + ")");
                 os.write(out, 0, w);
+                if (flac != null) flac.write(s, k);
                 done += k;
                 if (prog != null) prog.p(done / (double) n);
             }
             int w = Lame.flush(h, out);
             if (w > 0) os.write(out, 0, w);
+            if (flac != null) flac.finish();
         } finally {
             Lame.close(h);
         }
+        return clicks;
+    }
+
+    /* écoute avant/après : extrait stéréo [start, end] nettoyé de ses craquements */
+    static byte[] readRangeDeclick(File pcm, int rate, double start, double end, int level) throws IOException {
+        int O = 512;
+        long total = pcm.length() / 4;
+        long a = Math.max(0, Math.round(start * rate)), b = Math.min(total, Math.round(end * rate));
+        if (b <= a) return new byte[0];
+        long r0 = Math.max(0, a - O), r1 = Math.min(total, b + O);
+        byte[] raw = readRange(pcm, rate, r0 / (double) rate, r1 / (double) rate, false);
+        int m = raw.length / 4, off = (int) (a - r0), k = (int) Math.min(b - a, m - off);
+        short[] s = new short[m * 2];
+        for (int i = 0; i < m * 2; i++) s[i] = (short) ((raw[2 * i] & 255) | (raw[2 * i + 1] << 8));
+        Declick.stereo(s, m, off, off + k, level, rate);
+        byte[] o = new byte[k * 4];
+        for (int i = 0; i < k * 2; i++) { short v = s[2 * off + i]; o[2 * i] = (byte) v; o[2 * i + 1] = (byte) (v >> 8); }
+        return o;
     }
 
     /* Extrait [start, end] : stéréo au débit d'origine, ou mono 11 025 Hz (empreinte sonore) */

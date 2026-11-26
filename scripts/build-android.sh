@@ -23,7 +23,7 @@ grep -q "const APP_BUILD=${RUN};" www/index.html
 npx cap add android
 JAVA_DIR=android/app/src/main/java/fr/aflament/sillon
 test -d "$JAVA_DIR"
-cp android-src/MainActivity.java android-src/SillonPlugin.java android-src/CaptureService.java android-src/PlayerService.java android-src/NowPlayingListener.java android-src/WorkService.java android-src/Lame.java android-src/PcmTools.java android-src/AudioDecoder.java "$JAVA_DIR/"
+cp android-src/MainActivity.java android-src/SillonPlugin.java android-src/CaptureService.java android-src/PlayerService.java android-src/NowPlayingListener.java android-src/WorkService.java android-src/Lame.java android-src/PcmTools.java android-src/Declick.java android-src/Flac.java android-src/AudioDecoder.java "$JAVA_DIR/"
 
 # Icône et écran de démarrage Sillon (remplacent ceux de Capacitor)
 RES=android/app/src/main/res

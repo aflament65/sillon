@@ -295,7 +295,8 @@ public class SillonPlugin extends Plugin {
     }
 
     /* fichier MP3 neuf dans le dossier Music (jamais par-dessus un fichier existant) */
-    private DocumentFile newFile(String path) throws Exception {
+    private DocumentFile newFile(String path) throws Exception { return newFile(path, "audio/mpeg"); }
+    private DocumentFile newFile(String path, String mime) throws Exception {
         Uri root = savedFolder();
         if (root == null) throw new Exception("Choisis d'abord le dossier Music");
         int slash = path.lastIndexOf('/');
@@ -304,7 +305,7 @@ public class SillonPlugin extends Plugin {
         DocumentFile parent = dir(root, parentRel);
         if (parent == null) throw new Exception("Impossible de créer le dossier " + parentRel);
         if (parent.findFile(name) != null) throw new Exception("« " + name + " » existe déjà");
-        DocumentFile f = parent.createFile("audio/mpeg", name);
+        DocumentFile f = parent.createFile(mime, name);
         if (f == null) throw new Exception("Impossible de créer " + name);
         return f;
     }
@@ -389,11 +390,11 @@ public class SillonPlugin extends Plugin {
     public void readAlbumPcm(PluginCall call) {
         final double a = call.getData().optDouble("start", 0), b = call.getData().optDouble("end", 0);
         final boolean mono = Boolean.TRUE.equals(call.getBoolean("mono", false));
-        final int rate = call.getData().optInt("rate", 44100);
+        final int rate = call.getData().optInt("rate", 44100), declick = call.getData().optInt("declick", 0);
         final java.io.File pcm = albumPcm(call);
         new Thread(() -> {
             try {
-                byte[] raw = PcmTools.readRange(pcm, rate, a, b, mono);
+                byte[] raw = declick > 0 && !mono ? PcmTools.readRangeDeclick(pcm, rate, a, b, declick) : PcmTools.readRange(pcm, rate, a, b, mono);
                 JSObject o = new JSObject();
                 o.put("data", Base64.encodeToString(raw, Base64.NO_WRAP));
                 o.put("rate", mono ? 11025 : rate);
@@ -411,34 +412,61 @@ public class SillonPlugin extends Plugin {
         final JSArray tracks = call.getArray("tracks");
         final double gain = call.getData().optDouble("gain", 1);
         final String label = call.getString("label", "Conversion en MP3");
-        final int rate = call.getData().optInt("rate", 44100);
+        final int rate = call.getData().optInt("rate", 44100), declick = call.getData().optInt("declick", 0);
+        final String coverB64 = call.getString("cover", ""), coverMime = call.getString("coverMime", "image/jpeg");
         final java.io.File pcm = albumPcm(call);
         new Thread(() -> {
             JSArray out = new JSArray();
+            int clicks = 0;
             try {
+                byte[] cover = coverB64.isEmpty() ? null : Base64.decode(coverB64, Base64.DEFAULT);
                 int n = tracks.length();
                 for (int i = 0; i < n; i++) {
                     org.json.JSONObject t = tracks.getJSONObject(i);
                     final int ti = i;
                     JSObject r = new JSObject();
-                    DocumentFile f = null;
+                    DocumentFile f = null, ff = null;
+                    OutputStream fos = null;
                     try {
                         f = newFile(t.getString("path"));
                         byte[] tag = Base64.decode(t.optString("tag", ""), Base64.DEFAULT);
+                        /* copie FLAC sans perte (facultative) : un échec ici n'empêche pas le MP3 */
+                        Flac flac = null;
+                        String fp = t.optString("flacPath", "");
+                        if (!fp.isEmpty()) try {
+                            ff = newFile(fp, "audio/flac");
+                            fos = new java.io.BufferedOutputStream(getContext().getContentResolver().openOutputStream(ff.getUri(), "wt"), 1 << 18);
+                            java.util.Map<String, String> tags = new java.util.LinkedHashMap<>();
+                            org.json.JSONObject ft = t.optJSONObject("flacTags");
+                            if (ft != null) { java.util.Iterator<String> it = ft.keys(); while (it.hasNext()) { String key = it.next(); tags.put(key, ft.optString(key)); } }
+                            long frames = Math.max(0, Math.min(pcm.length() / 4, Math.round(t.getDouble("end") * rate)) - Math.max(0, Math.round(t.getDouble("start") * rate)));
+                            flac = new Flac(fos, rate, frames, tags, cover, coverMime);
+                        } catch (Exception e) {
+                            if (fos != null) try { fos.close(); } catch (Exception x) { }
+                            fos = null;
+                            if (ff != null) try { ff.delete(); } catch (Exception x) { }
+                            ff = null;
+                            r.put("flacError", e.getMessage() != null ? e.getMessage() : "échec");
+                        }
                         try (OutputStream os = new java.io.BufferedOutputStream(getContext().getContentResolver().openOutputStream(f.getUri(), "wt"), 1 << 18)) {
-                            PcmTools.encodeRange(pcm, rate, t.getDouble("start"), t.getDouble("end"), gain, tag, os,
+                            clicks += PcmTools.encodeRange(pcm, rate, t.getDouble("start"), t.getDouble("end"), gain, declick, tag, os, flac,
                                     p -> audioProg("encode", ti, (ti + p) / n, label, "Morceau " + (ti + 1) + "/" + n));
                         }
+                        if (fos != null) { fos.close(); fos = null; }
                         r.put("uri", f.getUri().toString());
                         r.put("size", f.length());
+                        if (ff != null) { r.put("flacUri", ff.getUri().toString()); r.put("flacSize", ff.length()); }
                     } catch (Exception e) {
+                        if (fos != null) try { fos.close(); } catch (Exception x) { }
                         if (f != null) try { f.delete(); } catch (Exception x) { }
+                        if (ff != null) try { ff.delete(); } catch (Exception x) { }
                         r.put("error", e.getMessage() != null ? e.getMessage() : "échec");
                     }
                     out.put(r);
                 }
                 JSObject res = new JSObject();
                 res.put("tracks", out);
+                res.put("clicks", clicks);
                 call.resolve(res);
             } catch (Exception e) {
                 call.reject(e.getMessage() != null ? e.getMessage() : "Conversion impossible");

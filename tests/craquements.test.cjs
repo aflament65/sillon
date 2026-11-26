@@ -1,0 +1,58 @@
+/* Nettoyage des craquements (réglage, écoute avant/après, conversion) et copie FLAC */
+const { chromium } = require(require('child_process').execSync('npm root -g').toString().trim()+'/playwright');
+const fs=require('fs');
+let fails=0;const ok=(c,m)=>{console.log((c?'  ok  ':'  ÉCHEC ')+m);if(!c)fails++};
+(async()=>{const b=await chromium.launch();const ctx=await b.newContext({viewport:{width:360,height:780}});
+const FAKE=require('./fake-phone.cjs').toString();
+const mk=async phone=>{const p=await ctx.newPage();
+  await p.route(/fonts\.g|deezer|itunes|musicbrainz|discogs|acoustid|api\.github|coverartarchive|lrclib/,r=>r.abort());
+  await p.route(/lamejs.*lame\.min\.js|lib\/lame\.min\.js/,r=>r.fulfill({body:fs.readFileSync(process.env.LAME_JS),contentType:'text/javascript'}));
+  p.errs=[];p.on('pageerror',e=>p.errs.push(e.message));
+  await p.addInitScript(`localStorage.setItem('sillon.autoenrich','0');${phone?`(${FAKE})();`:''}`);
+  await p.goto('http://localhost:8765/index.html');await p.waitForTimeout(500);
+  await p.evaluate(()=>{navigator.mediaDevices.getUserMedia=async()=>new AudioContext().createMediaStreamDestination().stream;
+    /* musique avec des clics de vinyle tous les ~3 s */
+    window.feed=(sec,db,clicks)=>{const N=4096,a=Math.pow(10,db/20);const n=Math.round(sec*SR/N);for(let k=0;k<n&&S.recording;k++){const L=new Float32Array(N);
+      for(let i=0;i<N;i++){const t=k*N+i;L[i]=a*(Math.sin(t*.031)+.5*Math.sin(t*.007))+(Math.random()-.5)*.002}
+      if(clicks&&k%32===5){const p=1000+(k*37)%2000;for(let j=0;j<6;j++)L[p+j]+=(j%2?-.35:.45)}
+      onBlock(L,L)}}});
+  return p};
+const album=(p,al='Craque')=>p.evaluate(al=>{setMode('vinyle');loadAlbum({artist:'Les Tests',album:al,year:'1977',tracks:[{number:'A1',title:'Un',length:40000},{number:'A2',title:'Deux',length:40000},{number:'B1',title:'Trois',length:60000}]})},al);
+const rec=async p=>{await p.click('#recBtn');await p.waitForTimeout(200);await p.evaluate(()=>{proc.onaudioprocess=null})};
+console.log('1. Réglage');
+let p=await mk(true);await album(p);
+ok((await p.inputValue('#clickOpt'))==='1'&&await p.evaluate(()=>!$('#clickRow').hidden),'vinyle : « Nettoyage léger » par défaut');
+await p.evaluate(()=>{Capacitor.Plugins.Sillon.startCapture=async()=>{};setMode('tel')});ok(await p.evaluate(()=>S.mode==='tel'&&$('#clickRow').hidden),'son du téléphone : pas de réglage (numérique, pas de craquements)');
+await p.evaluate(()=>setMode('autre'));ok((await p.inputValue('#clickOpt'))==='0','autre source : « Ne pas toucher » par défaut');
+await album(p);
+console.log('2. Conversion par Android avec FLAC');
+await p.click('#tabSet');ok(await p.isVisible('#setArch'),'Réglages : section « Archivage »');await p.check('#flacOpt');await p.click('#tabRec');
+await rec(p);await p.evaluate(()=>{feed(40,-14,true);feed(2,-80);feed(40,-14,true);feed(30,-80)});await p.evaluate(()=>REC.nat?.p);
+await p.evaluate(()=>{const c=document.createElement('canvas');c.width=c.height=8;return new Promise(r=>c.toBlob(async b=>{S.cover=new Uint8Array(await b.arrayBuffer());S.coverMime='image/jpeg';r()},'image/jpeg'))});
+await p.evaluate(()=>validateSide());await p.waitForTimeout(800);
+const o=await p.evaluate(()=>({d:__ENCOPT.declick,f:__ENCOPT.tracks.map(t=>t.flacPath),tg:__ENCOPT.tracks[0].flacTags,cov:!!__ENCOPT.cover,st:JOBS[0].status,txt:jobText(JOBS[0]),fs:[...__FS.keys()].filter(k=>/FLAC/.test(k))}));
+ok(o.d===1,'Android reçoit « nettoyage léger »');
+ok(o.f.join()==='_FLAC Sillon/Les Tests/Craque/01 - Un.flac,_FLAC Sillon/Les Tests/Craque/02 - Deux.flac','FLAC dans _FLAC Sillon/Artiste/Album : '+o.f.join(' , '));
+ok(o.tg?.TITLE==='Un'&&o.tg.ARTIST==='Les Tests'&&o.tg.ALBUM==='Craque'&&o.tg.TRACKNUMBER==='1'&&o.tg.DATE==='1977'&&o.cov,'étiquettes FLAC (titre, artiste, album, n°, année) et pochette');
+ok(o.st==='fini'&&/7 craquements retirés · 2 copies FLAC/.test(o.txt),'bilan : « '+o.txt+' »');
+ok(await p.evaluate(()=>LIB.find(r=>r.album==='Craque').tracks.length===2&&!LIB.some(r=>r.tracks.some(t=>/\.flac$/.test(t.file||'')))),'les FLAC ne sont pas ajoutés à la discothèque');
+ok(await p.evaluate(()=>sillonDir('_FLAC Sillon/Les Tests/Craque')&&!sillonDir('Les Tests/Craque')),'… ni repris par l\'import des fichiers du dossier Music');
+await p.uncheck('#flacOpt').catch(async()=>{await p.click('#tabSet');await p.uncheck('#flacOpt');await p.click('#tabRec')});
+await p.evaluate(()=>{$('#clickOpt').value='0';$('#clickOpt').dispatchEvent(new Event('change'))});
+await rec(p);await p.evaluate(()=>{feed(60,-14,true);feed(30,-80)});await p.evaluate(()=>REC.nat?.p);await p.evaluate(()=>validateSide());await p.waitForTimeout(600);
+const o2=await p.evaluate(()=>({d:__ENCOPT.declick,f:__ENCOPT.tracks.some(t=>t.flacPath)}));
+ok(o2.d===0&&!o2.f,'« Ne pas toucher » et FLAC décoché : rien de tout ça');
+ok((await p.evaluate(()=>localStorage.getItem('sillon.declick.vinyle')))==='0','choix retenu pour les vinyles');
+ok(!p.errs.length,'aucune erreur JavaScript '+p.errs.join(' | '));await p.close();
+console.log('3. Sans le téléphone : nettoyage dans la page, écoute avant/après');
+p=await mk(false);await album(p,'Craque web');await p.evaluate(()=>{localStorage.removeItem('sillon.declick.vinyle');clickPref()});
+await rec(p);await p.evaluate(()=>{feed(40,-14,true);feed(2,-80);feed(40,-14,true);feed(30,-80)});
+await p.click('#rfCheck');await p.evaluate(()=>{S.cursor=20;S.sel=-1});await p.click('#clickAB');await p.waitForTimeout(300);
+ok(/^Avant \(son d'origine, à 0:20\)/.test(await p.textContent('#clickHint')),'« Écouter avant/après » : d\'abord l\'original');
+await p.waitForTimeout(5400);ok(/^Après \(nettoyage léger, \d+ craquements? retirés? ici\)/.test(await p.textContent('#clickHint')),'puis nettoyé : « '+await p.textContent('#clickHint')+' »');
+await p.evaluate(()=>stopPlay());
+await p.evaluate(()=>validateSide());await p.waitForFunction(()=>JOBS[0]&&(JOBS[0].status==='fini'||JOBS[0].status==='erreur'),null,{timeout:90000});
+const w=await p.evaluate(()=>({c:JOBS[0].clicks,txt:jobText(JOBS[0]),mp3:JOBS[0].outputs.length}));
+ok(w.c>=10&&w.mp3===2,'conversion dans la page : '+w.c+' craquements retirés, 2 MP3');
+ok(!p.errs.length,'aucune erreur JavaScript '+p.errs.join(' | '));
+await b.close();console.log(fails?`\n${fails} ÉCHEC(S)`:'\nTout est bon');process.exit(fails?1:0)})();
