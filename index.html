@@ -286,7 +286,31 @@ label.check{display:flex;flex-direction:row;gap:8px;align-items:center;font-size
 #viewRec>.modeSw{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));border-radius:14px;gap:3px}
 #viewRec>.modeSw button{border-radius:11px;padding:10px 6px;line-height:1.2}
 @media (max-width:480px){.sliders{grid-template-columns:minmax(0,1fr)}.album img{width:84px;height:84px}}
-@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+.rf{position:fixed;inset:0;z-index:60;display:flex;flex-direction:column;gap:14px;
+  padding:calc(10px + env(safe-area-inset-top,0px)) max(22px,env(safe-area-inset-right,0px)) calc(22px + env(safe-area-inset-bottom,0px)) max(22px,env(safe-area-inset-left,0px));
+  background:var(--bg);color:var(--ink)}
+.rfArtBox{flex:1 1 auto;min-height:80px;max-height:min(46vh,400px);container-type:size;display:grid;place-items:center}
+.rfArt{position:relative;width:min(100cqw,100cqh);aspect-ratio:1}
+.rfArt img{position:absolute;inset:14%;width:72%;height:72%;object-fit:cover;border-radius:50%;opacity:0}
+.rfArt img[src]{opacity:1}
+.rfDisc{position:absolute;inset:0;border-radius:50%;background:radial-gradient(circle,var(--accent) 0 15%,#0d0f12 15.5% 17%,#1a1d22 17.5% 33%,transparent 33.5%),repeating-radial-gradient(circle,#15181c 0 2px,#22262c 2px 3px);box-shadow:0 14px 34px rgba(0,0,0,.35)}
+.rf.on .rfArt{animation:rfSpin 1.8s linear infinite}
+@keyframes rfSpin{to{transform:rotate(360deg)}}
+.rfMid{display:grid;gap:6px;justify-items:center;text-align:center}
+.rfState{margin:0;font-size:.9rem;color:var(--muted)}.rf.on .rfState{color:var(--bad);font-weight:600}
+.rfClock{font-size:clamp(3rem,16vw,5.2rem);font-weight:500;line-height:1;letter-spacing:-.02em}
+.rfNow{display:grid;gap:2px;min-height:2.6em;max-width:100%}.rfNow b{font-size:1.05rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rfNow span{font-size:.82rem;color:var(--muted)}
+.rfProg{width:100%;height:4px;border-radius:2px;background:var(--line);overflow:hidden}.rfProg i{display:block;height:100%;width:0;background:var(--ink)}
+.rfLvl .meter{height:22px}.rfLvl .lvlTxt{text-align:center;margin:6px 0 0}
+.rfCtl{display:flex;justify-content:center}
+.rfBig{width:78px;height:78px;border-radius:50%;border:3px solid var(--bad);background:transparent;display:grid;place-items:center;padding:0}
+.rfBig i{display:block;width:28px;height:28px;border-radius:5px;background:var(--bad)}
+.rfEnd{display:grid;gap:8px;text-align:center}.rfEnd b{font-size:1.2rem}.rfEnd p{margin:0;color:var(--muted);font-size:.9rem}
+.rfEndBtns{display:grid;gap:8px}.rfEndBtns button{min-height:48px}
+.rf.done .rfCtl,.rf.done .rfLvl,.rf.done .rfNow,.rf.done .rfProg{display:none}
+@media (max-height:620px){.rf{gap:8px}.rfArtBox{max-height:30vh}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}.rf.on .rfArt{animation:none}}
 </style>
 </head>
 <body>
@@ -382,8 +406,9 @@ label.check{display:flex;flex-direction:row;gap:8px;align-items:center;font-size
   <div class="row" style="justify-content:space-between">
     <span class="clock mono" id="clock">0:00</span>
     <div class="row">
-      <button id="recBtn" class="main">Enregistrer</button>
+      <button id="recBtn" class="main">Enregistrer</button><button id="rfOpen" hidden>Plein écran</button>
       <label class="row" style="display:flex;font-size:.82rem;color:var(--muted)"><input id="autostop" type="checkbox" checked> <span id="autostopL">Arrêt auto en fin de face</span></label>
+      <label class="row" id="autostartRow" style="display:flex;font-size:.82rem;color:var(--muted)"><input id="autostart" type="checkbox"> <span id="autostartL">Démarrer quand le son arrive</span></label>
     </div>
   </div>
   <div class="lvl">
@@ -571,6 +596,23 @@ label.check{display:flex;flex-direction:row;gap:8px;align-items:center;font-size
   </div>
   <div class="fpMore"><button id="fpSleep">Minuterie</button><button id="fpAlbum">Voir l'album</button></div>
 </div>
+<div id="rf" class="rf" role="dialog" aria-label="Enregistrement en cours" hidden>
+  <div class="fpTop"><button id="rfMin" class="icon" aria-label="Réduire l'écran d'enregistrement"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 9l7 7 7-7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    <span class="fpFrom" id="rfFrom"></span><button id="rfDim" class="icon" aria-label="Écran noir pendant l'enregistrement"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg></button></div>
+  <div class="rfArtBox"><div class="rfArt" id="rfArt"><div class="rfDisc" id="rfDisc"></div><img id="rfImg" alt=""></div></div>
+  <div class="rfMid">
+    <p class="rfState" id="rfState"></p>
+    <div class="rfClock mono" id="rfClock">0:00</div>
+    <div class="rfNow" id="rfNow"><b id="rfTrack"></b><span id="rfTrackSub"></span></div>
+    <div class="rfProg" id="rfProgBox"><i id="rfProg"></i></div>
+  </div>
+  <div class="rfLvl"><div class="meter" id="rfMeter" aria-hidden="true"><i></i></div><p class="lvlTxt" id="rfLvlTxt"></p></div>
+  <div class="rfCtl" id="rfCtl"><button id="rfStop" class="rfBig" aria-label="Arrêter l'enregistrement"><i></i></button></div>
+  <div class="rfEnd" id="rfEnd" hidden>
+    <b id="rfEndTitle"></b><p id="rfEndTxt"></p>
+    <div class="rfEndBtns"><button id="rfGo" class="main"></button><button id="rfCheck">Vérifier les coupures</button></div>
+  </div>
+</div>
 <div id="qPanel" class="qPanel" role="dialog" aria-label="File de lecture" hidden>
   <div class="qBox">
     <div class="row" style="justify-content:space-between"><b>File de lecture <span id="qCount" class="mono hint"></span></b><button id="qClose">Fermer</button></div>
@@ -668,7 +710,7 @@ const keepOn=()=>ls(KEEPK)!=='0';
 /* écran noir : luminosité au minimum, l'appli continue de travailler ; un toucher ramène l'écran normal */
 let LASTTOUCH=Date.now();
 ['pointerdown','keydown','scroll'].forEach(e=>addEventListener(e,()=>{LASTTOUCH=Date.now()},{passive:true,capture:true}));
-function blackOn(){const b=$('#black');if(!b||!b.hidden)return;b.hidden=false;b.querySelector('span').textContent='Sillon travaille, écran au minimum. Touche l\'écran pour revenir.';
+function blackOn(msg){const b=$('#black');if(!b||!b.hidden)return;b.hidden=false;b.querySelector('span').textContent=msg||'Sillon travaille, écran au minimum. Touche l\'écran pour revenir.';
   NATIVE?.keepAwake({on:true}).catch(()=>{});NATIVE?.dim?.({on:true}).catch(()=>{})}
 function blackOff(){const b=$('#black');if(!b||b.hidden)return;b.hidden=true;LASTTOUCH=Date.now();NATIVE?.dim?.({on:false}).catch(()=>{});if(!TASKS.size&&!S.recording)NATIVE?.keepAwake({on:false}).catch(()=>{})}
 /* fin des tâches pendant l'écran noir : luminosité rendue, le téléphone se met en veille normalement */
@@ -1220,6 +1262,7 @@ function lvlFeed(L,R){
   const silentLong=tel&&S.recording&&LV.maxPk<0.001&&S.frames/SR>12;
   const [txt,c]=tel?(recent>-60?['Son reçu en numérique, au niveau d\'origine : rien à régler.','good']:silentLong?['Toujours aucun son après 12 s. Si la lecture tourne : arrête, relance et choisis « Tout l\'écran » dans l\'avertissement d\'Android. Sinon l\'appli interdit la capture.','hot']:['Aucun son reçu : lance la lecture, ou l\'appli interdit la capture.','']):clip||recent>=-1?['Saturation ! Baisse le volume de la source.','hot']:recent>=-3?['Limite : baisse un peu le volume.','']:recent>=-12?['Bon niveau.','good']:recent>=-24?['Un peu faible : monte le volume si tu peux.','']:recent>-60?['Trop faible : monte le volume de la source.','']:['Aucun son détecté.',''];
   t.className='lvlTxt '+c;t.textContent=`${txt} Crête : ${recent>-90?Math.round(recent):'—'} dB${LV.clips?` · ${LV.clips} saturation${LV.clips>1?'s':''}`:''}`;
+  if(RF.open){const r=$('#rfMeter');r.className=m.className;r.firstElementChild.style.width=m.firstElementChild.style.width;const rt=$('#rfLvlTxt');rt.className=t.className;rt.textContent=txt}
   return pk;
 }
 const HELP={
@@ -1251,16 +1294,32 @@ $('#lvlBtn').onclick=()=>mon?stopMonitor():startMonitor();
 /* Traitement commun d'un bloc audio enregistré (entrée audio ou son du téléphone) */
 const REC={liveMed:-40,last:0};
 function onBlock(L,R){
+  if(REC.armed){armBlock(L,R);return}
   pushAudio(L,R); lvlFeed(L,R);
-  const t=S.frames/SR; if(t-REC.last>=.25){REC.last=t;$('#clock').textContent=fmtI(t)}
+  const t=S.frames/SR; if(t-REC.last>=.25){REC.last=t;$('#clock').textContent=fmtI(t);if(RF.open)rfTick(t)}
   const n=S.env.length;
   if(n%200===0&&n>0){const s=S.env.filter((_,i)=>i%5===0).sort((a,b)=>a-b);REC.liveMed=s[Math.floor(s.length*.6)]}
   if($('#autostop').checked&&S.mode!=='tel'&&t>90){const w=Math.round(15/HS);let quiet=true;for(let i=n-w;i<n;i++)if(S.env[i]>REC.liveMed-28){quiet=false;break}
     if(quiet)stopRec(true)}
 }
+/* Départ automatique : Sillon écoute sans enregistrer et démarre dès que le son arrive (on garde 1,5 s d'avance pour ne rien couper) */
+function armBlock(L,R){
+  const db=20*Math.log10(lvlFeed(L,R)+1e-9);
+  REC.pre.push([L.slice(),R.slice()]);let n=0;for(const b of REC.pre)n+=b[0].length;
+  while(REC.pre.length>1&&n-REC.pre[0][0].length>=SR*1.5)n-=REC.pre.shift()[0].length;
+  if(++REC.armN<=6){REC.base=Math.max(REC.base,db);if(REC.armN===6&&REC.base>-40)recGo('Le son était déjà là : enregistrement lancé.');return}
+  if(db>Math.max(-50,REC.base+12)){if(++REC.hits>=2)recGo()}else REC.hits=0;
+}
+function recGo(msg){
+  if(!REC.armed)return;REC.armed=false;const pre=REC.pre;REC.pre=[];for(const [l,r] of pre)pushAudio(l,r);
+  $('#recHint').textContent=msg||'Son détecté : enregistrement lancé. L\'arrêt est automatique après 15 s de silence en fin de face.';
+  try{navigator.vibrate?.(80)}catch(e){}
+  rfState();rfTick(S.frames/SR);
+}
 async function recStarted(msg){
   S.recording=true; $('#recBtn').textContent='Arrêter'; $('#recBtn').className='rec';
   $('#recHint').textContent=msg||'Enregistrement… Garde l\'écran allumé. L\'arrêt est automatique après 15 s de silence en fin de face.';
+  rfShow();
   try{wake=await navigator.wakeLock?.request('screen')}catch(e){}
   NATIVE?.keepAwake({on:true}).catch(()=>{});
 }
@@ -1281,7 +1340,7 @@ async function startTel(bubble){
   telSubs.push(await NATIVE.addListener('pcm',e=>{TELN.blocks++;telBlock(e.data)}));
   telSubs.push(await NATIVE.addListener('captureInfo',e=>{const d=$('#capDiag');d.hidden=false;
     const pk=e.peak<0?'erreur':e.peak?Math.round(20*Math.log10(e.peak/32768))+' dB':'silence (0)';
-    if(S.recording)$('#clock').textContent=fmtI(e.bytes/176400);
+    if(S.recording){$('#clock').textContent=fmtI(e.bytes/176400);if(RF.open)rfTick(e.bytes/176400)}
     d.textContent=`Capture ${e.recording?'active':'arrêtée'} · ${fmtI(e.bytes/176400)} enregistrées · niveau ${pk} · Android voit ${e.players}`}));
   telSubs.push(await NATIVE.addListener('captureArmed',()=>{S.armed=true;$('#bubbleBtn').textContent='Retirer le bouton flottant';
     $('#recHint').textContent='Bouton flottant prêt. Passe dans l\'appli source, touche le bouton rond pour démarrer, lance la lecture, puis retouche-le pour arrêter : Sillon reviendra tout seul.'}));
@@ -1312,8 +1371,8 @@ $('#bubbleBtn').onclick=async()=>{
   }catch(e){}
   startTel(true);
 };
-async function startRec(){
-  stopMonitor();
+async function startRec(opt={}){
+  stopMonitor();rfEndHide();
   if(S.mode==='tel')return startTel();
   try{
     const dev=$('#dev').value;
@@ -1323,22 +1382,88 @@ async function startRec(){
   const c=getCtx(); await c.resume();
   src=c.createMediaStreamSource(stream); proc=c.createScriptProcessor(4096,2,2);
   REC.liveMed=-40; REC.last=0;
+  Object.assign(REC,{armed:!!(opt.arm||$('#autostart').checked),pre:[],base:-99,armN:0,hits:0});
   proc.onaudioprocess=e=>{const ib=e.inputBuffer;onBlock(ib.getChannelData(0),ib.numberOfChannels>1?ib.getChannelData(1):ib.getChannelData(0))};
   src.connect(proc);proc.connect(c.destination);
-  recStarted();
+  recStarted(REC.armed?(S.mode==='vinyle'?(opt.msg||'En attente du son… Pose le diamant : l\'enregistrement démarrera tout seul.'):'En attente du son… Lance la lecture : l\'enregistrement démarrera tout seul.'):undefined);
 }
 function stopRec(auto){
   if(!S.recording)return; S.recording=false;
-  const tel=S.mode==='tel';
+  const tel=S.mode==='tel',wasArmed=REC.armed;REC.armed=false;REC.pre=[];
   if(tel){NATIVE?.stopCapture().catch(()=>{});telCleanup();npStop()}
   else try{proc.disconnect();src.disconnect();stream.getTracks().forEach(t=>t.stop())}catch(e){}
   try{wake?.release()}catch(e){} wake=null;
   NATIVE?.keepAwake({on:false}).catch(()=>{});
   $('#recBtn').textContent='Enregistrer';$('#recBtn').className='main';
   $('#meter').firstElementChild.style.width='0';
-  if(tel){finishTel(auto);return}
+  if(tel){rfHide();finishTel(auto);return}
+  if(wasArmed&&!S.frames){rfHide();$('#recHint').textContent='Attente annulée : rien n\'a été enregistré.';return}
+  if(auto)rfAlert();
   recBilan(auto);
+  if(S.mode==='vinyle'&&S.frames>SR*5&&S.bounds.length>1)rfEnd(auto);else rfHide();
 }
+/* ---------- Écran d'enregistrement plein écran ---------- */
+const RF={open:false,next:null};
+function rfShow(){$('#rf').hidden=false;RF.open=true;$('#rfOpen').hidden=true;document.body.classList.add('fpOpen');rfInfo();rfState();rfTick(S.frames/SR)}
+function rfHide(){$('#rf').hidden=true;RF.open=false;$('#rfOpen').hidden=!S.recording;if($('#fp').hidden)document.body.classList.remove('fpOpen')}
+function rfEndHide(){$('#rfEnd').hidden=true;$('#rf').classList.remove('done')}
+function rfInfo(){
+  const m=meta(),side=S.sides[S.side],free=freeMode();
+  $('#rfFrom').textContent=free?(S.mode==='tel'?'Son du téléphone':'Autre source'):[side&&S.sides.length>1?sideLabel().replace(/^./,c=>c.toUpperCase()):'',m.artist!=='Artiste inconnu'?m.artist:'',m.album!=='Album inconnu'?m.album:''].filter(Boolean).join(' — ')||'Enregistrement';
+  const src=!free&&$('#cover').getAttribute('src'),img=$('#rfImg');if(src)img.src=src;else img.removeAttribute('src');
+}
+function rfState(){
+  const rf=$('#rf');rf.classList.toggle('on',S.recording&&!REC.armed);
+  $('#rfState').textContent=!S.recording?'':REC.armed?(S.mode==='vinyle'?'En attente du son · pose le diamant':'En attente du son · lance la lecture'):'● Enregistrement';
+  $('#rfStop').setAttribute('aria-label',REC.armed?'Annuler l\'attente':'Arrêter l\'enregistrement');
+}
+function rfTick(t){
+  $('#rfClock').textContent=fmtI(t);
+  const tr=sideTracks(),known=tr.length>0&&tr.every(x=>x.length>0);$('#rfProgBox').hidden=!known;
+  if(REC.armed){$('#rfTrack').textContent=tr[0]?.title||'';$('#rfTrackSub').textContent=tr.length?`${tr.length} morceau${tr.length>1?'x':''} attendu${tr.length>1?'s':''}`:'';$('#rfProg').style.width='0';return}
+  if(!known){$('#rfTrack').textContent=S.mode==='tel'&&NP_LAST?.title||'';
+    $('#rfTrackSub').textContent=$('#autostop').checked&&S.mode!=='tel'?'Arrêt automatique après 15 s de silence':'';return}
+  const tot=tr.reduce((a,x)=>a+x.length,0)/1000;let acc=0,i=0;
+  while(i<tr.length-1&&t>acc+tr[i].length/1000){acc+=tr[i].length/1000;i++}
+  $('#rfTrack').textContent=tr[i].title;
+  $('#rfTrackSub').textContent=t>tot+5?`Fin de face prévue à ${fmtI(tot)} : l'arrêt viendra au silence`:`Morceau ${i+1} sur ${tr.length} (estimé) · reste ≈ ${fmtI(tot-t)}`;
+  $('#rfProg').style.width=Math.min(100,t/tot*100)+'%';
+}
+/* fin de face : vibration et deux notes, écran rallumé */
+function rfAlert(){
+  try{navigator.vibrate?.([250,120,250,120,400])}catch(e){}
+  try{const c=getCtx(),t0=c.currentTime+.05;[[880,0],[660,.22]].forEach(([f,d])=>{const o=c.createOscillator(),g=c.createGain();o.frequency.value=f;
+    g.gain.setValueAtTime(0,t0+d);g.gain.linearRampToValueAtTime(.14,t0+d+.02);g.gain.linearRampToValueAtTime(0,t0+d+.2);o.connect(g);g.connect(c.destination);o.start(t0+d);o.stop(t0+d+.22)})}catch(e){}
+  blackOff();
+}
+/* bilan de la face : prêt à valider si chaque coupure tombe dans un silence et si le nombre de morceaux est le bon */
+function rfEnd(auto){
+  const N=S.bounds.length-1,tr=sideTracks(),side=S.sides[S.side],lab=sideLabel();
+  const unsure=S.bounds.slice(1,-1).filter(b=>!(S.env[Math.round(b/HS)]<S.thr)).length,miss=tr.length>0&&N!==tr.length;
+  const nx=S.range?-1:S.sides.findIndex((x,i)=>i!==S.side&&sideStatus(x.name)==='todo');
+  RF.next=nx>=0?S.sides[nx].name:null;
+  const ok=!unsure&&!miss;
+  $('#rfEndTitle').textContent=auto?`Fin de ${lab} détectée`:`${lab[0].toUpperCase()+lab.slice(1)} enregistrée`;
+  $('#rfEndTxt').textContent=`${fmtI(S.frames/SR)} · ${N} morceau${N>1?'x':''} repéré${N>1?'s':''}${miss?` pour ${tr.length} attendus`:''}. `
+    +(ok?'Toutes les coupures tombent sur un silence.':unsure?`${unsure} coupure${unsure>1?'s':''} hors silence : vérifie-la${unsure>1?'s':''}.`:'Vérifie les coupures.')
+    +(LV.clips?` ${LV.clips} saturation${LV.clips>1?'s':''} entendue${LV.clips>1?'s':''}.`:'')
+    +(RF.next?` Ensuite : retourne le disque pour la ${RF.next}.`:'');
+  const go=$('#rfGo');go.textContent=RF.next?`Valider et enregistrer la ${RF.next}`:'Valider et convertir';
+  go.className=ok?'main':'';$('#rfCheck').className=ok?'':'main';
+  if(!ok)go.textContent=RF.next?`Valider quand même, puis la ${RF.next}`:'Valider quand même';
+  $('#rf').classList.add('done');$('#rf').classList.remove('on');$('#rfState').textContent='';$('#rfEnd').hidden=false;
+  if(!RF.open)rfShow(),$('#rf').classList.add('done');
+}
+$('#rfMin').onclick=()=>{rfHide();if(!S.recording){rfEndHide();$('#s3').scrollIntoView({behavior:'smooth'})}};
+$('#rfOpen').onclick=()=>rfShow();$('#clock').onclick=()=>{if(S.recording)rfShow()};
+$('#rfStop').onclick=()=>stopRec(false);
+try{$('#autostart').checked=localStorage.getItem('sillon.autostart')==='1'}catch(e){}
+$('#autostart').onchange=()=>{try{localStorage.setItem('sillon.autostart',$('#autostart').checked?'1':'0')}catch(e){}};
+$('#rfDim').onclick=()=>blackOn('Enregistrement en cours, écran au minimum. Touche l\'écran pour revenir.');
+$('#rfCheck').onclick=()=>{rfHide();rfEndHide();$('#s3').hidden=false;$('#s3').scrollIntoView({behavior:'smooth'})};
+$('#rfGo').onclick=async()=>{const want=RF.next;rfHide();rfEndHide();await validateSide();
+  if(want&&!S.recording&&S.mode==='vinyle'&&S.sides[S.side]?.name===want&&!S.bounds.length)
+    startRec({arm:true,msg:`Retourne le disque et pose le diamant : la ${want} démarrera toute seule.`})};
 function recBilan(auto){
   const pkDb=Math.round(20*Math.log10(LV.maxPk+1e-9));
   const bilan=S.mode==='tel'&&LV.maxPk>=0.001?` Son capturé au niveau d'origine (crête ${pkDb} dB).`:LV.clips?` Attention : ${LV.clips} saturation${LV.clips>1?'s':''} (crête ${pkDb} dB). Si tu entends des craquements durs, baisse le volume de la source et recommence.`
@@ -3186,6 +3311,7 @@ function setMode(m,init){
   $('#identify').textContent=other?'Reconnaître les morceaux':'Reconnaître l\'album';$('#fixNames').hidden=!other;
   renderLvlHelp();stopMonitor();
   $('#autostopL').textContent=other?'Arrêt auto après 15 s de silence':'Arrêt auto en fin de face';
+  $('#autostartRow').hidden=tel;
   $('#reset').textContent=other?'Recommencer':'Recommencer cette face';
   $('#bgHint').textContent=other?'La conversion en MP3 se fait en arrière-plan : tu peux lancer un autre enregistrement tout de suite.':'La conversion en MP3 se fait en arrière-plan : tu peux enregistrer la face suivante tout de suite.';
   if(!init){clearAudio();hideEdit();idMsg('');$('#clock').textContent='0:00';
@@ -3506,7 +3632,7 @@ $('#keepOn').checked=keepOn();$('#keepOn').onchange=e=>{ls(KEEPK,e.target.checke
 $('#diagOk').onclick=()=>{$('#diagBox').hidden=true};
 $('#diagCopy').onclick=async()=>{const t=ls('sillon.bgDiag')||'';try{await navigator.clipboard.writeText(t);toast('Message copié : colle-le dans la conversation')}catch(e){const r=document.createRange();r.selectNodeContents($('#diagBox p'));const sel=getSelection();sel.removeAllRanges();sel.addRange(r);toast('Texte sélectionné : appuie sur Copier')}};
 {const d=ls('sillon.bgDiag');if(d&&$('#diagLast'))$('#diagLast').textContent='Dernier contrôle écran éteint : '+d}
-$('#blackBtn').onclick=blackOn;$('#battBtn').onclick=()=>NATIVE?.requestBatteryExempt?.().catch(e=>toast(e.message||String(e)));
+$('#blackBtn').onclick=()=>blackOn();$('#battBtn').onclick=()=>NATIVE?.requestBatteryExempt?.().catch(e=>toast(e.message||String(e)));
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)battCheck(false)});$('#black').onclick=blackOff;
 $('#toolAlb').onclick=()=>{showView('rec');setMode('fichier');$('#s2f').scrollIntoView({behavior:'smooth'})};
 $('#toolBack').onclick=closeTool;if(NATIVE?.addWatchFolder){$('#watchBox').hidden=false;$('#watchAdd').onclick=addWatch;setTimeout(renderWatch,1500)}$('#toolChk').onclick=()=>openTool('check');$('#toolDup').onclick=()=>openTool('dups');
