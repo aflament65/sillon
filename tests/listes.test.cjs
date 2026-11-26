@@ -33,7 +33,7 @@ ok(L[0].name==='Rock'&&L[0].items.map(x=>x.id).join()==='Wolfmother0,Wolfmother1
 await p.click('#albSel .sx');
 console.log('3. Page des listes et lecture');
 await p.click('#albBack');await p.click('#libPls');await p.waitForTimeout(100);
-const cards=await p.$$eval('#toolBody .plRow',x=>x.map(e=>e.querySelector('b').textContent+' | '+e.querySelector('small').textContent));
+const cards=await p.$$eval('#toolBody .plRow:not(.auto)',x=>x.map(e=>e.querySelector('b').textContent+' | '+e.querySelector('small').textContent));
 ok(cards.join(' / ')==='Rock | 2 morceaux · 7 min / Soirée | 5 morceaux · 17 min','listes avec nombre et durée : '+cards.join(' / '));
 await p.locator('#toolBody .plRow',{hasText:'Soirée'}).click();await p.waitForTimeout(100);
 ok((await p.inputValue('#toolBody .plName'))==='Soirée'&&(await p.$$('#toolBody .plTrk')).length===5,'page de la liste : nom modifiable et 5 morceaux');
