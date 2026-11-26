@@ -223,6 +223,8 @@ header{padding-block:2px}header h1{font-size:1.5rem}.logo{width:38px;height:38px
 .libHead{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 12px}.libHead h2{font-size:1.4rem}
 .recov{border:1px solid var(--accent);border-radius:10px;padding:12px;margin-bottom:12px;display:grid;gap:6px}.recov p{margin:0}
 .plPick{z-index:62}
+.eqBands{display:grid;grid-template-columns:repeat(5,1fr);gap:4px;margin-top:10px;text-align:center;font-size:.75rem;color:var(--muted)}
+.eqBands input{writing-mode:vertical-lr;direction:rtl;width:30px;height:120px;margin:0 auto;display:block}.eqBands b{display:block;color:var(--ink);font-weight:500}
 .albHead .press{margin:4px 0 0;font-size:.8rem}.lnk{all:unset;cursor:pointer;color:var(--accent);text-decoration:underline}
 .artInfo{display:grid;gap:10px;margin:4px 0 14px}.artBio{display:flex;gap:12px;align-items:flex-start}.artBio img{width:84px;height:84px;border-radius:50%;object-fit:cover;flex:none}
 .artBio p{margin:0;font-size:.9rem;line-height:1.45}.artBio.clip p{display:-webkit-box;-webkit-line-clamp:5;-webkit-box-orient:vertical;overflow:hidden}
@@ -546,6 +548,16 @@ label.check{display:flex;flex-direction:row;gap:8px;align-items:center;font-size
   <div class="modeSw" role="group" aria-label="Thème"><button data-theme-set="auto">Automatique</button><button data-theme-set="light">Clair</button><button data-theme-set="dark">Sombre</button></div>
   <label class="check"><input type="checkbox" id="keepOn"> Écran noir automatique pendant les longues tâches</label>
   <p class="hint help">Pendant une conversion ou un enrichissement, l'écran passe en noir au minimum de luminosité au lieu de s'éteindre : le travail continue. Un toucher le rallume.</p>
+</section>
+<section id="setPlay">
+  <h2>Lecture</h2>
+  <label class="check"><input type="checkbox" id="normPlay" checked> Volume homogène entre les morceaux</label>
+  <p class="hint" id="normState"></p>
+  <p class="hint help">Les morceaux n'ont pas tous le même volume (un vinyle des années 70, un MP3 récent très fort). Sillon mesure chacun et baisse ou remonte le son à la lecture pour qu'ils sonnent pareil, sans toucher aux fichiers. Les morceaux numérisés par Sillon sont mesurés tout de suite ; les autres le sont petit à petit, en arrière-plan.</p>
+  <label>Égaliseur<select id="eqPreset">
+    <option value="off">Aucun</option><option value="bass">Plus de basses</option><option value="rock">Rock</option><option value="pop">Pop</option><option value="jazz">Jazz</option>
+    <option value="classic">Classique</option><option value="voice">Voix et chanson</option><option value="treble">Plus d'aigus</option><option value="vinyl">Moins d'aigus (souffle des vinyles)</option><option value="custom">Personnalisé</option></select></label>
+  <div id="eqCustom" class="eqBands" hidden></div>
 </section>
 <section id="setArch">
   <h2>Archivage</h2>
@@ -1915,7 +1927,7 @@ async function saveJobToLib0(j,ctx){
     const rec={...old,key:a.key,artist:old.artist||a.artist,album:old.album||a.album,year:old.year||a.year||'',unsorted:!!a.unsorted,
       created:old.created||Date.now(),updated:Date.now(),sources:{...(old.sources||{}),[j.source]:1},tracks:[...(old.tracks||[])]};
     for(const t of list){
-      const e={id:uid(),no:a.unsorted?0:t.no,title:t.title,artist:t.artist,dur:Math.round((t.end-t.start)/SR),dir:t.dir,file:fileNameOf(t),uri:t.uri||null,source:j.source,date:Date.now()};
+      const e={id:uid(),no:a.unsorted?0:t.no,title:t.title,artist:t.artist,...(isFinite(t.loud)?{loud:t.loud}:{}),dur:Math.round((t.end-t.start)/SR),dir:t.dir,file:fileNameOf(t),uri:t.uri||null,source:j.source,date:Date.now()};
       if(t.blob)WEBBLOB.set(e.id,URL.createObjectURL(t.blob));
       const k=rec.tracks.findIndex(x=>!a.unsorted&&((x.no&&x.no===e.no&&sim(x.title,e.title)>.5)||norm(x.title)===norm(e.title)));
       if(k>=0){const o=rec.tracks[k];ctx.removed.push(o.id);/* nouvel enregistrement du même titre : il remplace l'ancien */
@@ -1986,7 +1998,7 @@ function closeAlbum(){LIBVIEW.key=null;if(LIBVIEW.back){const k=LIBVIEW.back;LIB
 /* ouvrir un album depuis une page d'outil : « retour » y ramène */
 function openAlbumFrom(kind,key){LIBVIEW.tool=null;$('#toolSec').hidden=true;openAlbum(key);LIBVIEW.back=kind}
 function playable(t){return t&&(NATIVE?!!t.uri:WEBBLOB.has(t.id))}
-function qItem(r,t){return {id:t.id,title:t.title,artist:t.artist&&t.artist!=='Artiste inconnu'?t.artist:(r.unsorted?'':r.artist),album:r.unsorted?'':r.album,thumb:r.thumb||'',uri:t.uri,dir:t.dir||'',key:r.key}}
+function qItem(r,t){return {loud:t.loud,id:t.id,title:t.title,artist:t.artist&&t.artist!=='Artiste inconnu'?t.artist:(r.unsorted?'':r.artist),album:r.unsorted?'':r.album,thumb:r.thumb||'',uri:t.uri,dir:t.dir||'',key:r.key}}
 function renderAlbum(){
   const r=LIB.find(x=>x.key===LIBVIEW.key);if(!r){closeAlbum();return}
   $('#libListSec').hidden=true;$('#libDetail').hidden=false;
@@ -2880,7 +2892,7 @@ function buildOrder(keepCur){
 /* Moteur : sur Android, la file est confiée au service de lecture (arrière-plan, Bluetooth, voiture) ;
    sur le web, un simple élément audio. */
 const NATQ=!!NATIVE?.playerSetQueue;
-const qPayload=()=>PL.order.map(i=>{const it=PL.q[i];return {uri:it.uri,title:it.title,artist:it.artist||'',album:it.album||'',dir:it.dir||''}});
+const qPayload=()=>PL.order.map(i=>{const it=PL.q[i];const lh=isFinite(it.loud)?it.loud:LOUDIDX().get(it.id);return {uri:it.uri,title:it.title,artist:it.artist||'',album:it.album||'',dir:it.dir||'',...(isFinite(lh)?{loud:lh}:{})}});
 function syncNative(play,keep){return NATIVE.playerSetQueue({items:qPayload(),index:Math.max(0,PL.pos),play,keep}).catch(e=>toast(e.message||'Lecteur indisponible'))}
 async function webPlay(it){webAudio.src=WEBBLOB.get(it.id);await webAudio.play()}
 async function playPos(p){
@@ -3234,7 +3246,46 @@ async function plWrite(pl){
     if(uri&&uri!==pl.m3uUri){pl.m3uUri=uri;plsSave()}
     return `Copie enregistrée dans Music/Playlists/${safe(pl.name)}.m3u`+(skip?` (${skip} morceau${skip>1?'x':''} hors du dossier Music ou introuvable${skip>1?'s':''}, non inclus)`:'')+'.';
   }catch(e){return 'Copie impossible : '+(e.message||e)+'.'}}
-$('#libPls').onclick=()=>openTool('pls');$('#libInc').onclick=()=>openTool('inc');
+$('#libPls').onclick=()=>openTool('pls');
+/* ---------- Son à la lecture : volume homogène et égaliseur (appliqués par Android) ---------- */
+const EQP={off:null,bass:[6,3,0,0,0],rock:[4,2,-1,2,4],pop:[-1,2,4,2,-1],jazz:[3,1,0,1,3],classic:[3,1,-1,1,3],voice:[-2,0,3,3,0],treble:[0,0,0,3,6],vinyl:[0,0,0,-2,-5]};
+const EQF=['60 Hz','230 Hz','910 Hz','3,6 kHz','14 kHz'];
+const audioPrefs=()=>{const d={norm:true,preset:'off',custom:[0,0,0,0,0]};const v=jget('sillon.audio',d);return {...d,...v}};
+function eqGains(p){return p.preset==='custom'?p.custom:EQP[p.preset]||null}
+function applyAudio(){const p=audioPrefs();NATIVE?.playerAudio?.({norm:p.norm,eq:eqGains(p)}).catch(()=>{})}
+function renderAudioPrefs(){const p=audioPrefs();$('#normPlay').checked=p.norm;$('#eqPreset').value=p.preset;const box=$('#eqCustom');box.hidden=p.preset!=='custom';
+  if(!box.children.length)EQF.forEach((f,i)=>{const d=document.createElement('label');d.innerHTML=`<b>0</b><input type="range" min="-10" max="10" step="1" value="0" aria-label="${f}">${f}`;
+    const r=d.querySelector('input');r.oninput=()=>{d.querySelector('b').textContent=(+r.value>0?'+':'')+r.value};
+    r.onchange=()=>{const q=audioPrefs();q.custom[i]=+r.value;jset('sillon.audio',q);applyAudio()};box.append(d)});
+  [...box.querySelectorAll('input')].forEach((r,i)=>{r.value=p.custom[i]||0;r.previousSibling.textContent=(r.value>0?'+':'')+r.value});
+  const all=LIB.flatMap(r=>r.tracks||[]).filter(t=>t.uri),m=all.filter(t=>isFinite(t.loud)).length;
+  $('#normState').textContent=all.length?`${m} morceau${m>1?'x':''} mesuré${m>1?'s':''} sur ${all.length}${LOUD.run?' · mesure en cours…':''}.`:'';}
+$('#normPlay').onchange=()=>{const q=audioPrefs();q.norm=$('#normPlay').checked;jset('sillon.audio',q);applyAudio();if(q.norm)loudScan()};
+$('#eqPreset').onchange=()=>{const q=audioPrefs();q.preset=$('#eqPreset').value;jset('sillon.audio',q);renderAudioPrefs();applyAudio()};
+if(!NATIVE)$('#setPlay').hidden=true;
+renderAudioPrefs();setTimeout(applyAudio,800);
+/* index id → volume, pour les morceaux déjà dans la file avant d'avoir été mesurés */
+let LOUDMAP=null,LOUDV=-1;function LOUDIDX(){const v=LIB.length+':'+LOUD.saved;if(!LOUDMAP||LOUDV!==v){LOUDMAP=new Map();for(const r of LIB)for(const t of r.tracks||[])if(isFinite(t.loud))LOUDMAP.set(t.id,t.loud);LOUDV=v}return LOUDMAP}
+/* mesure en arrière-plan des morceaux pas encore mesurés (un à la fois, en pause pendant un enregistrement) */
+const LOUD={run:false,saved:0};
+async function loudScan(){
+  if(LOUD.run||!NATIVE?.measureLoudness||!audioPrefs().norm)return;
+  const todo=()=>LIB.flatMap(r=>(r.tracks||[]).filter(t=>t.uri&&!isFinite(t.loud)&&!t.loudFail).map(t=>({k:r.key,id:t.id,uri:t.uri})));
+  let list=todo();if(!list.length)return;
+  LOUD.run=true;const T=task('Mesure du volume des morceaux');let done=0,buf=[];
+  const flush=async()=>{if(!buf.length)return;const b=buf;buf=[];
+    await libOp(async()=>{for(const x of b){const r=libGet(x.k),t=r?.tracks?.find(y=>y.id===x.id);if(!t)continue;if(isFinite(x.loud))t.loud=x.loud;else t.loudFail=Date.now()}
+      for(const k of new Set(b.map(x=>x.k))){const r=libGet(k);if(r)await libPut(r)}}).catch(()=>{});LOUD.saved++;renderAudioPrefs()};
+  try{for(const x of list){
+      while(S.recording||jobRunning)await wait(5000);
+      if(!audioPrefs().norm)break;
+      T.step(done,list.length,`${done+1}/${list.length}`);
+      try{const r=await NATIVE.measureLoudness({uri:x.uri});x.loud=r.loud}catch(e){x.loud=NaN}
+      buf.push(x);done++;if(buf.length>=15)await flush()}
+    await flush()}
+  finally{LOUD.run=false;T.end();renderAudioPrefs();if(PL.q.length&&NATQ)syncNative(PL.playing,true)}
+}
+setTimeout(loudScan,30000);setInterval(loudScan,10*60000);$('#libInc').onclick=()=>openTool('inc');
 /* ---------- Albums incomplets : les titres de la liste officielle qui manquent, les plus près d'être complets d'abord ---------- */
 function incompleteAlbums(){return LIB.filter(r=>!r.unsorted&&(r.tracks||[]).length).map(r=>{const rows=albumRows(r);return {r,miss:rows.filter(x=>!x.t&&x.exp),total:rows.length}})
   .filter(x=>x.miss.length&&x.total>1).sort((a,b)=>a.miss.length-b.miss.length||(a.r.artist||'').localeCompare(b.r.artist||'','fr'))}
@@ -3909,6 +3960,9 @@ function dupOf(t){
   for(const j of JOBS){if(j.status==='erreur')continue;for(const x of j.tracks)if(x.alb?.key===t.alb.key&&sim(x.title,t.title)>.85&&!(t.alb.unsorted&&x.artist!==t.artist))return 'en cours de conversion'}
   return null;
 }
+/* volume d'un morceau : 95e centile du volume par 50 ms (comme pour les MP3 mesurés par Android), volume remonté compris */
+function segLoud(a,b,gain){const e=S.env.slice(Math.max(0,Math.floor(a/HS)),Math.ceil(b/HS)).filter(v=>v>-90).sort((x,y)=>x-y);
+  if(e.length<20)return NaN;return Math.round((e[Math.floor(e.length*.95)]+20*Math.log10(gain||1))*10)/10}
 async function validateSide(){
   const N=S.bounds.length-1;if(N<1)return;
   if(NPENR&&freeMode()){$('#validate').disabled=true;$('#validate').textContent='Recherche des pochettes…';
@@ -3937,7 +3991,7 @@ async function validateSide(){
   const cover=S.cover,coverMime=S.coverMime;
   const tracks=[];for(let i=0;i<N;i++){
     const t={title:(S.titles[i]||'Piste '+(i+1)).trim(),artist:tr[i]?.artist||m.artist,no:tr[i]?.pos||i+1,total};
-    t.id3=id3For(m,t,cover,coverMime);t.sec0=S.bounds[i];t.sec1=S.bounds[i+1];t.start=Math.round(S.bounds[i]*SR)-a0;t.end=Math.min(len,Math.round(S.bounds[i+1]*SR)-a0);tracks.push(t)}
+    t.id3=id3For(m,t,cover,coverMime);t.sec0=S.bounds[i];t.sec1=S.bounds[i+1];t.loud=segLoud(t.sec0,t.sec1,gain);t.start=Math.round(S.bounds[i]*SR)-a0;t.end=Math.min(len,Math.round(S.bounds[i+1]*SR)-a0);tracks.push(t)}
   const other=freeMode(),stamp=new Date().toISOString().slice(0,10);
   if(other)tracks.forEach((t,i)=>{const f=freeMetaFor(i);t.fm=f;
     const tm={artist:f.ar||'Artiste inconnu',album:f.al||'Divers',year:f.year||''};

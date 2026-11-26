@@ -42,6 +42,68 @@ public class PlayerService extends Service {
 
     static class Item {
         String uri, title, artist, album, dir;
+        double loud = Double.NaN; /* volume mesuré (dB, 95e centile des fenêtres de 50 ms) ; inconnu = NaN */
+    }
+
+    /* ---------- son : volume homogène et égaliseur (réglés depuis l'appli) ---------- */
+    static volatile boolean normOn = true;
+    static volatile float[] eqCurve = null; /* gains en dB à 60, 230, 910, 3600, 14000 Hz ; null = égaliseur coupé */
+    static final double TARGET = -12;
+    private static final double[] EQF = {60, 230, 910, 3600, 14000};
+    private static final class Fx { android.media.audiofx.Equalizer eq; android.media.audiofx.LoudnessEnhancer le; float vol = 1f; double loud = Double.NaN; }
+    private final java.util.Map<MediaPlayer, Fx> fx = new java.util.HashMap<>();
+
+    private static double curveAt(float[] c, double hz) {
+        if (hz <= EQF[0]) return c[0];
+        if (hz >= EQF[4]) return c[4];
+        for (int i = 0; i < 4; i++) if (hz <= EQF[i + 1]) {
+            double t = (Math.log(hz) - Math.log(EQF[i])) / (Math.log(EQF[i + 1]) - Math.log(EQF[i]));
+            return c[i] + t * (c[i + 1] - c[i]);
+        }
+        return 0;
+    }
+
+    private void attachFx(MediaPlayer p, Item it) {
+        detachFx(p);
+        Fx f = new Fx();
+        f.loud = it.loud;
+        int sid = p.getAudioSessionId();
+        double g = normOn && !Double.isNaN(it.loud) ? Math.max(-12, Math.min(9, TARGET - it.loud)) : 0;
+        f.vol = g < 0 ? (float) Math.pow(10, g / 20) : 1f;
+        try { p.setVolume(f.vol, f.vol); } catch (Exception ignored) { }
+        if (g > 0.3) try {
+            f.le = new android.media.audiofx.LoudnessEnhancer(sid);
+            f.le.setTargetGain((int) Math.round(g * 100));
+            f.le.setEnabled(true);
+        } catch (Throwable e) { f.le = null; }
+        float[] c = eqCurve;
+        if (c != null && c.length == 5) try {
+            android.media.audiofx.Equalizer eq = new android.media.audiofx.Equalizer(0, sid);
+            short[] range = eq.getBandLevelRange();
+            for (short b = 0; b < eq.getNumberOfBands(); b++) {
+                double db = curveAt(c, eq.getCenterFreq(b) / 1000.0);
+                int mb = (int) Math.round(db * 100);
+                eq.setBandLevel(b, (short) Math.max(range[0], Math.min(range[1], mb)));
+            }
+            eq.setEnabled(true);
+            f.eq = eq;
+        } catch (Throwable e) { f.eq = null; }
+        fx.put(p, f);
+    }
+
+    private void detachFx(MediaPlayer p) {
+        Fx f = p == null ? null : fx.remove(p);
+        if (f == null) return;
+        try { if (f.eq != null) f.eq.release(); } catch (Throwable ignored) { }
+        try { if (f.le != null) f.le.release(); } catch (Throwable ignored) { }
+    }
+
+    private float volOf(MediaPlayer p) { Fx f = p == null ? null : fx.get(p); return f == null ? 1f : f.vol; }
+
+    /* nouveaux réglages : appliqués tout de suite au morceau en cours et au suivant */
+    void applyAudio() {
+        if (mp != null && index >= 0 && index < items.size()) attachFx(mp, items.get(index));
+        if (nextMp != null && nextIdx >= 0 && nextIdx < items.size()) attachFx(nextMp, items.get(nextIdx));
     }
 
     static volatile PlayerService instance;
@@ -142,6 +204,10 @@ public class PlayerService extends Service {
         idx = Math.max(0, Math.min(idx, items.size() - 1));
         if (keep && cur != null && cur.equals(items.get(idx).uri) && mp != null) {
             index = idx;
+            /* volume mesuré entre-temps : correction appliquée au morceau en cours */
+            Fx f = fx.get(mp);
+            double nl = items.get(idx).loud;
+            if (f == null || (Double.isNaN(f.loud) != Double.isNaN(nl)) || (!Double.isNaN(nl) && Math.abs(f.loud - nl) > 0.05)) attachFx(mp, items.get(idx));
             updateMeta();
             prepareNext();
             emitState(true);
@@ -174,6 +240,7 @@ public class PlayerService extends Service {
             return true;
         });
         p.prepare();
+        attachFx(p, it);
         return p;
     }
 
@@ -186,6 +253,7 @@ public class PlayerService extends Service {
             index = nextIdx;
             nextMp = null;
             nextIdx = -1;
+            detachFx(old);
             try { old.release(); } catch (Exception ignored) { }
             updateMeta();
             updateState();
@@ -197,6 +265,7 @@ public class PlayerService extends Service {
     private void releaseNext() {
         if (nextMp != null) {
             try { if (mp != null) mp.setNextMediaPlayer(null); } catch (Exception ignored) { }
+            detachFx(nextMp);
             try { nextMp.release(); } catch (Exception ignored) { }
             nextMp = null;
         }
@@ -305,6 +374,7 @@ public class PlayerService extends Service {
     private void releaseMp() {
         releaseNext();
         if (mp != null) {
+            detachFx(mp);
             try {
                 mp.release();
             } catch (Exception ignored) {
@@ -323,9 +393,9 @@ public class PlayerService extends Service {
             pause();
             resumeOnFocus = was;
         } else if (change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK) {
-            if (mp != null) mp.setVolume(0.3f, 0.3f);
+            if (mp != null) { float v = 0.3f * volOf(mp); mp.setVolume(v, v); }
         } else if (change == AudioManager.AUDIOFOCUS_GAIN) {
-            if (mp != null) mp.setVolume(1f, 1f);
+            if (mp != null) { float v = volOf(mp); mp.setVolume(v, v); }
             if (resumeOnFocus) {
                 resumeOnFocus = false;
                 start();

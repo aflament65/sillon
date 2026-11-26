@@ -1208,11 +1208,48 @@ public class SillonPlugin extends Plugin {
                 it.artist = o.optString("artist");
                 it.album = o.optString("album");
                 it.dir = o.optString("dir");
+                it.loud = o.has("loud") && !o.isNull("loud") ? o.optDouble("loud", Double.NaN) : Double.NaN;
                 l.add(it);
             } catch (Exception ignored) {
             }
         }
         return l;
+    }
+
+    /* volume homogène et égaliseur de la lecture */
+    @PluginMethod
+    public void playerAudio(PluginCall call) {
+        PlayerService.normOn = !Boolean.FALSE.equals(call.getBoolean("norm", true));
+        JSArray eq = call.getArray("eq");
+        float[] c = null;
+        try { if (eq != null && eq.length() == 5) { c = new float[5]; for (int i = 0; i < 5; i++) c[i] = (float) eq.getDouble(i); } } catch (Exception e) { c = null; }
+        PlayerService.eqCurve = c;
+        new Handler(Looper.getMainLooper()).post(() -> { PlayerService s = PlayerService.instance; if (s != null) s.applyAudio(); });
+        call.resolve();
+    }
+
+    /* volume d'un morceau : décodé en entier par Android (sans rien écrire), 95e centile du volume par 50 ms */
+    @PluginMethod
+    public void measureLoudness(PluginCall call) {
+        final String u = call.getString("uri");
+        new Thread(() -> {
+            try {
+                PcmTools.Sink sink = new PcmTools.Sink();
+                AudioDecoder.decode(getContext(), Uri.parse(u), sink, p -> { });
+                sink.finish();
+                int n = sink.envN;
+                if (n < 4) throw new Exception("morceau trop court");
+                float[] e = java.util.Arrays.copyOf(sink.env, n);
+                java.util.Arrays.sort(e);
+                JSObject o = new JSObject();
+                o.put("loud", Math.round(e[(int) Math.floor(n * 0.95)] * 10) / 10.0);
+                o.put("duration", sink.frames / (double) sink.rate);
+                o.put("peak", sink.peak);
+                call.resolve(o);
+            } catch (Throwable e) {
+                call.reject(e.getMessage() != null ? e.getMessage() : "Mesure impossible");
+            }
+        }).start();
     }
 
     @PluginMethod
