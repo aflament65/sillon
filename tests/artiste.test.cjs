@@ -1,0 +1,44 @@
+/* Page artiste (biographie, discographie, albums manquants) et pressage des vinyles */
+const { chromium } = require(require('child_process').execSync('npm root -g').toString().trim()+'/playwright');
+let fails=0;const ok=(c,m)=>{console.log((c?'  ok  ':'  ÉCHEC ')+m);if(!c)fails++};
+(async()=>{const b=await chromium.launch();const p=await b.newPage({viewport:{width:360,height:780}});
+const NET=[];
+await p.route(/fonts\.g|deezer|itunes|discogs|acoustid|api\.github|coverartarchive|lrclib/,r=>r.abort());
+await p.route(/musicbrainz\.org|wikidata\.org|wikipedia\.org/,r=>{const u=new URL(r.request().url());NET.push(u.host+u.pathname);
+  if(u.pathname==='/ws/2/artist')return r.fulfill({json:{artists:[{id:'A1',name:'Muse',score:100,type:'Group',country:'GB','life-span':{begin:'1994-01-01'}},{id:'A2',name:'Muse (tribute)',score:70}]}});
+  if(u.pathname==='/ws/2/artist/A1')return r.fulfill({json:{id:'A1',relations:[{type:'wikidata',url:{resource:'https://www.wikidata.org/wiki/Q1'}}]}});
+  if(u.host==='www.wikidata.org')return r.fulfill({json:{entities:{Q1:{sitelinks:{frwiki:{title:'Muse (groupe)'}}}}}});
+  if(u.host==='fr.wikipedia.org')return r.fulfill({json:{extract:'Muse est un groupe de rock britannique formé en 1994 à Teignmouth.',thumbnail:{source:'data:image/gif;base64,R0lGODlhAQABAAAAACw='},content_urls:{mobile:{page:'https://fr.m.wikipedia.org/wiki/Muse_(groupe)'}}}});
+  if(u.pathname==='/ws/2/release-group')return r.fulfill({json:{'release-groups':[{title:'Absolution','first-release-date':'2003-09-15','primary-type':'Album'},{title:'Showbiz','first-release-date':'1999-09-06','primary-type':'Album'},
+    {title:'Origin of Symmetry','first-release-date':'2001-06-18','primary-type':'Album'},{title:'Hullabaloo','first-release-date':'2002-07-01','primary-type':'Album','secondary-types':['Live']},{title:'Muscle Museum EP','first-release-date':'1999','primary-type':'EP'}]}});
+  if(u.pathname==='/ws/2/release/R1')return r.fulfill({json:{country:'FR',date:'2003-09-22',barcode:'0825646',media:[{format:'12" Vinyl'},{format:'12" Vinyl'}],'label-info':[{label:{name:'East West'},'catalog-number':'5050467-0042-1-2'}]}});
+  return r.fulfill({status:404,json:{}})});
+const errs=[];p.on('pageerror',e=>errs.push(e.message));
+await p.addInitScript(`localStorage.setItem('sillon.autoenrich','0');(${require('./fake-phone.cjs').toString()})();`);
+await p.goto('http://localhost:8765/index.html');await p.waitForTimeout(400);
+await p.evaluate(async()=>{const mk=(al,y,src)=>({key:albumKey('Muse',al),artist:'Muse',album:al,year:y,sources:{vinyle:1},created:Date.now(),thumb:'',src,
+    tracks:[{id:al+'0',no:1,title:al+' 1',artist:'Muse',dur:200,uri:'content://'+al,dir:'Muse/'+al,file:'1.mp3',source:'vinyle'}]});
+  await libPut(mk('Absolution','2003',{source:'mb',id:'R1'}));await libPut(mk('Origin of Symmetry (Remastered)','2001',null));await libLoad()});
+console.log('1. Page artiste');
+await p.click('#tabLib');await p.locator('.libItem',{hasText:'Absolution'}).click();await p.waitForTimeout(150);
+await p.click('#albHead .artLink');await p.waitForTimeout(3200);
+ok((await p.textContent('#libTitle'))==='Muse','page « Muse »');
+ok(/groupe de rock britannique/.test(await p.textContent('#artistInfo .artBio'))&&/Groupe · GB · 1994/.test(await p.textContent('#artistInfo .artBio')),'biographie Wikipédia en français, « Groupe · GB · 1994 »');
+const disco=await p.$$eval('#artistInfo .dRow',x=>x.map(e=>e.textContent.replace(/\s+/g,' ').trim()));
+ok(disco.length===4&&!disco.some(x=>/Hullabaloo/.test(x)),'discographie : 3 albums et 1 EP, sans le live ('+disco.length+')');
+ok(/^1999\s*Showbiz\s*Manquant$/.test(disco[0])&&/Origin of Symmetry\s*✓ Tu l'as/.test(disco.find(x=>/Origin/.test(x))||'')&&/Absolution\s*✓/.test(disco.find(x=>/Absolution/.test(x))||''),'dans l\'ordre, « ✓ Tu l\'as » même pour « (Remastered) » : '+disco.join(' / '));
+ok(/2 albums sur 4/.test(await p.textContent('#artistInfo .disco .hint')),'« 2 albums sur 4 dans ta discothèque »');
+await p.screenshot({path:'/tmp/claude-0/s/artiste.png'});
+await p.locator('#artistInfo .dRow.miss',{hasText:'Showbiz'}).click();await p.waitForTimeout(150);
+ok(await p.isVisible('#viewRec')&&(await p.inputValue('#qArtist'))==='Muse'&&(await p.inputValue('#q'))==='Showbiz','album manquant touché : recherche « Muse – Showbiz » lancée dans Numériser');
+const n0=NET.length;await p.click('#tabLib');await p.evaluate(()=>openArtist('Muse'));await p.waitForTimeout(300);
+ok(NET.length===n0&&/rock britannique/.test(await p.textContent('#artistInfo')),'deuxième visite : gardé sur le téléphone, sans connexion');
+console.log('2. Pressage');
+await p.click('#artistBack');await p.locator('.libItem',{hasText:'Absolution'}).click();await p.waitForTimeout(1200);
+const pr=await p.textContent('#albHead .press');
+ok(/Pressage : East West · réf\. 5050467-0042-1-2 · France · 2003 · 12" Vinyl · code-barres 0825646 · Voir sur MusicBrainz/.test(pr),'« '+pr+' »');
+ok(await p.evaluate(()=>LIB.find(r=>r.album==='Absolution').src.press?.label==='East West'),'pressage enregistré dans la discothèque');
+const d=await p.evaluate(()=>pressLine(pressDiscogs({id:5,labels:[{name:'Barclay (3)',catno:'80.512'}],country:'France',year:1979,released:'1979-03-00',formats:[{name:'Vinyl',qty:'1',descriptions:['LP','Album']}],identifiers:[{type:'Barcode',value:'3 2'}],uri:'https://www.discogs.com/release/5'})));
+ok(d==='Barclay · réf. 80.512 · France · 1979 · Vinyl LP Album','Discogs : « '+d+' »');
+ok(!errs.length,'aucune erreur JavaScript '+errs.join(' | '));
+await b.close();console.log(fails?`\n${fails} ÉCHEC(S)`:'\nTout est bon');process.exit(fails?1:0)})();

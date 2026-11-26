@@ -223,6 +223,12 @@ header{padding-block:2px}header h1{font-size:1.5rem}.logo{width:38px;height:38px
 .libHead{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 12px}.libHead h2{font-size:1.4rem}
 .recov{border:1px solid var(--accent);border-radius:10px;padding:12px;margin-bottom:12px;display:grid;gap:6px}.recov p{margin:0}
 .plPick{z-index:62}
+.albHead .press{margin:4px 0 0;font-size:.8rem}.lnk{all:unset;cursor:pointer;color:var(--accent);text-decoration:underline}
+.artInfo{display:grid;gap:10px;margin:4px 0 14px}.artBio{display:flex;gap:12px;align-items:flex-start}.artBio img{width:84px;height:84px;border-radius:50%;object-fit:cover;flex:none}
+.artBio p{margin:0;font-size:.9rem;line-height:1.45}.artBio.clip p{display:-webkit-box;-webkit-line-clamp:5;-webkit-box-orient:vertical;overflow:hidden}
+.disco{display:grid;gap:4px}.disco h3{margin:6px 0 2px;font-size:1rem}.dRow{display:flex;align-items:center;gap:10px;padding:7px 8px;border-radius:8px;border:1px solid var(--line);background:var(--surface);text-align:left;width:100%}
+.dRow .y{font-size:.8rem;color:var(--muted);width:2.6em;flex:none}.dRow .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dRow .st{font-size:.78rem;flex:none}
+.dRow.have{background:transparent}.dRow.have .st{color:var(--ok)}.dRow.miss .st{color:var(--accent)}
 .plList{display:grid;gap:6px}
 .plRow{display:flex;align-items:center;gap:12px;width:100%;text-align:left;padding:8px;border-radius:10px;background:var(--surface);border:1px solid var(--line)}
 .plRow .mos{flex:none;width:52px;height:52px;border-radius:6px;overflow:hidden;display:grid;grid-template-columns:1fr 1fr;background:var(--line)}
@@ -489,6 +495,7 @@ label.check{display:flex;flex-direction:row;gap:8px;align-items:center;font-size
 <section id="libListSec">
   <div class="libHead"><h2 id="libTitle">Ma discothèque</h2><p class="hint" id="libStats"></p></div>
   <div class="row" id="artistBar" hidden><button id="artistBack">← Tous les albums</button></div>
+  <div id="artistInfo" class="artInfo" hidden></div>
   <input id="libQ" type="search" placeholder="Chercher un artiste, un album, un titre" autocomplete="off">
   <div class="libQuick" id="libQuick">
     <button id="libShuffle" class="main" hidden>Tout au hasard</button><button id="libRandAlb" hidden>Un album au hasard</button><button id="libPls" hidden>Listes de lecture</button><button id="libInc" hidden>Albums incomplets</button><button id="libTop" hidden>Les plus écoutés</button><button id="libFavT" hidden>Morceaux favoris</button>
@@ -1022,6 +1029,18 @@ async function enrich(){
 const loading=()=>{$('#qerr').hidden=true;$('#results').innerHTML='<p class="hint">Chargement de l\'album…</p>'};
 const fail=m=>{$('#results').innerHTML='';$('#qerr').textContent=m;$('#qerr').hidden=false};
 const dur=s=>{const p=String(s||'').split(':').map(Number);return p.length>1&&p.every(n=>!isNaN(n))?p.reduce((a,n)=>a*60+n,0)*1000:0};
+/* ---------- Pressage : label, référence, pays, année, format, code-barres, fiche en ligne ---------- */
+function pressDiscogs(d){const l=(d.labels||[])[0]||{};const bc=(d.identifiers||[]).find(i=>/barcode/i.test(i.type))?.value;
+  return {label:dname(l.name||''),catno:l.catno&&l.catno!=='none'?l.catno:'',country:d.country||'',year:d.released?String(d.released).slice(0,4):d.year?String(d.year):'',
+    format:(d.formats||[]).map(f=>[f.qty>1?f.qty+' × ':'',f.name,...(f.descriptions||[])].join(' ').replace(/\s+/g,' ').trim()).join(', '),barcode:bc||'',url:d.uri||'https://www.discogs.com/release/'+d.id,site:'Discogs'}}
+function pressMb(r,id){const l=(r['label-info']||[])[0]||{};
+  return {label:l.label?.name||'',catno:l['catalog-number']||'',country:r.country||'',year:(r.date||'').slice(0,4),format:[...new Set((r.media||[]).map(m=>m.format).filter(Boolean))].join(', '),barcode:r.barcode||'',url:'https://musicbrainz.org/release/'+id,site:'MusicBrainz'}}
+const PRESSTRY=new Set();
+async function fetchPress(r){const s=r.src;if(!s?.id||s.press||PRESSTRY.has(r.key))return null;PRESSTRY.add(r.key);
+  try{if(s.source==='discogs'){if(!getTok())return null;return pressDiscogs(await discogs('releases/'+s.id))}
+    if(s.source==='mb')return pressMb(await mb('release/'+s.id+'?inc=labels'),s.id)}catch(e){}return null}
+function pressLine(p){const cc={FR:'France',France:'France',UK:'Royaume-Uni',US:'États-Unis',DE:'Allemagne',Germany:'Allemagne',Europe:'Europe',XE:'Europe',Japan:'Japon',JP:'Japon',Italy:'Italie',IT:'Italie',Netherlands:'Pays-Bas',NL:'Pays-Bas',Canada:'Canada',CA:'Canada',Belgium:'Belgique',BE:'Belgique',Spain:'Espagne',ES:'Espagne'};
+  return [p.label,p.catno?'réf. '+p.catno:'',cc[p.country]||p.country,p.year,p.format].filter(Boolean).join(' · ')}
 async function pickDiscogs(id){
   loading();
   try{const d=await discogs('releases/'+id);
@@ -1034,7 +1053,7 @@ async function pickDiscogs(id){
     }
     if(!tracks.length)return fail('Discogs ne donne pas la liste des titres de cette édition. Essaie une autre édition.');
     const img=(d.images||[]).find(i=>i.type==='primary')||d.images?.[0];
-    await loadAlbum({artist:art,album:d.title,year:d.year?String(d.year):'',tracks,cover:img?.uri,src:{source:'discogs',id}});
+    await loadAlbum({artist:art,album:d.title,year:d.year?String(d.year):'',tracks,cover:img?.uri,src:{source:'discogs',id,press:pressDiscogs(d)}});
   }catch(e){fail('Album Discogs indisponible : '+e.message)}
 }
 async function pickDeezer(id){
@@ -1172,11 +1191,11 @@ $('#dTokSave').onclick=()=>{try{localStorage.setItem(DTOK,$('#dTok').value.trim(
 async function pick(id){
   loading();
   try{
-    const r=await mb('release/'+id+'?inc=recordings+artist-credits+release-groups');
+    const r=await mb('release/'+id+'?inc=recordings+artist-credits+release-groups+labels');
     const ra=credit(r['artist-credit']),tracks=[];
     for(const m of r.media||[])for(const t of m.tracks||[])
       tracks.push({number:t.number||String(t.position),title:t.title,length:t.length||t.recording?.length||0,artist:credit(t['artist-credit'])||ra,disc:(r.media.length>1&&!/^[A-H]/i.test(t.number||''))?m.position:1});
-    await loadAlbum({artist:ra,album:r.title,year:(r.date||'').slice(0,4),tracks,cover:`https://coverartarchive.org/release/${id}/front-500`,src:{source:'mb',id}});
+    await loadAlbum({artist:ra,album:r.title,year:(r.date||'').slice(0,4),tracks,cover:`https://coverartarchive.org/release/${id}/front-500`,src:{source:'mb',id,press:pressMb(r,id)}});
   }catch(e){fail('Album introuvable : '+e.message)}
 }
 function renderSides(){
@@ -1970,6 +1989,11 @@ function renderAlbum(){
   head.innerHTML=`${r.thumb?`<img alt="" src="${r.thumb}">`:'<span class="ph"></span>'}<div class="txt"><b>${esc(r.unsorted?'Morceaux non classés':r.album)}</b><small>${r.unsorted?'Touche « Classer… » pour ranger un morceau dans son album.':`<button class="artLink" data-artist="${esc(r.artist)}">${esc(r.artist)}</button>`}${r.year?' · '+esc(r.year):''}${r.genre?' · '+esc(r.genre):''}${r.label?' · '+esc(r.label):''}</small>
     <span class="chips">${srcTags(r)}${rows.length?` <span class="tag ${miss.length?'todo':'ok'}">${have.length}/${rows.length} titres</span>`:''}</span></div>`;
   head.querySelector('.artLink')?.addEventListener('click',e=>openArtist(e.currentTarget.dataset.artist));
+  {const pr=document.createElement('p');pr.className='hint press';head.querySelector('.txt').append(pr);
+    const show=p=>{pr.hidden=!p||!pressLine(p);if(pr.hidden)return;pr.innerHTML=`Pressage : ${esc(pressLine(p))}${p.barcode?' · code-barres '+esc(p.barcode):''}${p.url?` · <button class="lnk">Voir sur ${esc(p.site||'le site')}</button>`:''}`;
+      pr.querySelector('.lnk')?.addEventListener('click',()=>openExt(p.url))};
+    show(r.src?.press);
+    if(!r.src?.press&&!r.unsorted)fetchPress(r).then(p=>{if(!p||!pressLine(p))return;libOp(async()=>{const x=libGet(r.key);if(x){x.src={...x.src,press:p};await libPut(x)}}).then(()=>{if(LIBVIEW.key===r.key)show(p)},()=>{})})}
   if(!r.unsorted){const fb=document.createElement('button');fb.className='albFav';fb.setAttribute('aria-pressed',isFavA(r.key));fb.setAttribute('aria-label',isFavA(r.key)?'Retirer des favoris':'Ajouter aux favoris');fb.textContent=isFavA(r.key)?'♥':'♡';
     fb.onclick=()=>{toggleFavA(r.key);renderAlbum()};head.querySelector('.txt').append(fb)}
   const pl=have.filter(x=>playable(x.t)).map(x=>qItem(r,x.t));
@@ -2967,6 +2991,54 @@ $('#libSort').value=LIBVIEW.sort;
 $('#libSort').onchange=e=>{LIBVIEW.sort=e.target.value;try{localStorage.setItem('sillon.libSort',LIBVIEW.sort)}catch(x){}renderLib()};
 document.querySelectorAll('#libFilter [data-f]').forEach(b=>b.onclick=()=>{LIBVIEW.filter=b.dataset.f;renderLib()});
 $('#artistBack').onclick=()=>{LIBVIEW.artist=null;renderLib();scrollTo(0,0)};
+/* ---------- Page artiste : biographie (Wikipédia) et discographie (MusicBrainz), albums que tu as / qui te manquent ---------- */
+const ARTK='sillon.artists',ARTRUN={k:0,shown:null};
+const artCache=()=>jget(ARTK,{});
+function artStore(name,d){const c=artCache();c[norm(name)]={...d,at:Date.now()};const k=Object.keys(c);if(k.length>150)k.sort((a,b)=>c[a].at-c[b].at).slice(0,k.length-150).forEach(x=>delete c[x]);try{localStorage.setItem(ARTK,JSON.stringify(c))}catch(e){}}
+async function artistData(name){
+  const c=artCache()[norm(name)];if(c&&Date.now()-c.at<30*DAY)return c;
+  const q=await mb('artist?query='+encodeURIComponent('artist:"'+name.replace(/"/g,'')+'"')+'&limit=5');
+  const a=(q.artists||[]).find(x=>norm(x.name)===norm(name)&&(x.score||0)>=90)||(q.artists||[]).find(x=>(x.score||0)>=98);
+  if(!a){const d={none:true};artStore(name,d);return d}
+  await wait(1100);
+  const full=await mb('artist/'+a.id+'?inc=url-rels');
+  const d={id:a.id,name:a.name,type:a.type||'',country:a.country||'',life:a['life-span']||{},disambiguation:a.disambiguation||''};
+  /* biographie : Wikipédia en français si l'article existe, sinon en anglais */
+  try{const wd=(full.relations||[]).find(r=>r.type==='wikidata')?.url?.resource?.split('/').pop();
+    let title='',lang='fr';
+    if(wd){const w=await (await fetch(`https://www.wikidata.org/w/api.php?action=wbgetentities&ids=${wd}&props=sitelinks&sitefilter=frwiki|enwiki&format=json&origin=*`)).json();
+      const sl=w.entities?.[wd]?.sitelinks||{};if(sl.frwiki)title=sl.frwiki.title;else if(sl.enwiki){title=sl.enwiki.title;lang='en'}}
+    if(title){const s=await (await fetch(`https://${lang}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title.replace(/ /g,'_'))}`)).json();
+      if(s.extract)Object.assign(d,{bio:s.extract,img:s.thumbnail?.source||'',wiki:s.content_urls?.mobile?.page||s.content_urls?.desktop?.page||'',lang})}}catch(e){}
+  await wait(1100);
+  try{const g=await mb('release-group?artist='+a.id+'&type=album|ep&limit=100');
+    d.disco=(g['release-groups']||[]).filter(x=>!(x['secondary-types']||[]).length).map(x=>({t:x.title,y:(x['first-release-date']||'').slice(0,4),ty:x['primary-type']||'Album',id:x.id}))
+      .sort((p,q)=>(p.y||'9999').localeCompare(q.y||'9999'))}catch(e){d.disco=null}
+  artStore(name,d);return d}
+async function renderArtistInfo(name){
+  const box=$('#artistInfo');if(ARTRUN.shown===norm(name)&&box.dataset.ok)return;const k=++ARTRUN.k;ARTRUN.shown=norm(name);box.dataset.ok='';
+  box.innerHTML='<p class="hint">Recherche de la biographie et de la discographie…</p>';
+  let d;try{d=await artistData(name)}catch(e){if(k===ARTRUN.k)box.innerHTML='<p class="hint">Biographie et discographie indisponibles (pas de connexion ?).</p>';ARTRUN.shown=null;return}
+  if(k!==ARTRUN.k)return;box.dataset.ok='1';
+  if(d.none){box.innerHTML='<p class="hint">Artiste introuvable dans MusicBrainz : pas de biographie ni de discographie.</p>';return}
+  box.innerHTML='';
+  const life=[d.life.begin?.slice(0,4),d.life.ended?(d.life.end||'').slice(0,4)||'?':''].filter(Boolean).join(' – ');
+  const meta=[d.type==='Group'?'Groupe':d.type==='Person'?'Artiste':'',d.country,life].filter(Boolean).join(' · ');
+  if(d.bio||meta){const b=document.createElement('div');b.className='artBio clip';
+    b.innerHTML=`${d.img?`<img alt="" src="${esc(d.img)}">`:''}<div><p>${esc(d.bio||'')}</p><p class="hint" style="margin-top:4px">${esc(meta)}${d.wiki?` · <button class="lnk">Wikipédia</button>`:''}</p></div>`;
+    b.querySelector('p').onclick=()=>b.classList.toggle('clip');b.querySelector('.lnk')?.addEventListener('click',()=>openExt(d.wiki));box.append(b)}
+  if(d.disco?.length){
+    const mine=LIB.filter(r=>!r.unsorted&&norm(r.artist)===norm(name)).map(r=>norm(plainAlb(r.album)));
+    const has=x=>mine.includes(norm(plainAlb(x.t)));const nh=d.disco.filter(has).length;
+    const w=document.createElement('div');w.className='disco';
+    w.innerHTML=`<h3>Discographie</h3><p class="hint" style="margin:0">${nh} album${nh>1?'s':''} sur ${d.disco.length} dans ta discothèque. Touche un album qui te manque pour l'enregistrer.</p>`;
+    for(const x of d.disco){const own=has(x),r=document.createElement('button');r.className='dRow '+(own?'have':'miss');
+      r.innerHTML=`<span class="y">${esc(x.y)}</span><span class="t">${esc(x.t)}${x.ty==='EP'?' <small class="hint">(EP)</small>':''}</span><span class="st">${own?'✓ Tu l\'as':'Manquant'}</span>`;
+      r.onclick=()=>{if(own){const a=LIB.find(z=>norm(z.artist)===norm(name)&&norm(plainAlb(z.album))===norm(plainAlb(x.t)));if(a)openAlbum(a.key);return}
+        showView(false);setMode('vinyle');$('#qArtist').value=d.name;$('#q').value=x.t;$('#qRef').value='';search();$('#s1').scrollIntoView({behavior:'smooth'})};
+      w.append(r)}
+    box.append(w)}
+}
 function openArtist(a){LIBVIEW.artist=a;LIBVIEW.key=null;$('#libQ').value='';showView('lib');renderLib();scrollTo(0,0)}
 const allPlayable=()=>LIB.flatMap(r=>(r.tracks||[]).filter(playable).map(t=>qItem(r,t)));
 const noPlayMsg=()=>toast(NATIVE?'Aucun fichier lisible.':'La lecture se fait dans l\'application Android.');
@@ -2979,7 +3051,7 @@ function renderLib(){
   $('#libListSec').hidden=!!LIBVIEW.key;$('#libDetail').hidden=!LIBVIEW.key;renderLibTools();
   const nt=LIB.reduce((a,r)=>a+(r.tracks||[]).length,0),na=LIB.filter(r=>!r.unsorted).length,f=LIBVIEW.filter,ar=LIBVIEW.artist;
   document.querySelectorAll('#libFilter [data-f]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.f===f));
-  $('#libTitle').textContent=ar||'Ma discothèque';$('#artistBar').hidden=!ar;$('#libQuick').hidden=!!ar;
+  $('#libTitle').textContent=ar||'Ma discothèque';$('#artistBar').hidden=!ar;$('#libQuick').hidden=!!ar;$('#artistInfo').hidden=!ar;if(ar)renderArtistInfo(ar);
   $('#libStats').textContent=LIB.length?`${na} album${na>1?'s':''}, ${nt} morceau${nt>1?'x':''}`:'';
   $('#libEmpty').hidden=LIB.length>0;$('#libShuffle').hidden=!nt;$('#libRandAlb').hidden=na<2;
   $('#libTop').hidden=!Object.keys(PLAYS).length;{const ni=incompleteAlbums().length;$('#libInc').hidden=!ni;$('#libInc').textContent='Albums incomplets ('+ni+')'}$('#libPls').hidden=!nt&&!PLS.length;$('#libFavT').hidden=!Object.keys(FAV.t).length;
