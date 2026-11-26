@@ -198,6 +198,29 @@ body.withMini main{padding-bottom:110px}
 .qRow{display:flex;gap:6px;align-items:center}.qRow .qPlay{flex:1;min-width:0;text-align:left;display:grid;background:none}
 .qRow .qPlay b{font-weight:500;overflow-wrap:anywhere}.qRow .qPlay small{color:var(--muted);font-size:.78rem}.qRow.cur .qPlay{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,transparent)}
 .qRow.past{opacity:.55}.qRow .qUp,.qRow .qDel{padding:6px 9px}
+/* barre d'onglets en bas, à portée de pouce */
+:root{--tabH:62px}
+.tabBar{position:fixed;left:0;right:0;bottom:0;z-index:45;display:grid;grid-template-columns:repeat(4,1fr);background:var(--surface);border-top:1px solid var(--line);
+  padding:4px max(6px,env(safe-area-inset-right,0px)) env(safe-area-inset-bottom,0px) max(6px,env(safe-area-inset-left,0px))}
+.tabBar button{position:relative;display:grid;justify-items:center;gap:2px;border:none;background:none;border-radius:12px;padding:6px 2px 7px;font-size:.72rem;color:var(--muted);min-height:52px}
+.tabBar svg{width:24px;height:24px;fill:currentColor}
+.tabBar button[aria-pressed=true]{color:var(--ink)}
+.tabBar button[aria-pressed=true] svg{color:var(--accent)}
+.tabBar button[aria-pressed=true]::before{content:"";position:absolute;top:0;left:30%;right:30%;height:3px;border-radius:0 0 3px 3px;background:var(--accent)}
+.badge{position:absolute;top:3px;left:calc(50% + 6px);font:600 .62rem var(--f-mono);font-style:normal;background:var(--accent);color:var(--accent-ink);border-radius:99px;padding:1px 5px;line-height:1.3}
+body{padding-bottom:calc(var(--tabH) + env(safe-area-inset-bottom,0px))}
+.mini{bottom:calc(var(--tabH) + env(safe-area-inset-bottom,0px))!important;padding-bottom:0!important;border-bottom:1px solid var(--line)}
+.toast{bottom:calc(var(--tabH) + 80px + env(safe-area-inset-bottom,0px))!important}
+header{padding-block:2px}header h1{font-size:1.5rem}.logo{width:38px;height:38px}
+/* aides repliables */
+.help{display:none!important}.showHelp .help{display:block!important}
+.helpBtn{margin-left:auto;width:28px;height:28px;padding:0;border-radius:50%;font:600 .85rem var(--f-body);color:var(--muted)}
+.showHelp .helpBtn{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+label.check{display:flex;flex-direction:row;gap:8px;align-items:center;font-size:.9rem;color:var(--ink)}
+.modeSw button[data-theme-set]{padding:8px 4px}
+/* choix de la source : grille 2 × 2 quand il y a plus de trois choix */
+#viewRec>.modeSw{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));border-radius:14px;gap:3px}
+#viewRec>.modeSw button{border-radius:11px;padding:10px 6px;line-height:1.2}
 @media (max-width:480px){.sliders{grid-template-columns:minmax(0,1fr)}.album img{width:84px;height:84px}}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
@@ -217,14 +240,10 @@ body.withMini main{padding-bottom:110px}
 <g clip-path="url(#sLgC)"><circle cx="256" cy="256" r="66" fill="url(#sLgL)"/><circle cx="256" cy="256" r="9" fill="#111317"/></g>
 <rect x="272" y="221.0" width="10" height="70" rx="5" fill="#e2a640"/><rect x="288" y="196.0" width="10" height="120" rx="5" fill="#e2a640"/><rect x="304" y="166.0" width="10" height="180" rx="5" fill="#e2a640"/><rect x="320" y="136.0" width="10" height="240" rx="5" fill="#e2a640"/><rect x="336" y="176.0" width="10" height="160" rx="5" fill="#e2a640"/><rect x="352" y="126.0" width="10" height="260" rx="5" fill="#e2a640"/><rect x="368" y="156.0" width="10" height="200" rx="5" fill="#e2a640"/><rect x="384" y="191.0" width="10" height="130" rx="5" fill="#e2a640"/><rect x="400" y="151.0" width="10" height="210" rx="5" fill="#e2a640"/><rect x="416" y="206.0" width="10" height="100" rx="5" fill="#e2a640"/><rect x="432" y="181.0" width="10" height="150" rx="5" fill="#e2a640"/><rect x="448" y="216.0" width="10" height="80" rx="5" fill="#e2a640"/>
 </svg>
-  <div><h1>Sillon</h1><p>Numérise tes vinyles et ta musique en MP3 rangés et tagués.</p></div>
+  <h1>Sillon</h1>
 </header>
-<nav class="tabs" aria-label="Sections">
-  <button id="tabRec" aria-pressed="true">Numériser</button>
-  <button id="tabLib" aria-pressed="false">Ma discothèque <span id="libCount" class="mono"></span></button>
-</nav>
 <div id="tasks" class="tasks" hidden><div class="tl"></div><div class="row" id="battRow" hidden><span class="hint grow">Pour que Sillon continue écran éteint, autorise-le à ignorer l'optimisation de la batterie.</span><button id="battBtn" class="main">Autoriser</button></div>
-  <div class="row tActs"><button id="blackBtn">Écran noir</button><label class="hint" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="keepOn"> Écran noir automatique pendant les tâches (recommandé)</label></div></div>
+  <div class="row tActs"><button id="blackBtn">Écran noir</button></div></div>
 <div id="diagBox" class="nudge" hidden style="margin-bottom:10px"><b>Contrôle écran éteint</b><p class="hint" style="white-space:pre-line;user-select:text"></p>
   <div class="row"><button id="diagCopy">Copier le message</button><button id="diagOk" class="main">J'ai lu</button></div></div>
 <div id="black" hidden><span>Sillon travaille. Touche l'écran pour revenir.</span></div>
@@ -234,21 +253,21 @@ body.withMini main{padding-bottom:110px}
   <button id="modeVinyl" aria-pressed="true">Vinyle</button>
   <button id="modeOther" aria-pressed="false">Autre source</button>
   <button id="modeTel" aria-pressed="false" hidden>Son du téléphone</button>
-  <button id="modeFile" aria-pressed="false" hidden>Album dans un fichier</button>
+  <button id="modeFile" aria-pressed="false" hidden>Album en fichier</button>
 </div>
-<p class="hint" id="otherHint" hidden>Radio, CD, cassette, téléphone ou ordinateur branché sur l'entrée : Sillon découpe aux silences, reconnaît chaque morceau et le range dans son dossier Artiste/Album.</p>
+<p class="hint help" id="otherHint" hidden>Radio, CD, cassette, téléphone ou ordinateur branché sur l'entrée : Sillon découpe aux silences, reconnaît chaque morceau et le range dans son dossier Artiste/Album.</p>
 <div class="row" id="albAsk" hidden><button id="albAskBtn">J'enregistre un album précis…</button><span class="hint grow">Facultatif : sinon chaque morceau est reconnu et rangé tout seul.</span></div>
 <section id="s2f" hidden>
   <h2><span class="n">01</span>Le fichier</h2>
-  <p class="hint">Un album entier dans un seul fichier (M4A, MP3, FLAC…, par exemple une vidéo « Full album ») : Sillon le découpe en morceaux, calés sur la liste officielle des titres, et les range dans Music/Artiste/Album/. Tout se fait côté Android, écran éteint compris.</p>
+  <p class="hint help">Un album entier dans un seul fichier (M4A, MP3, FLAC…, par exemple une vidéo « Full album ») : Sillon le découpe en morceaux, calés sur la liste officielle des titres, et les range dans Music/Artiste/Album/. Tout se fait côté Android, écran éteint compris.</p>
   <div class="row"><button id="filePick" class="main">Choisir le fichier</button><span class="hint grow mono" id="fileName"></span></div>
   <div id="albFiles"></div>
   <p class="hint" id="fileHint"></p>
 </section>
 <!-- 1. ALBUM -->
 <section id="s1">
-  <h2><span class="n">01</span>Album</h2>
-  <p class="hint" id="albOpt" hidden>Facultatif : si tu enregistres un album précis, choisis-le ici (recherche, code-barres…). Les morceaux s'y rangeront avec leur numéro et sa pochette. Sinon, chaque morceau est reconnu et rangé séparément.</p>
+  <h2><span class="n">01</span><span class="ttl">Album</span></h2>
+  <p class="hint help" id="albOpt" hidden>Facultatif : si tu enregistres un album précis, choisis-le ici (recherche, code-barres…). Les morceaux s'y rangeront avec leur numéro et sa pochette. Sinon, chaque morceau est reconnu et rangé séparément.</p>
   <div class="row">
     <label class="grow">Artiste<input id="qArtist" type="search" placeholder="ex. Téléphone" autocomplete="off"></label>
     <label class="grow">Album<input id="q" type="search" placeholder="ex. Crache ton venin" autocomplete="off"></label>
@@ -262,15 +281,7 @@ body.withMini main{padding-bottom:110px}
     <input id="scanFile" type="file" accept="image/*" hidden>
   </div>
   <p class="hint" id="apkHint" hidden>Sur Android, l'application Sillon range directement les MP3 dans le dossier de ton choix : <a href="https://github.com/aflament65/sillon/releases/download/apk/sillon.apk">télécharger l'APK</a>.</p>
-  <p class="hint">Recherche dans Discogs, MusicBrainz, Deezer et iTunes. Un seul champ rempli suffit. Le code-barres au dos de la pochette donne l'édition exacte.</p>
-  <details id="dSet">
-    <summary class="hint" style="cursor:pointer">Activer Discogs, la meilleure source pour les vinyles</summary>
-    <div class="nudge" style="margin-top:8px">
-      <p class="hint">Crée un compte gratuit sur discogs.com, puis va dans Paramètres → Développeurs → « Générer un nouveau jeton ». Colle-le ici. Il reste sur cet appareil.</p>
-      <div class="row"><input id="dTok" class="grow" type="text" placeholder="Jeton Discogs" autocomplete="off" spellcheck="false"><button id="dTokSave" class="main">Enregistrer</button></div>
-      <p class="hint" id="dTokState"></p>
-    </div>
-  </details>
+  <p class="hint help">Un seul champ rempli suffit. Le code-barres au dos de la pochette donne l'édition exacte.</p>
   <p class="err" id="qerr" hidden></p>
   <div class="results" id="results"></div>
   <div class="album" id="album" hidden>
@@ -298,7 +309,7 @@ body.withMini main{padding-bottom:110px}
 <!-- 2. ENREGISTREMENT -->
 <section id="s2">
   <h2><span class="n">02</span>Enregistrement <span id="recSide" class="tag" hidden></span></h2>
-  <p class="hint" id="telHint" hidden>Sillon enregistre ce que joue le téléphone, en numérique, sans câble. Touche « Enregistrer », accepte l'avertissement d'Android, puis lance la lecture dans l'autre appli et reviens ici. Le volume du téléphone n'a pas d'effet. Les applis de streaming qui interdisent la capture (souvent YouTube, Spotify, Netflix) donnent du silence.</p>
+  <p class="hint help" id="telHint" hidden>Sillon enregistre ce que joue le téléphone, en numérique, sans câble. Touche « Enregistrer », accepte l'avertissement d'Android, puis lance la lecture dans l'autre appli et reviens ici. Le volume du téléphone n'a pas d'effet. Les applis de streaming qui interdisent la capture (souvent YouTube, Spotify, Netflix) donnent du silence.</p>
   <div class="row" id="npRow" hidden><span class="hint grow" id="npState"></span><button id="npBtn">Activer</button></div>
   <p class="hint" id="npNow" hidden></p>
   <p class="hint mono" id="capDiag" hidden></p>
@@ -322,14 +333,6 @@ body.withMini main{padding-bottom:110px}
     <div class="nudge" style="margin-top:8px" id="lvlHelpBody"></div>
   </details>
   <p class="hint" id="recHint">Règle d'abord le niveau, puis lance l'enregistrement et pose le diamant.</p>
-  <details id="aSet">
-    <summary class="hint" style="cursor:pointer">Réglages de reconnaissance (AcoustID, gratuit)</summary>
-    <div class="nudge" style="margin-top:8px">
-      <p class="hint">Sillon reconnaît les morceaux à leur empreinte sonore grâce à AcoustID. Crée une clé gratuite : connecte-toi sur acoustid.org, puis « Applications » → « Register a new application » (nom : Sillon). Colle la clé « API key » ici.</p>
-      <div class="row"><input id="aKey" class="grow" type="text" placeholder="Clé AcoustID" autocomplete="off" spellcheck="false"><button id="aKeySave" class="main">Enregistrer</button></div>
-      <p class="hint" id="aKeyState"></p>
-    </div>
-  </details>
   <div class="row" id="fileRow"><label class="hint" style="display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center">Ou tester avec un fichier audio : <input id="file" type="file" accept="audio/*"></label></div>
 </section>
 
@@ -359,7 +362,7 @@ body.withMini main{padding-bottom:110px}
     <p class="hint" id="pathHint"></p>
     <label class="row" style="display:flex;font-size:.85rem;color:var(--muted)"><input id="normOpt" type="checkbox" checked> Remonter le volume si l'enregistrement est trop faible</label>
     <button id="validate" class="main big">Valider la face</button>
-    <p class="hint" id="bgHint">La conversion en MP3 se fait en arrière-plan : tu peux enregistrer la face suivante tout de suite.</p>
+    <p class="hint help" id="bgHint">La conversion en MP3 se fait en arrière-plan : tu peux enregistrer la face suivante tout de suite.</p>
     <div class="row"><button id="stopPlay">Arrêter la lecture</button><button id="reset">Recommencer cette face</button></div>
   </div>
 </section>
@@ -367,10 +370,6 @@ body.withMini main{padding-bottom:110px}
 <!-- 4. CONVERSION -->
 <section id="s4" hidden>
   <h2><span class="n">04</span>Conversion en MP3</h2>
-  <div id="nativeBox" class="row" hidden>
-    <span class="hint grow">Dossier des albums : <b id="folderName">non choisi</b></span>
-    <button id="pickFolder">Choisir le dossier</button>
-  </div>
   <p class="hint" id="jobsEmpty">Chaque face validée apparaît ici pendant sa conversion en MP3 320 kbit/s.</p>
   <div id="jobs" class="jobs"></div>
 </section>
@@ -404,26 +403,57 @@ body.withMini main{padding-bottom:110px}
   <div class="row"><button id="albCover">Changer la pochette</button><input id="albCoverFile" type="file" accept="image/*" hidden><button id="albDel">Supprimer l'album</button></div>
   <div class="row" id="albDelConfirm" hidden><span class="hint grow" id="albDelTxt">Supprimer cet album de la discothèque et effacer son dossier et ses MP3 du téléphone ?</span><button id="albDelYes" class="danger">Supprimer</button><button id="albDelNo">Annuler</button></div>
 </section>
+</div>
+<div id="viewSet" class="view" hidden>
+<section id="setFolder">
+  <h2>Dossier des albums</h2>
+  <div id="nativeBox" class="row" hidden>
+    <span class="hint grow">Dossier des albums : <b id="folderName">non choisi</b></span>
+    <button id="pickFolder">Choisir le dossier</button>
+  </div>
+  <p class="hint" id="setWeb">Version web : les MP3 sont proposés au téléchargement. L'application Android range directement dans le dossier Music/Artiste/Album/.</p>
+</section>
+<section id="setLook">
+  <h2>Apparence</h2>
+  <div class="modeSw" role="group" aria-label="Thème"><button data-theme-set="auto">Automatique</button><button data-theme-set="light">Clair</button><button data-theme-set="dark">Sombre</button></div>
+  <label class="check"><input type="checkbox" id="keepOn"> Écran noir automatique pendant les longues tâches</label>
+  <p class="hint help">Pendant une conversion ou un enrichissement, l'écran passe en noir au minimum de luminosité au lieu de s'éteindre : le travail continue. Un toucher le rallume.</p>
+</section>
+<section id="setSearch">
+  <h2>Recherche des albums</h2>
+  <p class="hint help">Sillon cherche dans Discogs, MusicBrainz, Deezer et iTunes. Discogs est la meilleure source pour les vinyles : il demande un jeton gratuit.</p>
+      <p class="hint help">Crée un compte gratuit sur discogs.com, puis va dans Paramètres → Développeurs → « Générer un nouveau jeton ». Colle-le ici. Il reste sur cet appareil.</p>
+      <div class="row"><input id="dTok" class="grow" type="text" placeholder="Jeton Discogs" autocomplete="off" spellcheck="false"><button id="dTokSave" class="main">Enregistrer</button></div>
+      <p class="hint" id="dTokState"></p>
+    
+</section>
+<section id="setId">
+  <h2>Reconnaissance des morceaux</h2>
+      <p class="hint help">Sillon reconnaît les morceaux à leur empreinte sonore grâce à AcoustID. Crée une clé gratuite : connecte-toi sur acoustid.org, puis « Applications » → « Register a new application » (nom : Sillon). Colle la clé « API key » ici.</p>
+      <div class="row"><input id="aKey" class="grow" type="text" placeholder="Clé AcoustID" autocomplete="off" spellcheck="false"><button id="aKeySave" class="main">Enregistrer</button></div>
+      <p class="hint" id="aKeyState"></p>
+    
+</section>
 <section id="enrSec">
   <h2>Enrichissement automatique</h2>
   <label class="row" style="display:flex;gap:8px;align-items:center"><input id="enrOn" type="checkbox" checked> Enrichir ma discothèque automatiquement</label>
-  <p class="hint">À l'ouverture et après chaque conversion, Sillon ajoute les MP3 de ton dossier, identifie et range les morceaux non classés, réunit les albums en double, et complète chaque album : pochette, année, genre, liste officielle des titres, titres corrigés et étiquettes des MP3 à jour. Il attend la fin des enregistrements pour travailler.</p>
+  <p class="hint help">À l'ouverture et après chaque conversion, Sillon ajoute les MP3 de ton dossier, identifie et range les morceaux non classés, réunit les albums en double, et complète chaque album : pochette, année, genre, liste officielle des titres, titres corrigés et étiquettes des MP3 à jour. Il attend la fin des enregistrements pour travailler.</p>
   <label class="row" style="display:flex;gap:8px;align-items:center"><input id="tidyOn" type="checkbox" checked> Ranger et étiqueter aussi les MP3 que j'ajoute à la main</label>
-  <p class="hint">Chaque album va dans un seul dossier « Music/Artiste/Album », fichiers nommés « 01 - Titre.mp3 » avec pochette et infos. Un morceau en double n'est jamais effacé : le moins bon fichier est mis de côté dans « _Doublons Sillon », que tu peux vider quand tu veux.</p>
+  <p class="hint help">Chaque album va dans un seul dossier « Music/Artiste/Album », fichiers nommés « 01 - Titre.mp3 » avec pochette et infos. Un morceau en double n'est jamais effacé : le moins bon fichier est mis de côté dans « _Doublons Sillon », que tu peux vider quand tu veux.</p>
   <div class="row"><button id="enrNow" class="main">Enrichir maintenant</button></div>
   <div id="watchBox" hidden><p class="hint" style="margin-bottom:4px">Dossiers analysés (sous-dossiers compris) :</p><div id="watchList"></div>
     <div class="row"><button id="watchAdd">+ Ajouter un dossier</button></div>
-    <p class="hint">Si tes albums sont ailleurs que dans le dossier de sauvegarde (par exemple dans « Music » alors que Sillon enregistre dans un sous-dossier), ajoute ce dossier ici.</p></div>
+    <p class="hint help">Si tes albums sont ailleurs que dans le dossier de sauvegarde (par exemple dans « Music » alors que Sillon enregistre dans un sous-dossier), ajoute ce dossier ici.</p></div>
   <p class="hint" id="enrState"></p>
   <p class="hint" id="diagLast" style="white-space:pre-line;user-select:text"></p>
 </section>
 <section>
   <h2>Sauvegarde</h2>
-  <p class="hint">La discothèque est gardée sur cet appareil. Fais une sauvegarde de temps en temps pour la retrouver sur un autre téléphone.</p>
+  <p class="hint help">La discothèque est gardée sur cet appareil. Fais une sauvegarde de temps en temps pour la retrouver sur un autre téléphone.</p>
   <div class="row"><button id="libExport" class="main">Créer une sauvegarde</button><button id="libImportBtn">Restaurer une sauvegarde</button>
   <input id="libImport" type="file" accept="application/json,.json" hidden></div>
   <div class="row" id="repairRow" hidden><button id="libRepair">Réparer la discothèque</button></div>
-  <p class="hint" id="repairHint" hidden>Retrouve les MP3 de ton dossier de sauvegarde qui ne sont plus dans la discothèque (d'après leurs étiquettes) et les remet dans leur album.</p>
+  <p class="hint help" id="repairHint" hidden>Retrouve les MP3 de ton dossier de sauvegarde qui ne sont plus dans la discothèque (d'après leurs étiquettes) et les remet dans leur album.</p>
   <p class="hint" id="libMsg"></p>
 </section>
 <section id="appSec">
@@ -439,6 +469,12 @@ body.withMini main{padding-bottom:110px}
 </div>
 </main>
 <div id="toast" class="toast" role="status" hidden></div>
+<nav id="tabBar" class="tabBar" aria-label="Sections">
+  <button id="tabRec" aria-pressed="true"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="5.5" fill="none" stroke="currentColor" stroke-width="1" opacity=".55"/><circle cx="12" cy="12" r="2.2"/></svg><span>Numériser</span></button>
+  <button id="tabLib" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="8" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/><rect x="13" y="13" width="8" height="8" rx="1.5"/></svg><span>Discothèque</span><i id="libCount" class="badge" hidden></i></button>
+  <button id="tabPlay" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 13a9 9 0 0 1 18 0v5a3 3 0 0 1-3 3h-1v-7h2.9A7 7 0 0 0 5.1 14H8v7H6a3 3 0 0 1-3-3z"/></svg><span>Écouter</span></button>
+  <button id="tabSet" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/><circle cx="16" cy="6" r="2.2" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="10" cy="12" r="2.2" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="18" cy="18" r="2.2" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Réglages</span></button>
+</nav>
 <div id="mini" class="mini" hidden>
   <div class="miniBar" id="miniBar"><i id="miniProg"></i></div>
   <div class="miniRow">
@@ -1424,7 +1460,7 @@ async function libTx(mode,fn){const db=await idb();return new Promise((res,rej)=
   let out;const q=fn(st);if(q)q.onsuccess=()=>{out=q.result};t.oncomplete=()=>res(out);t.onerror=()=>rej(t.error)})}
 async function libLoad(){try{LIB=(await libTx('readonly',st=>st.getAll()))||[]}catch(e){LIB=[]}
   LIB.sort((a,b)=>albumKey(a.artist,a.album).localeCompare(albumKey(b.artist,b.album)));
-  $('#libCount').textContent=LIB.length?'('+LIB.length+')':'';}
+  $('#libCount').textContent=LIB.length||'';$('#libCount').hidden=!LIB.length;}
 const libPut=r=>libTx('readwrite',st=>st.put(r));
 const libDel=k=>libTx('readwrite',st=>st.delete(k));
 const libFind=(artist,album)=>LIB.find(r=>r.key===albumKey(artist,album));
@@ -1509,8 +1545,25 @@ async function recoverFiles(r){
 }
 /* ---------- Vue discothèque : liste et fiche album ---------- */
 const LIBVIEW={key:null};
-function showView(lib){$('#viewRec').hidden=lib;$('#viewLib').hidden=!lib;$('#tabRec').setAttribute('aria-pressed',!lib);$('#tabLib').setAttribute('aria-pressed',lib);if(lib){LIBVIEW.key?renderAlbum():renderLib()}scrollTo(0,0)}
-$('#tabRec').onclick=()=>showView(false);$('#tabLib').onclick=()=>showView(true);
+/* écrans : Numériser, Discothèque, Réglages ; « Écouter » ouvre le lecteur plein écran */
+let VIEW='rec';
+function showView(v){if(v===true)v='lib';else if(v===false||v==null)v='rec';VIEW=v;
+  for(const [k,id] of [['rec','#viewRec'],['lib','#viewLib'],['set','#viewSet']])$(id).hidden=k!==v;
+  for(const [k,id] of [['rec','#tabRec'],['lib','#tabLib'],['set','#tabSet']])$(id).setAttribute('aria-pressed',k===v);
+  if(v==='lib'){LIBVIEW.key?renderAlbum():renderLib()}scrollTo(0,0)}
+$('#tabRec').onclick=()=>showView('rec');$('#tabLib').onclick=()=>{if(VIEW==='lib'&&(LIBVIEW.key||LIBVIEW.tool||LIBVIEW.artist)){LIBVIEW.tool?closeTool():null;LIBVIEW.key=null;LIBVIEW.artist=null}showView('lib')};$('#tabSet').onclick=()=>showView('set');
+/* thème : automatique (réglage du téléphone), clair ou sombre */
+const THEMEK='sillon.theme';
+function applyTheme(t){t=t||'auto';if(t==='auto')document.documentElement.removeAttribute('data-theme');else document.documentElement.setAttribute('data-theme',t);
+  document.querySelectorAll('[data-theme-set]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.themeSet===t))}
+document.querySelectorAll('[data-theme-set]').forEach(b=>b.onclick=()=>{try{localStorage.setItem(THEMEK,b.dataset.themeSet)}catch(e){}applyTheme(b.dataset.themeSet)});
+try{applyTheme(localStorage.getItem(THEMEK))}catch(e){applyTheme('auto')}
+/* aides repliables : un « ? » dans le titre de chaque bloc qui en a */
+document.querySelectorAll('section').forEach(sec=>{if(!sec.querySelector('.help'))return;const h=sec.querySelector('h2');if(!h)return;
+  const b=document.createElement('button');b.className='helpBtn';b.type='button';b.textContent='?';b.setAttribute('aria-label','Aide');b.setAttribute('aria-expanded','false');
+  b.onclick=()=>{const on=sec.classList.toggle('showHelp');b.setAttribute('aria-expanded',on)};h.append(b)});
+{const oh=$('#otherHint'),th=$('#telHint');/* aides hors bloc : affichées avec le « ? » de l'étape Enregistrement */
+  const s2=$('#s2');if(oh)s2.insertBefore(oh,s2.querySelector('h2').nextSibling)}
 $('#libQ').oninput=()=>renderLib();
 const srcTags=r=>Object.keys(r.sources||(r.done?{vinyle:1}:{})).map(k=>`<span class="tag src-${k}">${SRC_LABEL[k]||k}</span>`).join(' ');
 function renderLib(){
@@ -2850,9 +2903,8 @@ function setMode(m,init){
   const albShown=m==='vinyle'||fic||(m==='autre'&&S.albOpen);
   $('#s1').hidden=!albShown;$('#albAsk').hidden=m!=='autre';$('#albAskBtn').textContent=S.albOpen?'Ne pas lier à un album':'J\'enregistre un album précis…';
   $('#otherHint').hidden=!other||tel;$('#albOpt').hidden=!other;$('#fileRow').hidden=tel;
-  $('#s1 h2').lastChild.textContent=other?'Album (facultatif)':'Album';
   let k=0;(fic?['#s2f','#s1','#s3','#s4']:['#s1','#s2','#s3','#s4']).forEach(id=>{const n=document.querySelector(id+' h2 .n');if(n&&!(id==='#s1'&&!albShown))n.textContent=String(++k).padStart(2,'0')});
-  $('#s1 h2').lastChild.textContent=fic?'Album (pour la liste des titres)':other?'Album (facultatif)':'Album';
+  $('#s1 h2 .ttl').textContent=fic?'Album (pour la liste des titres)':other?'Album (facultatif)':'Album';
   $('#jobsEmpty').textContent=other?'Chaque enregistrement validé apparaît ici pendant sa conversion en MP3 320 kbit/s.':'Chaque face validée apparaît ici pendant sa conversion en MP3 320 kbit/s.';
   $('#identify').textContent=other?'Reconnaître les morceaux':'Reconnaître l\'album';$('#fixNames').hidden=!other;
   renderLvlHelp();stopMonitor();
@@ -3160,7 +3212,7 @@ async function chooseFolder(){
 function dl(blob,name){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),60000)}
 $('#validate').onclick=validateSide;
 if(NATIVE){
-  $('#nativeBox').hidden=false;
+  $('#nativeBox').hidden=false;$('#setWeb').hidden=true;
   $('#pickFolder').onclick=chooseFolder;
   NATIVE.getFolder().then(f=>{FOLDER=f||{};$('#folderName').textContent=FOLDER.name||'non choisi';pathHint();renderJobs();musicBanner()}).catch(()=>{});
   $('#musicBtn').onclick=chooseFolder;
@@ -3179,7 +3231,7 @@ $('#diagCopy').onclick=async()=>{const t=ls('sillon.bgDiag')||'';try{await navig
 {const d=ls('sillon.bgDiag');if(d&&$('#diagLast'))$('#diagLast').textContent='Dernier contrôle écran éteint : '+d}
 $('#blackBtn').onclick=blackOn;$('#battBtn').onclick=()=>NATIVE?.requestBatteryExempt?.().catch(e=>toast(e.message||String(e)));
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)battCheck(false)});$('#black').onclick=blackOff;
-$('#toolAlb').onclick=()=>{$('#tabRec').click();setMode('fichier');$('#s2f').scrollIntoView({behavior:'smooth'})};
+$('#toolAlb').onclick=()=>{showView('rec');setMode('fichier');$('#s2f').scrollIntoView({behavior:'smooth'})};
 $('#toolBack').onclick=closeTool;if(NATIVE?.addWatchFolder){$('#watchBox').hidden=false;$('#watchAdd').onclick=addWatch;setTimeout(renderWatch,1500)}$('#toolChk').onclick=()=>openTool('check');$('#toolDup').onclick=()=>openTool('dups');
 $('#enrOn').checked=enrichOn();$('#enrOn').onchange=e=>{ls(ENRK,e.target.checked?'1':'0');if(e.target.checked)enrichSoon(1000)};
 $('#enrNow').onclick=async()=>{$('#enrNow').disabled=true;await autoEnrich(true);$('#enrNow').disabled=false};

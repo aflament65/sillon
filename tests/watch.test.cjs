@@ -20,7 +20,7 @@ await p.evaluate(async()=>{FOLDER={uri:'root',name:'Sillon'};CATALOG.deezer=asyn
   localStorage.setItem('sillon.tidyManual','0');await libLoad()});
 await p.evaluate(()=>autoEnrich(true));
 ok(await p.evaluate(()=>LIB.length===1),'sans dossier surveillé, la collection de « Music » n\'est pas vue (cas signalé)');
-await p.click('#tabLib');await p.waitForTimeout(300);
+await p.click('#tabSet');await p.waitForTimeout(300);/* les dossiers analysés sont dans Réglages */
 ok(!(await p.isHidden('#watchBox')),'rubrique « Dossiers analysés » visible');
 await p.evaluate(()=>{window.__NEXTWATCH='Music'});await p.click('#watchAdd');
 await p.waitForFunction(()=>!ENRUN&&LIB.length>1,null,{timeout:20000});await p.waitForTimeout(300);
