@@ -197,7 +197,7 @@ button.big{padding:13px 16px;font-size:1rem}
 .mini svg,.qBox svg{width:18px;height:18px;fill:currentColor;display:inline-block;vertical-align:-3px}
 #qToggle{display:inline-flex;gap:6px;align-items:center}
 body.withMini main{padding-bottom:110px}
-.qPanel{position:fixed;inset:0;z-index:55;background:color-mix(in srgb,var(--ink) 45%,transparent);display:flex;align-items:flex-end}
+.qPanel{position:fixed;inset:0;z-index:59;background:color-mix(in srgb,var(--ink) 45%,transparent);display:flex;align-items:flex-end}
 .qBox{background:var(--surface);width:100%;max-height:85vh;overflow:auto;border-radius:14px 14px 0 0;padding:16px max(16px,env(safe-area-inset-right,0px)) calc(16px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px));display:grid;gap:10px}
 .qBox input[type=range]{width:100%}
 .qBox button[aria-pressed=true]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
@@ -221,6 +221,20 @@ body{padding-bottom:calc(var(--tabH) + env(safe-area-inset-bottom,0px))}
 header{padding-block:2px}header h1{font-size:1.5rem}.logo{width:38px;height:38px}
 /* discothèque : grille de pochettes */
 .libHead{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 12px}.libHead h2{font-size:1.4rem}
+.plPick{z-index:62}
+.plList{display:grid;gap:6px}
+.plRow{display:flex;align-items:center;gap:12px;width:100%;text-align:left;padding:8px;border-radius:10px;background:var(--surface);border:1px solid var(--line)}
+.plRow .mos{flex:none;width:52px;height:52px;border-radius:6px;overflow:hidden;display:grid;grid-template-columns:1fr 1fr;background:var(--line)}
+.plRow .mos img{width:100%;height:100%;object-fit:cover;display:block}.plRow .mos.one{grid-template-columns:1fr}
+.plRow .mos .ph{grid-column:1/-1;display:grid;place-items:center;font-size:1.3rem;color:var(--muted)}
+.plRow .tx{flex:1;min-width:0;display:grid}.plRow b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.plRow small{color:var(--muted)}
+.plRow.auto{background:transparent}
+.plName{font:700 1.3rem/1.2 var(--f-display);width:100%;border:1px solid transparent;background:transparent;padding:4px 6px;margin-left:-6px;border-radius:6px;color:var(--ink)}
+.plName:focus{border-color:var(--line);background:var(--surface)}
+.plTrk{display:flex;align-items:center;gap:6px}.plTrk .tt{flex:1;min-width:0}
+.plTrk .grip{touch-action:none;cursor:grab;padding:6px 8px;color:var(--muted);background:none;border:none;font-size:1.1rem}
+.plTrk.drag{position:relative;z-index:2;background:var(--surface);box-shadow:0 6px 18px rgba(0,0,0,.18)}
+.plTrk.gone{opacity:.55}.plTrk .x{background:none;border:none;color:var(--muted);font-size:1.1rem;padding:6px 8px}
 .libQuick{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;margin-inline:-4px;padding:2px 4px}.libQuick::-webkit-scrollbar{display:none}.libQuick button{flex:none;border-radius:99px;padding:8px 14px}
 .libFilters{display:grid;gap:8px}.libFilters .chips{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}.libFilters .chips::-webkit-scrollbar{display:none}.libFilters .chip{flex:none}
 .sortL{display:flex;flex-direction:row;gap:8px;align-items:center;font-size:.85rem}.sortL select{width:auto;padding:6px 8px}
@@ -469,7 +483,7 @@ label.check{display:flex;flex-direction:row;gap:8px;align-items:center;font-size
   <div class="row" id="artistBar" hidden><button id="artistBack">← Tous les albums</button></div>
   <input id="libQ" type="search" placeholder="Chercher un artiste, un album, un titre" autocomplete="off">
   <div class="libQuick" id="libQuick">
-    <button id="libShuffle" class="main" hidden>Tout au hasard</button><button id="libRandAlb" hidden>Un album au hasard</button><button id="libTop" hidden>Les plus écoutés</button><button id="libFavT" hidden>Morceaux favoris</button>
+    <button id="libShuffle" class="main" hidden>Tout au hasard</button><button id="libRandAlb" hidden>Un album au hasard</button><button id="libPls" hidden>Listes de lecture</button><button id="libTop" hidden>Les plus écoutés</button><button id="libFavT" hidden>Morceaux favoris</button>
   </div>
   <div class="libFilters">
     <div class="chips" id="libFilter" role="group" aria-label="Filtrer"><button class="chip" data-f="all" aria-pressed="true">Tout</button><button class="chip" data-f="vinyle" aria-pressed="false">Vinyles</button><button class="chip" data-f="autre" aria-pressed="false">Autres sources</button><button class="chip" data-f="tel" aria-pressed="false">Téléphone</button><button class="chip" data-f="fav" aria-pressed="false">♥ Favoris</button></div>
@@ -487,7 +501,7 @@ label.check{display:flex;flex-direction:row;gap:8px;align-items:center;font-size
 <section id="libDetail" hidden>
   <div class="row"><button id="albBack">← Discothèque</button></div>
   <div class="albHead" id="albHead"></div>
-  <div class="row albActs"><button id="albPlay" class="main">▶ Lire</button><button id="albShuffle">Aléatoire</button><button id="albQueue">+ À la file</button></div>
+  <div class="row albActs"><button id="albPlay" class="main">▶ Lire</button><button id="albShuffle">Aléatoire</button><button id="albQueue">+ À la file</button><button id="albPlAdd">+ Liste</button></div>
   <p class="hint" id="albNoPlay" hidden></p>
   <div id="albComplete" class="albComplete" hidden></div>
   <details id="albManage" class="manage"><summary>Gérer l'album</summary>
@@ -594,7 +608,7 @@ label.check{display:flex;flex-direction:row;gap:8px;align-items:center;font-size
     <button id="fpNext" class="icon" aria-label="Suivant"></button>
     <button id="fpRep" class="icon" aria-pressed="false" aria-label="Répéter"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12V9a3 3 0 0 1 3-3h12M16 3l3 3-3 3M20 12v3a3 3 0 0 1-3 3H5M8 21l-3-3 3-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><i id="fpRepOne" hidden>1</i></button>
   </div>
-  <div class="fpMore"><button id="fpSleep">Minuterie</button><button id="fpAlbum">Voir l'album</button></div>
+  <div class="fpMore"><button id="fpSleep">Minuterie</button><button id="fpPlAdd">+ Liste</button><button id="fpAlbum">Voir l'album</button></div>
 </div>
 <div id="rf" class="rf" role="dialog" aria-label="Enregistrement en cours" hidden>
   <div class="fpTop"><button id="rfMin" class="icon" aria-label="Réduire l'écran d'enregistrement"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 9l7 7 7-7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
@@ -613,12 +627,19 @@ label.check{display:flex;flex-direction:row;gap:8px;align-items:center;font-size
     <div class="rfEndBtns"><button id="rfGo" class="main"></button><button id="rfCheck">Vérifier les coupures</button></div>
   </div>
 </div>
+<div id="plPick" class="qPanel plPick" role="dialog" aria-labelledby="plPickT" hidden>
+  <div class="qBox">
+    <div class="row"><b class="grow" id="plPickT"></b><button id="plPickX">Annuler</button></div>
+    <div id="plPickList" class="plList"></div>
+    <form class="row" id="plPickForm"><input id="plPickNew" class="grow" type="text" placeholder="Nom d'une nouvelle liste" aria-label="Nom d'une nouvelle liste" maxlength="80"><button class="main">Créer</button></form>
+  </div>
+</div>
 <div id="qPanel" class="qPanel" role="dialog" aria-label="File de lecture" hidden>
   <div class="qBox">
     <div class="row" style="justify-content:space-between"><b>File de lecture <span id="qCount" class="mono hint"></span></b><button id="qClose">Fermer</button></div>
     <input id="plSeek" type="range" min="0" max="1" value="0" aria-label="Position dans le morceau"><span id="plTime" class="mono hint">0:00 / 0:00</span>
     <div class="row"><button id="qPrev" aria-label="Précédent">⏮</button><button id="qToggle" class="main">▶ Lecture</button><button id="qNext" aria-label="Suivant">⏭</button></div>
-    <div class="row"><button id="plShuffle" aria-pressed="false">Aléatoire</button><button id="plRepeat" aria-pressed="false">Répéter : non</button><button id="plClear">Vider la file</button></div>
+    <div class="row"><button id="plShuffle" aria-pressed="false">Aléatoire</button><button id="plRepeat" aria-pressed="false">Répéter : non</button><button id="plClear">Vider la file</button><button id="plSaveQ">Enregistrer en liste</button></div>
     <div id="qList" class="qList"></div>
   </div>
 </div>
@@ -1890,6 +1911,7 @@ function renderAlbum(){
         const bq=document.createElement('button');bq.textContent='+ À la file';bq.onclick=()=>{addItems([qItem(r,t)]);toast('Ajouté à la file');row.classList.remove('open')};acts.append(bq)}
       const more=document.createElement('button');more.className='more icon';more.textContent='⋯';more.setAttribute('aria-label','Actions pour '+title);more.setAttribute('aria-expanded','false');
       more.onclick=()=>{const o=row.classList.toggle('open');more.setAttribute('aria-expanded',o)};row.insertBefore(more,row.querySelector('.d').nextSibling);
+      {const bl=document.createElement('button');bl.textContent='+ Liste…';bl.onclick=()=>{row.classList.remove('open');openPlPick([plRef(r,t)])};acts.append(bl)}
       {const bc=document.createElement('button');bc.textContent=r.unsorted?'Classer…':'Modifier…';bc.onclick=()=>trackForm(row,r,t);acts.append(bc)}
       const bd=document.createElement('button');bd.textContent='Supprimer';bd.setAttribute('aria-label','Supprimer '+title);
       bd.onclick=()=>{if(row.querySelector('.delc'))return;const c=document.createElement('div');c.className='delc row';
@@ -2209,7 +2231,8 @@ function selBar(r){
   const bar=$('#albSel');const on=LSEL.key===r.key;bar.hidden=!on;if(!on){bar.innerHTML='';return}
   const n=LSEL.ids.size,all=(r.tracks||[]).length;
   bar.innerHTML=`<div class="row"><b class="grow">${n} sélectionné${n>1?'s':''}</b><button class="sa">${n===all?'Aucun':'Tout'}</button><button class="sx">Terminer</button></div>
-    <div class="row"><button class="main sm" ${n?'':'disabled'}>Ranger dans un album…</button><button class="si" ${n?'':'disabled'}>Identifier en ligne</button><button class="sd" ${n?'':'disabled'}>Supprimer</button></div><div class="sf"></div>`;
+    <div class="row"><button class="main sm" ${n?'':'disabled'}>Ranger dans un album…</button><button class="sp" ${n?'':'disabled'}>+ Liste…</button><button class="si" ${n?'':'disabled'}>Identifier en ligne</button><button class="sd" ${n?'':'disabled'}>Supprimer</button></div><div class="sf"></div>`;
+  bar.querySelector('.sp').onclick=()=>{const refs=(r.tracks||[]).filter(t=>LSEL.ids.has(t.id)).map(t=>plRef(r,t));openPlPick(refs)};
   bar.querySelector('.si').onclick=async()=>{const f=bar.querySelector('.sf'),ids=[...LSEL.ids];bar.querySelectorAll('button').forEach(b=>b.disabled=true);
     const IT=task('Identification en ligne');const ok=await identifyLib(r,ids,m=>{f.innerHTML='<p class="hint">'+esc(m)+'</p>';IT.say(m)}).finally(()=>IT.end());
     toast(ok?`${ok} morceau${ok>1?'x':''} sur ${ids.length} identifié${ok>1?'s':''} et rangé${ok>1?'s':''}`:'Aucun morceau trouvé dans le catalogue : corrige le titre ou l\'artiste à la main.');
@@ -2643,7 +2666,7 @@ function renderLibTools(){
   $('#toolAlb').hidden=!af;$('#toolAlb').textContent=`Albums à découper (${af})`;
   $('#toolChk').hidden=!c;$('#toolChk').textContent=`À vérifier (${c})`;$('#toolDup').hidden=!d;$('#toolDup').textContent=`Doublons (${d})`;
 }
-function openTool(kind){LIBVIEW.tool=kind;$('#libListSec').hidden=true;$('#libDetail').hidden=true;$('#toolSec').hidden=false;window.scrollTo(0,0);kind==='dups'?renderDups():kind==='top'||kind==='favs'?renderTrackList(kind):renderCheck()}
+function openTool(kind){LIBVIEW.tool=kind;$('#toolTitle').hidden=$('#toolBack').parentElement.hidden=kind.startsWith('pl:');$('#libListSec').hidden=true;$('#libDetail').hidden=true;$('#toolSec').hidden=false;window.scrollTo(0,0);kind==='dups'?renderDups():kind==='top'||kind==='favs'?renderTrackList(kind):kind==='pls'?renderPls():kind.startsWith('pl:')?renderPl(kind.slice(3)):renderCheck()}
 function closeTool(){LIBVIEW.tool=null;CHKRUN++;$('#toolSec').hidden=true;renderLib()}
 function scanReport(){const L=LASTSCAN;if(!L)return '';
   return 'Dossiers analysés : '+L.roots.map(r=>`${r.name} (${r.files} fichier${r.files>1?'s':''} audio${r.errors?', '+r.errors+' dossier'+(r.errors>1?'s':'')+' illisible'+(r.errors>1?'s':''):''})`).join(', ')+'.'+(L.unreadable?` ${L.unreadable} fichier${L.unreadable>1?'s':''} sans étiquettes lisibles, ajouté${L.unreadable>1?'s':''} d'après son chemin.`:'')}
@@ -2869,7 +2892,7 @@ function renderLib(){
   $('#libTitle').textContent=ar||'Ma discothèque';$('#artistBar').hidden=!ar;$('#libQuick').hidden=!!ar;
   $('#libStats').textContent=LIB.length?`${na} album${na>1?'s':''}, ${nt} morceau${nt>1?'x':''}`:'';
   $('#libEmpty').hidden=LIB.length>0;$('#libShuffle').hidden=!nt;$('#libRandAlb').hidden=na<2;
-  $('#libTop').hidden=!Object.keys(PLAYS).length;$('#libFavT').hidden=!Object.keys(FAV.t).length;
+  $('#libTop').hidden=!Object.keys(PLAYS).length;$('#libPls').hidden=!nt&&!PLS.length;$('#libFavT').hidden=!Object.keys(FAV.t).length;
   let list=LIB.filter(r=>(!q||norm(r.artist+' '+r.album+' '+(r.tracks||[]).map(t=>t.title+' '+(t.artist||'')).join(' ')).includes(q))
     &&(!ar||norm(r.artist)===norm(ar)||(r.tracks||[]).some(t=>norm(t.artist||'')===norm(ar)))
     &&(f==='all'||(f==='fav'?isFavA(r.key)||(r.tracks||[]).some(t=>isFavT(t.id)):!!(r.sources||{})[f]||(f==='vinyle'&&!r.sources&&r.done))));
@@ -2905,6 +2928,130 @@ function renderTrackList(kind){
   box.append(b);const l=document.createElement('div');l.className='albTracks';box.append(l);trackRows(items,l);
 }
 $('#libTop').onclick=()=>openTool('top');$('#libFavT').onclick=()=>openTool('favs');
+/* ---------- Listes de lecture (gardées sur l'appareil, copiables en .m3u pour les autres lecteurs) ----------
+   Chaque morceau est noté par son identifiant ET par titre/artiste/album : si le fichier est renommé, fusionné ou réimporté
+   sous un autre identifiant, la liste le retrouve par son nom au lieu de le perdre. */
+const PLSK='sillon.playlists';
+const PLS=(()=>{const l=jget(PLSK,[]);return Array.isArray(l)?l.filter(p=>p&&p.id&&Array.isArray(p.items)):[]})();
+const plsSave=()=>jset(PLSK,PLS);
+const plGet=id=>PLS.find(p=>p.id===id);
+const plRef=(r,t)=>({id:t.id,ti:t.title||'',ar:(t.artist&&t.artist!=='Artiste inconnu'?t.artist:r.unsorted?'':r.artist)||'',al:r.unsorted?'':r.album||''});
+function plIndex(){const m=new Map();for(const r of LIB)for(const t of r.tracks||[])m.set(t.id,{r,t});return m}
+function plFind(x,idx){
+  const h=idx.get(x.id);if(h)return h;
+  const ti=norm(x.ti),ar=norm(x.ar);if(!ti)return null;let best=null;
+  for(const r of LIB)for(const t of r.tracks||[]){if(norm(t.title)!==ti)continue;
+    const sa=norm(t.artist||'')===ar||norm(r.artist||'')===ar,sl=norm(r.album||'')===norm(x.al);if(!sa&&!(sl&&!ar))continue;
+    const sc=(sa?2:0)+(sl?1:0);if(!best||sc>best.sc)best={r,t,sc}}
+  if(best)x.id=best.t.id;return best}
+function plResolve(pl){const idx=plIndex(),before=pl.items.map(x=>x.id).join();const rows=pl.items.map(x=>({x,...(plFind(x,idx)||{})}));
+  if(pl.items.map(x=>x.id).join()!==before)plsSave();return rows}
+function plDur(rows){return rows.reduce((a,y)=>a+(y.t?.dur||0),0)}
+const fmtLong=s=>s>=3600?Math.floor(s/3600)+' h '+String(Math.round(s%3600/60)).padStart(2,'0'):Math.max(1,Math.round(s/60))+' min';
+const nMorc=n=>n+' morceau'+(n>1?'x':'');
+function plCreate(name){const pl={id:uid(),name:name.trim().slice(0,80)||'Nouvelle liste',items:[],created:Date.now(),updated:Date.now()};PLS.unshift(pl);plsSave();return pl}
+function plAdd(pl,refs){const have=new Set(pl.items.map(x=>x.id));let n=0;for(const x of refs)if(!have.has(x.id)){pl.items.push(x);have.add(x.id);n++}
+  if(n){pl.updated=Date.now();plsSave();plSync(pl)}return n}
+function plTouch(pl){pl.updated=Date.now();plsSave();plSync(pl)}
+/* choix de la liste : feuille en bas de l'écran */
+let PLPICK=null;
+function openPlPick(refs,label){
+  refs=refs.filter(Boolean);if(!refs.length)return;PLPICK=refs;
+  $('#plPickT').textContent=refs.length>1?`Ajouter ${nMorc(refs.length)} à une liste`:`Ajouter « ${label||refs[0].ti} » à une liste`;
+  const box=$('#plPickList');box.innerHTML='';
+  if(!PLS.length)box.innerHTML='<p class="hint">Aucune liste pour l\'instant : donne un nom à ta première liste.</p>';
+  for(const pl of PLS){const b=plCard(pl);b.onclick=()=>plPicked(pl);box.append(b)}
+  $('#plPickNew').value='';$('#plPick').hidden=false;if(!PLS.length)setTimeout(()=>$('#plPickNew').focus(),50);
+}
+function closePlPick(){$('#plPick').hidden=true;PLPICK=null}
+function plPicked(pl){const refs=PLPICK||[];closePlPick();const n=plAdd(pl,refs);
+  toast(n?`${nMorc(n)} ajouté${n>1?'s':''} à « ${pl.name} »`+(n<refs.length?` (${refs.length-n} déjà dedans)`:''):`Déjà dans « ${pl.name} »`);
+  if(LIBVIEW.tool==='pls'||LIBVIEW.tool==='pl:'+pl.id)openTool(LIBVIEW.tool)}
+$('#plPickX').onclick=closePlPick;$('#plPick').onclick=e=>{if(e.target.id==='plPick')closePlPick()};
+$('#plPickForm').onsubmit=e=>{e.preventDefault();const v=$('#plPickNew').value.trim();if(!v){$('#plPickNew').focus();return}plPicked(plCreate(v))};
+/* carte d'une liste : mosaïque des pochettes, nom, nombre de morceaux, durée */
+function plCard(pl,rows){
+  rows=rows||plResolve(pl);const b=document.createElement('button');b.className='plRow';b.dataset.pl=pl.id;
+  const th=[...new Set(rows.filter(y=>y.r?.thumb).map(y=>y.r.thumb))].slice(0,4);
+  b.innerHTML=`<span class="mos${th.length&&th.length<4?' one':''}">${th.length?(th.length<4?th.slice(0,1):th).map(u=>`<img alt="" src="${u}" loading="lazy">`).join(''):'<span class="ph">♫</span>'}</span>
+    <span class="tx"><b>${esc(pl.name)}</b><small>${nMorc(pl.items.length)}${plDur(rows)?' · '+fmtLong(plDur(rows)):''}</small></span>`;
+  return b}
+function renderPls(){
+  const box=$('#toolBody');box.innerHTML='';$('#toolTitle').textContent='Listes de lecture';
+  const f=document.createElement('form');f.className='row';f.innerHTML='<input class="grow" type="text" placeholder="Nom de la nouvelle liste" aria-label="Nom de la nouvelle liste" maxlength="80"><button class="main">Créer</button>';
+  f.onsubmit=e=>{e.preventDefault();const v=f.firstChild.value.trim();if(!v){f.firstChild.focus();return}const pl=plCreate(v);openTool('pl:'+pl.id)};box.append(f);
+  const l=document.createElement('div');l.className='plList';l.style.marginTop='12px';box.append(l);
+  const nf=Object.keys(FAV.t).length,np=Object.keys(PLAYS).length;
+  for(const [k,name,n,sub] of [['favs','Morceaux favoris',nf,'Mis à jour tout seul'],['top','Les plus écoutés',np,'Mis à jour tout seul']]){if(!n)continue;
+    const b=document.createElement('button');b.className='plRow auto';b.innerHTML=`<span class="mos"><span class="ph">${k==='favs'?'♥':'★'}</span></span><span class="tx"><b>${name}</b><small>${sub}</small></span>`;
+    b.onclick=()=>openTool(k);l.append(b)}
+  for(const pl of PLS){const b=plCard(pl);b.onclick=()=>openTool('pl:'+pl.id);l.append(b)}
+  if(!PLS.length){const p=document.createElement('p');p.className='hint';
+    p.textContent='Crée une liste ici, ou touche « + Liste » sur un album, sur un morceau (menu ⋯) ou dans le lecteur.';box.append(p)}
+}
+function renderPl(id){
+  const pl=plGet(id),box=$('#toolBody');box.innerHTML='';if(!pl){openTool('pls');return}
+  $('#toolTitle').textContent='';const rows=plResolve(pl),ok=rows.filter(y=>y.t&&playable(y.t));
+  const back=document.createElement('button');back.textContent='← Toutes les listes';back.onclick=()=>openTool('pls');box.append(back);
+  const nm=document.createElement('input');nm.className='plName';nm.value=pl.name;nm.maxLength=80;nm.setAttribute('aria-label','Nom de la liste');
+  nm.onchange=async()=>{const v=nm.value.trim();if(!v){nm.value=pl.name;return}if(v===pl.name)return;const old=pl.m3uUri;pl.name=v;plTouch(pl);
+    if(old&&NATIVE)NATIVE.deleteFile({uri:old}).catch(()=>{})};
+  box.append(nm);
+  const st=document.createElement('p');st.className='hint';const gone=rows.filter(y=>!y.t).length;
+  st.textContent=nMorc(pl.items.length)+(plDur(rows)?' · '+fmtLong(plDur(rows)):'')+(gone?` · ${gone} introuvable${gone>1?'s':''}`:'');box.append(st);
+  if(!pl.items.length){const p=document.createElement('p');p.className='hint';p.textContent='Liste vide. Ajoute des morceaux avec « + Liste » sur un album, sur un morceau (menu ⋯) ou dans le lecteur.';box.append(p)}
+  else{const a=document.createElement('div');a.className='row albActs';a.innerHTML='<button class="main">▶ Lire</button><button>Aléatoire</button><button>+ À la file</button>';
+    const items=()=>ok.map(y=>qItem(y.r,y.t));const [b1,b2,b3]=a.children;
+    b1.onclick=()=>{if(!ok.length)return noPlayMsg();playItems(items(),0,false);openFP()};b2.onclick=()=>{if(!ok.length)return noPlayMsg();playItems(items(),0,true);openFP()};
+    b3.onclick=()=>{if(!ok.length)return noPlayMsg();addItems(items());toast(nMorc(ok.length)+' ajouté'+(ok.length>1?'s':'')+' à la file')};box.append(a)}
+  const l=document.createElement('div');l.className='albTracks';box.append(l);
+  rows.forEach((y,i)=>{const row=document.createElement('div');row.className='atrk plTrk'+(y.t?'':' gone');
+    const cur=y.t&&curItem()?.id===y.t.id;if(cur)row.classList.add('now');
+    row.innerHTML=`<button class="grip" aria-label="Glisser pour déplacer">≡</button><span class="tt"><b>${esc(y.t?.title||y.x.ti)}</b><small>${y.t?esc([y.t.artist&&y.t.artist!=='Artiste inconnu'?y.t.artist:y.r.artist,y.r.unsorted?'':y.r.album].filter(Boolean).join(' · ')):'Introuvable dans la discothèque'}</small></span>
+      <span class="d mono">${y.t?.dur?fmtI(y.t.dur):''}</span><button class="x" aria-label="Retirer de la liste">✕</button>`;
+    if(y.t&&playable(y.t)){row.classList.add('canPlay');row.querySelector('.tt').onclick=()=>{playItems(ok.map(z=>qItem(z.r,z.t)),Math.max(0,ok.indexOf(y)),false);openFP()}}
+    row.querySelector('.x').onclick=()=>{pl.items.splice(i,1);plTouch(pl);renderPl(id);toast('Retiré de « '+pl.name+' »')};
+    listDrag(row,i,rows.length,(a,b)=>{const [m]=pl.items.splice(a,1);pl.items.splice(b,0,m);plTouch(pl);renderPl(id)});
+    l.append(row)});
+  const d=document.createElement('details');d.className='manage';d.innerHTML=`<summary>Gérer la liste</summary><div class="row" style="margin-top:8px">${NATIVE?'<button class="ex">Copier pour les autres lecteurs (.m3u)</button>':''}<button class="danger del">Supprimer la liste</button></div><p class="hint m3uh"></p><div class="delc"></div>`;
+  box.append(d);
+  const h=d.querySelector('.m3uh');h.textContent=pl.m3u?'Copie à jour dans Music/Playlists : les autres lecteurs de musique la voient aussi.':NATIVE?'Crée le fichier Music/Playlists/'+safe(pl.name)+'.m3u, tenu à jour à chaque changement, pour retrouver la liste dans les autres lecteurs.':'';
+  d.querySelector('.ex')&&(d.querySelector('.ex').onclick=async()=>{pl.m3u=true;plsSave();const r=await plSync(pl,true);h.textContent=r});
+  if(pl.m3u&&d.querySelector('.ex'))d.querySelector('.ex').textContent='Mettre à jour la copie .m3u';
+  d.querySelector('.del').onclick=()=>{const c=d.querySelector('.delc');c.className='delc row';
+    c.innerHTML=`<span class="hint grow">Supprimer la liste « ${esc(pl.name)} » ? Les morceaux restent dans la discothèque.</span><button class="danger">Supprimer</button><button>Annuler</button>`;
+    const [yb,nb]=c.querySelectorAll('button');nb.onclick=()=>{c.innerHTML=''};
+    yb.onclick=()=>{const i=PLS.indexOf(pl);if(i>=0)PLS.splice(i,1);plsSave();if(pl.m3uUri&&NATIVE)NATIVE.deleteFile({uri:pl.m3uUri}).catch(()=>{});toast('Liste « '+pl.name+' » supprimée');openTool('pls')}};
+}
+/* déplacer une ligne au doigt (poignée ≡) */
+function listDrag(row,i,n,move){const g=row.querySelector('.grip');if(!g)return;let y0=0,h=0;
+  g.addEventListener('pointerdown',e=>{e.preventDefault();y0=e.clientY;h=row.getBoundingClientRect().height+4;g.setPointerCapture?.(e.pointerId);row.classList.add('drag')});
+  g.addEventListener('pointermove',e=>{if(row.classList.contains('drag'))row.style.transform=`translateY(${e.clientY-y0}px)`});
+  const end=e=>{if(!row.classList.contains('drag'))return;row.classList.remove('drag');row.style.transform='';const d=Math.round((e.clientY-y0)/h);const j=Math.max(0,Math.min(n-1,i+d));if(j!==i)move(i,j)};
+  g.addEventListener('pointerup',end);g.addEventListener('pointercancel',e=>{row.classList.remove('drag');row.style.transform=''})}
+/* copie .m3u dans Music/Playlists : chemins relatifs, lisibles par les autres lecteurs */
+const PLSYNC=new Map();
+function plSync(pl,now){if(!pl.m3u||!NATIVE)return Promise.resolve('');
+  clearTimeout(PLSYNC.get(pl.id));
+  if(!now)return new Promise(res=>PLSYNC.set(pl.id,setTimeout(()=>plWrite(pl).then(res),1500)));
+  return plWrite(pl)}
+async function plWrite(pl){
+  try{if(!FOLDER.uri)return 'Choisis d\'abord le dossier Music dans les Réglages.';
+    const rows=plResolve(pl);let skip=0;const lines=['#EXTM3U','#PLAYLIST:'+pl.name];
+    for(const y of rows){if(!y.t){skip++;continue}let rel='';
+      if(hasDocId(y.t)){if(inRoot(y.t))rel=docIdOf(y.t.uri).slice(underRoot('').length).replace(/^\/+/,'')}
+      else if(y.t.file)rel=((y.t.dir||dirOf(y.r))+'/'+y.t.file);
+      if(!rel){skip++;continue}
+      lines.push(`#EXTINF:${y.t.dur||-1},${[y.t.artist&&y.t.artist!=='Artiste inconnu'?y.t.artist:y.r.artist,y.t.title].filter(Boolean).join(' - ')}`,'../'+rel)}
+    const uri=await writeNative('Playlists/'+safe(pl.name)+'.m3u',new Blob([lines.join('\n')+'\n'],{type:'audio/x-mpegurl'}));
+    if(uri&&uri!==pl.m3uUri){pl.m3uUri=uri;plsSave()}
+    return `Copie enregistrée dans Music/Playlists/${safe(pl.name)}.m3u`+(skip?` (${skip} morceau${skip>1?'x':''} hors du dossier Music ou introuvable${skip>1?'s':''}, non inclus)`:'')+'.';
+  }catch(e){return 'Copie impossible : '+(e.message||e)+'.'}}
+$('#libPls').onclick=()=>openTool('pls');
+$('#fpPlAdd').onclick=()=>{const it=curItem();if(!it)return;const h=plIndex().get(it.id);if(h)openPlPick([plRef(h.r,h.t)])};
+$('#albPlAdd').onclick=()=>{const r=LIB.find(x=>x.key===LIBVIEW.key);if(!r)return;openPlPick((r.tracks||[]).slice().sort((a,b)=>(a.no||0)-(b.no||0)).map(t=>plRef(r,t)),r.album)};
+$('#plSaveQ').onclick=()=>{const idx=plIndex(),refs=PL.order.map(i=>PL.q[i]).map(it=>idx.get(it.id)).filter(Boolean).map(h=>plRef(h.r,h.t));
+  if(!refs.length)return toast('La file est vide.');openPlPick(refs)};
 /* ---------- Lecteur plein écran ---------- */
 const COVERURL=new Map();
 function coverUrl(key){const r=LIB.find(x=>x.key===key);if(!r?.cover)return r?.thumb||'';if(!COVERURL.has(key))COVERURL.set(key,URL.createObjectURL(new Blob([r.cover],{type:r.coverMime||'image/jpeg'})));return COVERURL.get(key)}
@@ -2983,7 +3130,7 @@ function openFromLib(r,want){
 const b64=u8=>{let s='';for(let i=0;i<u8.length;i+=32768)s+=String.fromCharCode.apply(null,u8.subarray(i,i+32768));return btoa(s)};
 const unb64=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
 $('#libExport').onclick=async()=>{
-  const data={app:'Sillon',version:1,date:new Date().toISOString(),albums:LIB.map(r=>({...r,cover:r.cover?b64(r.cover):null}))};
+  const data={app:'Sillon',version:1,date:new Date().toISOString(),albums:LIB.map(r=>({...r,cover:r.cover?b64(r.cover):null})),playlists:PLS,favs:FAV,plays:PLAYS};
   const blob=new Blob([JSON.stringify(data)],{type:'application/json'});
   await saveOut('Sillon - sauvegarde discothèque '+new Date().toISOString().slice(0,10)+'.json',blob,true);
   $('#libMsg').textContent='Sauvegarde créée ('+LIB.length+' albums). Garde-la dans ton Drive ou sur ton PC.';
@@ -2994,7 +3141,13 @@ $('#libImport').onchange=async e=>{
   try{const d=JSON.parse(await f.text());if(!Array.isArray(d.albums))throw new Error();
     let n=0;for(const r of d.albums){if(!r.key)continue;const old=LIB.find(x=>x.key===r.key);
       await libPut({...old,...r,done:{...(old?.done||{}),...(r.done||{})},cover:r.cover?unb64(r.cover):old?.cover});n++}
-    await libLoad();renderLib();$('#libMsg').textContent=n+' albums restaurés.';
+    /* listes, favoris et écoutes : fusionnés, rien de ce qui est sur le téléphone n'est écrasé */
+    let np=0;for(const pl of Array.isArray(d.playlists)?d.playlists:[]){if(!pl?.id||!Array.isArray(pl.items))continue;const o=plGet(pl.id);
+      if(o){const h=new Set(o.items.map(x=>x.id));for(const x of pl.items)if(!h.has(x.id))o.items.push(x)}else{PLS.push({...pl,m3uUri:null});np++}}
+    plsSave();
+    if(d.favs){Object.assign(FAV.a,d.favs.a||{});Object.assign(FAV.t,d.favs.t||{});jset(FAVK,FAV)}
+    if(d.plays)for(const [k,v] of Object.entries(d.plays))if(v?.n>(PLAYS[k]?.n||0))PLAYS[k]=v;jset(PLAYK,PLAYS);
+    await libLoad();renderLib();$('#libMsg').textContent=n+' albums restaurés'+(np?`, ${np} liste${np>1?'s':''} de lecture`:'')+'.';
   }catch(err){$('#libMsg').textContent='Ce fichier n\'est pas une sauvegarde Sillon.'}
 };
 libLoad();
