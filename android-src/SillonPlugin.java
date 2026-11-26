@@ -452,6 +452,83 @@ public class SillonPlugin extends Plugin {
         call.resolve();
     }
 
+    /* Enregistrement écrit au fil de l'eau dans le cache (son 16 bits stéréo) : rien n'est perdu si l'appli est fermée,
+       et la conversion se fait ensuite par Android, écran éteint compris. Les blocs arrivent dans l'ordre (un appel à la fois). */
+    private final Object pcmLock = new Object();
+    @PluginMethod
+    public void appendAlbumPcm(PluginCall call) {
+        final String data = call.getString("data", "");
+        final boolean reset = Boolean.TRUE.equals(call.getBoolean("reset", false));
+        final java.io.File f = albumPcm(call);
+        new Thread(() -> {
+            synchronized (pcmLock) {
+                try {
+                    byte[] b = Base64.decode(data, Base64.DEFAULT);
+                    try (java.io.FileOutputStream os = new java.io.FileOutputStream(f, !reset)) { os.write(b); }
+                    JSObject o = new JSObject();
+                    o.put("size", f.length());
+                    call.resolve(o);
+                } catch (Exception e) {
+                    call.reject(e.getMessage() != null ? e.getMessage() : "Écriture impossible");
+                }
+            }
+        }).start();
+    }
+
+    @PluginMethod
+    public void albumInfo(PluginCall call) {
+        java.io.File f = albumPcm(call);
+        JSObject o = new JSObject();
+        o.put("exists", f.exists());
+        o.put("size", f.exists() ? f.length() : 0);
+        o.put("modified", f.exists() ? f.lastModified() : 0);
+        call.resolve(o);
+    }
+
+    /* son du téléphone : le fichier de capture devient un « album » que la conversion Android lit directement */
+    @PluginMethod
+    public void captureToAlbum(PluginCall call) {
+        java.io.File src = CaptureService.captureFile(getContext()), dst = albumPcm(call);
+        try {
+            if (!src.exists() || src.length() == 0) throw new Exception("Aucun son capturé");
+            if (dst.exists()) dst.delete();
+            if (!src.renameTo(dst)) {
+                try (java.io.FileInputStream in = new java.io.FileInputStream(src); java.io.FileOutputStream os = new java.io.FileOutputStream(dst)) {
+                    byte[] b = new byte[1 << 16];
+                    int n;
+                    while ((n = in.read(b)) > 0) os.write(b, 0, n);
+                }
+                src.delete();
+            }
+            JSObject o = new JSObject();
+            o.put("size", dst.length());
+            call.resolve(o);
+        } catch (Exception e) {
+            call.reject(e.getMessage() != null ? e.getMessage() : "Copie impossible");
+        }
+    }
+
+    /* fichiers de son en attente dans le cache (pour les récupérer, ou les effacer s'ils ne servent plus) */
+    @PluginMethod
+    public void albumList(PluginCall call) {
+        JSArray a = new JSArray();
+        java.io.File[] fs = getContext().getCacheDir().listFiles();
+        if (fs != null) for (java.io.File f : fs) {
+            String n = f.getName();
+            if (!n.startsWith("album-") || !n.endsWith(".pcm")) continue;
+            JSObject o = new JSObject();
+            o.put("id", n.substring(6, n.length() - 4));
+            o.put("size", f.length());
+            o.put("modified", f.lastModified());
+            a.put(o);
+        }
+        java.io.File cap = CaptureService.captureFile(getContext());
+        JSObject res = new JSObject();
+        res.put("albums", a);
+        res.put("capture", cap.exists() ? cap.length() : 0);
+        call.resolve(res);
+    }
+
     /* Un fichier entier (FLAC, M4A…) → MP3 320 kbit/s dans Music, directement */
     @PluginMethod
     public void convertAudio(PluginCall call) {

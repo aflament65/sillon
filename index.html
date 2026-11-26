@@ -221,6 +221,7 @@ body{padding-bottom:calc(var(--tabH) + env(safe-area-inset-bottom,0px))}
 header{padding-block:2px}header h1{font-size:1.5rem}.logo{width:38px;height:38px}
 /* discothèque : grille de pochettes */
 .libHead{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 12px}.libHead h2{font-size:1.4rem}
+.recov{border:1px solid var(--accent);border-radius:10px;padding:12px;margin-bottom:12px;display:grid;gap:6px}.recov p{margin:0}
 .plPick{z-index:62}
 .plList{display:grid;gap:6px}
 .plRow{display:flex;align-items:center;gap:12px;width:100%;text-align:left;padding:8px;border-radius:10px;background:var(--surface);border:1px solid var(--line)}
@@ -410,6 +411,7 @@ label.check{display:flex;flex-direction:row;gap:8px;align-items:center;font-size
 
 <!-- 2. ENREGISTREMENT -->
 <section id="s2">
+  <div id="recovBox" hidden></div>
   <h2><span class="n">02</span>Enregistrement <span id="recSide" class="tag" hidden></span></h2>
   <p class="hint help" id="telHint" hidden>Sillon enregistre ce que joue le téléphone, en numérique, sans câble. Touche « Enregistrer », accepte l'avertissement d'Android, puis lance la lecture dans l'autre appli et reviens ici. Le volume du téléphone n'a pas d'effet. Les applis de streaming qui interdisent la capture (souvent YouTube, Spotify, Netflix) donnent du silence.</p>
   <div class="row" id="npRow" hidden><span class="hint grow" id="npState"></span><button id="npBtn">Activer</button></div>
@@ -1247,13 +1249,88 @@ async function listDevices(){
     sel.value=cur;}catch(e){}
 }
 navigator.mediaDevices?.addEventListener?.('devicechange',listDevices);
-function clearAudio(){ED.t0=ED.t1=0;if(S.file){const id=S.file.id;S.file=null;if(!JOBS.some(j=>j.file?.id===id&&(j.status==='attente'||j.status==='conversion')))NATIVE?.freeAlbum?.({id}).catch(()=>{})}const sb=document.getElementById('sortBar');if(sb){sb.dataset.built='';sb.innerHTML='';sb.hidden=true}IDRUN++;NPRUN++;S.np=[];Object.assign(S,{chunks:[],starts:[],frames:0,env:[],acc:0,cnt:0,bounds:[],bounds0:[],titles:[],labels:[],segMeta:[],sel:-1,cursor:null})}
+function clearAudio(){ED.t0=ED.t1=0;if(S.recId){const id=S.recId;S.recId=null;if(!JOBS.some(j=>j.nat?.id===id&&j.status!=='fini'))natFree(id)}REC.nat=null;if(S.file){const id=S.file.id;S.file=null;if(!JOBS.some(j=>j.file?.id===id&&(j.status==='attente'||j.status==='conversion')))NATIVE?.freeAlbum?.({id}).catch(()=>{})}const sb=document.getElementById('sortBar');if(sb){sb.dataset.built='';sb.innerHTML='';sb.hidden=true}IDRUN++;NPRUN++;S.np=[];Object.assign(S,{chunks:[],starts:[],frames:0,env:[],acc:0,cnt:0,bounds:[],bounds0:[],titles:[],labels:[],segMeta:[],sel:-1,cursor:null})}
 function pushAudio(L,R){
   const n=L.length,a=new Int16Array(n*2);let pk=0;
   for(let k=0;k<n;k++){const l=L[k],r=R[k];a[2*k]=l<-1?-32768:l>1?32767:l*32767;a[2*k+1]=r<-1?-32768:r>1?32767:r*32767;
     const al=Math.abs(l),ar=Math.abs(r);if(al>pk)pk=al;if(ar>pk)pk=ar;
     S.acc+=(l*l+r*r)/2; if(++S.cnt===HOP){S.env.push(10*Math.log10(S.acc/HOP+1e-12));S.acc=0;S.cnt=0}}
-  S.starts.push(S.frames);S.chunks.push(a);S.frames+=n; return pk;
+  S.starts.push(S.frames);S.chunks.push(a);S.frames+=n; natPush(a); return pk;
+}
+/* ---------- Enregistrement écrit au fil de l'eau sur le téléphone ----------
+   Chaque seconde de son part dans un fichier d'Android : si l'appli est fermée en pleine face, rien n'est perdu,
+   et à la validation c'est Android qui découpe et encode les MP3 (écran éteint compris). */
+function natStart(){if(!NATIVE?.appendAlbumPcm||!NATIVE?.encodeAlbum)return null;
+  REC.nat={id:'rec'+uid(),q:[],n:0,p:Promise.resolve(),fail:false,first:true};S.recId=REC.nat.id;REC.at=Date.now();recovSnap(S.recId,'rec');return REC.nat}
+function natPush(a){const N=REC.nat;if(!N||N.fail||!S.recording)return;N.q.push(a);N.n+=a.length;if(N.n>=SR*2)natFlush()}
+function natFlush(){const N=REC.nat;if(!N||!N.q.length)return N?.p;
+  const q=N.q;N.q=[];N.n=0;const first=N.first;N.first=false;
+  let len=0;for(const a of q)len+=a.length;const all=new Int16Array(len);let o=0;for(const a of q){all.set(a,o);o+=a.length}
+  const data=b64(new Uint8Array(all.buffer));
+  N.p=N.p.then(()=>N.fail?null:NATIVE.appendAlbumPcm({id:N.id,data,reset:first})).catch(()=>{N.fail=true});
+  return N.p}
+function natFree(id){if(!id)return;NATIVE?.freeAlbum?.({id}).catch(()=>{});recovDrop(id)}
+/* mémo de l'enregistrement en cours : de quoi le retrouver avec son album, sa face et ses coupures */
+const RECOVK='sillon.recov';
+const recovAll=()=>{const l=jget(RECOVK,[]);return Array.isArray(l)?l:[]};
+function recovDrop(id){jset(RECOVK,recovAll().filter(x=>x.id!==id))}
+function recovSnap(id,state){if(!id)return;const m=meta(),old=recovAll().find(x=>x.id===id);
+  const e={id,state,mode:S.mode,at:old?.at||REC.at||Date.now(),artist:$('#mArtist').value.trim(),album:$('#mAlbum').value.trim(),year:$('#mYear').value.trim(),
+    sides:S.sides,side:S.sides[S.side]?.name||'',range:S.range,src:S.src};
+  if(state==='job'){e.bounds=S.bounds;e.titles=S.titles;e.labels=S.labels;
+    try{e.segMeta=JSON.parse(JSON.stringify(S.segMeta||[],(k,v)=>k==='cover'||k==='art'||k==='img'?undefined:v))}catch(x){}}
+  if(S.cover&&S.cover.length<400000){e.cover=b64(S.cover);e.coverMime=S.coverMime}
+  const l=recovAll().filter(x=>x.id!==id);l.push(e);
+  try{localStorage.setItem(RECOVK,JSON.stringify(l))}catch(x){delete e.cover;jset(RECOVK,l)}}
+async function recovCheck(){
+  if(!NATIVE?.albumList)return;let l;try{l=await NATIVE.albumList()}catch(e){return}
+  const files=new Map((l.albums||[]).map(a=>[a.id,a])),R=recovAll();
+  const live=new Set(JOBS.map(j=>(j.nat||j.file)?.id).filter(Boolean));if(S.recId)live.add(S.recId);if(S.file)live.add(S.file.id);if(S.telId)live.add(S.telId);
+  /* fichiers de son qui ne servent plus à rien : effacés (ils peuvent peser des centaines de Mo) */
+  for(const a of l.albums||[])if(!live.has(a.id)&&!R.some(e=>e.id===a.id))NATIVE.freeAlbum({id:a.id}).catch(()=>{});
+  const sizeOf=e=>files.get(e.id)?.size||(e.mode==='tel'&&e.state==='rec'?l.capture||0:0);
+  for(const e of R)if(!live.has(e.id)&&sizeOf(e)<SR*4*5){if(files.has(e.id))NATIVE.freeAlbum({id:e.id}).catch(()=>{});recovDrop(e.id)}
+  RECOVL=recovAll().filter(e=>!live.has(e.id)).map(e=>({...e,size:sizeOf(e)}));renderRecov();
+}
+let RECOVL=[];
+function renderRecov(){const box=$('#recovBox');box.innerHTML='';box.hidden=!RECOVL.length;
+  for(const e of RECOVL){const d=document.createElement('div');d.className='recov';
+    const when=new Date(e.at).toLocaleString('fr-FR',{weekday:'long',day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'});
+    const what=e.mode==='tel'?'Son du téléphone':e.mode==='autre'&&!e.album?'Autre source':[e.side,e.album?'« '+e.album+' »':''].filter(Boolean).join(' de ')||'Enregistrement';
+    d.innerHTML=`<b>Enregistrement à récupérer</b><p class="hint">${esc(what)}${e.artist&&e.album?' · '+esc(e.artist):''} · ${fmtI(e.size/(SR*4))} · ${esc(when)}. ${e.state==='job'?'Validé mais pas encore converti en MP3.':'L\'appli a été fermée avant la validation.'}</p>
+      <div class="row"><button class="main go">Récupérer</button><button class="no">Effacer</button></div>`;
+    d.querySelector('.go').onclick=()=>recovRestore(e);
+    d.querySelector('.no').onclick=ev=>{const b=ev.currentTarget;if(b.dataset.sure){natFree(e.id);RECOVL=RECOVL.filter(x=>x.id!==e.id);renderRecov();toast('Enregistrement effacé');return}
+      b.dataset.sure='1';b.className='danger no';b.textContent='Effacer définitivement'};
+    box.append(d)}}
+async function recovRestore(e){
+  if(S.recording)return toast('Arrête d\'abord l\'enregistrement en cours.');
+  const RT=task('Récupération de l\'enregistrement'),hint=$('#recHint');
+  try{
+    showView('rec');if(S.mode!==e.mode)setMode(e.mode);else{clearAudio();hideEdit()}
+    let info=await NATIVE.albumInfo({id:e.id});
+    if(!info.size&&e.mode==='tel'){await NATIVE.captureToAlbum({id:e.id});info=await NATIVE.albumInfo({id:e.id})}
+    if(!info.size)throw new Error('le fichier de son n\'existe plus');
+    if(Array.isArray(e.sides)&&e.sides.length){S.sides=e.sides;S.all=S.sides.flatMap(x=>x.tracks);S.side=Math.max(0,S.sides.findIndex(x=>x.name===e.side));S.range=e.range||null;S.src=e.src||null;$('#album').hidden=false}
+    $('#mArtist').value=e.artist||'';$('#mAlbum').value=e.album||'';$('#mYear').value=e.year||'';
+    if(e.cover){S.cover=unb64(e.cover);S.coverMime=e.coverMime||'image/jpeg';$('#cover').src=URL.createObjectURL(new Blob([S.cover],{type:S.coverMime}))}
+    renderSides();pathHint();
+    Object.assign(S,{chunks:[],starts:[],frames:0,env:[],acc:0,cnt:0});LV.maxPk=0;LV.clips=0;
+    const dur=info.size/(SR*4);
+    for(let a=0;a<dur;a+=30){const r=await NATIVE.readAlbumPcm({id:e.id,rate:SR,start:a,end:Math.min(dur,a+30)});const u=unb64(r.data||'');const use=u.byteLength&~3;
+      if(use)pushI16(new Int16Array(u.buffer,0,use>>1));const m=`Récupération de l'enregistrement… ${Math.round(Math.min(1,(a+30)/dur)*100)} %`;hint.textContent=m;RT.step(Math.min(dur,a+30),dur,m);await tick()}
+    S.recId=e.id;REC.nat={id:e.id,q:[],n:0,p:Promise.resolve(),fail:false,first:false};
+    $('#clock').textContent=fmtI(S.frames/SR);
+    RECOVL=RECOVL.filter(x=>x.id!==e.id);renderRecov();
+    analyze();
+    if(Array.isArray(e.bounds)&&e.bounds.length>1&&e.bounds.at(-1)<=S.frames/SR+1){const n=e.bounds.length-1;
+      S.bounds=e.bounds.slice();S.bounds0=S.bounds.slice();S.titles=(e.titles||[]).slice(0,n);S.labels=(e.labels||[]).slice(0,n);
+      while(S.titles.length<n)S.titles.push('Piste '+(S.titles.length+1));while(S.labels.length<n)S.labels.push(String(S.labels.length+1));
+      S.segMeta=Array.isArray(e.segMeta)&&e.segMeta.length===n?e.segMeta:Array.from({length:n},()=>({}));S.edited=true;renderTracks();drawWave()}
+    hint.textContent=`Enregistrement récupéré (${fmtI(S.frames/SR)}).${e.state==='job'?' Tes coupures et tes titres sont revenus :':''} Vérifie les coupures puis valide.`;
+    $('#s3').scrollIntoView({behavior:'smooth'});
+  }catch(err){hint.textContent='Récupération impossible : '+(err.message||err)+'.'}
+  finally{RT.end()}
 }
 function getFrames(a,b){
   a=Math.max(0,a);b=Math.min(S.frames,b);const n=Math.max(0,b-a),L=new Float32Array(n),R=new Float32Array(n);
@@ -1352,6 +1429,7 @@ function telBlock(b64){
     if(l>32767)l-=65536;if(r>32767)r-=65536;L[k]=l/32768;R[k]=r/32768}
   if(S.recording&&n)lvlFeed(L,R); /* vumètre seulement : le son est enregistré par Android dans un fichier */
 }
+function telMark(){if(!NATIVE?.captureToAlbum)return;S.telId='rec'+uid();REC.at=Date.now();recovSnap(S.telId,'rec')}
 async function telCleanup(){for(const h of telSubs)try{await h.remove()}catch(e){}telSubs=[]}
 function bubbleIdle(){S.armed=false;$('#bubbleBtn').textContent='Bouton flottant'}
 async function startTel(bubble){
@@ -1366,7 +1444,7 @@ async function startTel(bubble){
   telSubs.push(await NATIVE.addListener('captureArmed',()=>{S.armed=true;$('#bubbleBtn').textContent='Retirer le bouton flottant';
     $('#recHint').textContent='Bouton flottant prêt. Passe dans l\'appli source, touche le bouton rond pour démarrer, lance la lecture, puis retouche-le pour arrêter : Sillon reviendra tout seul.'}));
   telSubs.push(await NATIVE.addListener('captureStarted',()=>{if(bubble&&!S.recording){const keepNp=NP_LAST?[{...NP_LAST,t:0}]:[];clearAudio();S.np=keepNp;lvlReset();REC.liveMed=-40;REC.last=0;
-    recStarted('Enregistrement lancé depuis le bouton flottant… Retouche le bouton pour arrêter.')}}));
+    telMark();recStarted('Enregistrement lancé depuis le bouton flottant… Retouche le bouton pour arrêter.')}}));
   telSubs.push(await NATIVE.addListener('captureStopped',e=>{
     const wasArmed=S.armed;bubbleIdle();
     if(S.recording){stopRec(false);if(e.reason!=='bouton flottant')$('#recHint').textContent='Capture arrêtée : '+(e.reason||'')+'. '+$('#recHint').textContent}
@@ -1374,7 +1452,7 @@ async function startTel(bubble){
   await npStart();
   try{await NATIVE.startCapture({bubble:!!bubble})}
   catch(e){await telCleanup();bubbleIdle();$('#recHint').textContent=e?.code==='DENIED'?'Capture refusée. Pour enregistrer le son du téléphone, accepte l\'avertissement d\'Android (et l\'accès au micro).':e?.code==='UNSUPPORTED'?e.message+'.':'Capture impossible : '+(e?.message||e)+'.';return}
-  if(!bubble)recStarted('Enregistrement du son du téléphone… Lance la lecture dans l\'autre appli. Si le vumètre reste vide, cette appli interdit la capture. Reviens ici pour arrêter.');
+  if(!bubble)telMark(),recStarted('Enregistrement du son du téléphone… Lance la lecture dans l\'autre appli. Si le vumètre reste vide, cette appli interdit la capture. Reviens ici pour arrêter.');
 }
 /* retour des réglages Android : on lance le bouton flottant si Sillon a reçu l'autorisation */
 document.addEventListener('visibilitychange',async()=>{
@@ -1403,7 +1481,7 @@ async function startRec(opt={}){
   const c=getCtx(); await c.resume();
   src=c.createMediaStreamSource(stream); proc=c.createScriptProcessor(4096,2,2);
   REC.liveMed=-40; REC.last=0;
-  Object.assign(REC,{armed:!!(opt.arm||$('#autostart').checked),pre:[],base:-99,armN:0,hits:0});
+  Object.assign(REC,{armed:!!(opt.arm||$('#autostart').checked),pre:[],base:-99,armN:0,hits:0});natStart();
   proc.onaudioprocess=e=>{const ib=e.inputBuffer;onBlock(ib.getChannelData(0),ib.numberOfChannels>1?ib.getChannelData(1):ib.getChannelData(0))};
   src.connect(proc);proc.connect(c.destination);
   recStarted(REC.armed?(S.mode==='vinyle'?(opt.msg||'En attente du son… Pose le diamant : l\'enregistrement démarrera tout seul.'):'En attente du son… Lance la lecture : l\'enregistrement démarrera tout seul.'):undefined);
@@ -1418,7 +1496,8 @@ function stopRec(auto){
   $('#recBtn').textContent='Enregistrer';$('#recBtn').className='main';
   $('#meter').firstElementChild.style.width='0';
   if(tel){rfHide();finishTel(auto);return}
-  if(wasArmed&&!S.frames){rfHide();$('#recHint').textContent='Attente annulée : rien n\'a été enregistré.';return}
+  natFlush();if(S.recId)recovSnap(S.recId,'rec');
+  if(wasArmed&&!S.frames){rfHide();if(S.recId){natFree(S.recId);S.recId=null;REC.nat=null}$('#recHint').textContent='Attente annulée : rien n\'a été enregistré.';return}
   if(auto)rfAlert();
   recBilan(auto);
   if(S.mode==='vinyle'&&S.frames>SR*5&&S.bounds.length>1)rfEnd(auto);else rfHide();
@@ -1517,6 +1596,8 @@ async function finishTel0(auto,RT){
       if(use)pushI16(new Int16Array(b.buffer.slice(b.byteOffset,b.byteOffset+use)));
       off+=b.length;eof=r.eof||!b.length;hint.textContent=`Récupération de l'enregistrement… ${size?Math.min(100,Math.round(off/size*100)):100} %`;RT.say(hint.textContent);await tick()}
   }catch(e){hint.textContent='Récupération impossible : '+(e.message||e)+'.';return}
+  /* le fichier de capture devient le son de cette face, que la conversion Android lira directement */
+  if(S.telId){const id=S.telId;S.telId=null;try{await NATIVE.captureToAlbum({id});S.recId=id;REC.nat={id,q:[],n:0,p:Promise.resolve(),fail:false,first:false};recovSnap(id,'rec')}catch(e){recovDrop(id)}}
   S.np=np0?[np0]:[];
   for(const m of marks){
     const back=m.pos>0&&m.pos<10000?m.pos/1000:0;
@@ -3150,7 +3231,7 @@ $('#libImport').onchange=async e=>{
     await libLoad();renderLib();$('#libMsg').textContent=n+' albums restaurés'+(np?`, ${np} liste${np>1?'s':''} de lecture`:'')+'.';
   }catch(err){$('#libMsg').textContent='Ce fichier n\'est pas une sauvegarde Sillon.'}
 };
-libLoad();
+libLoad();setTimeout(recovCheck,1500);
 
 /* ---------- Infos « en cours de lecture » de l'appli source (son du téléphone) ---------- */
 let NP_LAST=null,npSub=null;
@@ -3531,20 +3612,22 @@ async function filePlay(a,b){stopPlay();const {pcm,rate}=await fileRange(a,Math.
   player=c.createBufferSource();player.buffer=buf;player.connect(c.destination);player.start();PLAYAT={a,b:a+n/rate,start:c.currentTime};animPlay()}
 /* conversion des morceaux d'un album-fichier, entièrement par Android */
 async function runFileJob(job){
+  const src=job.file||job.nat;
   const T=task('Conversion en MP3 · '+(job.meta.album||'album'));
   const off=AUDIOP.on(d=>{if(d.op==='encode'){job.p=d.p;job.done=Math.floor(d.p*job.tracks.length);updJob(job);T.step(d.p*job.tracks.length,job.tracks.length,`Morceau ${Math.min(job.tracks.length,d.track+1)}/${job.tracks.length} « ${job.tracks[d.track]?.title||''} »`)}});
   try{
     const ctx={names:new Map()};const list=[];
     for(const t of job.tracks){const name=await freeName(ctx,t.dir,fileNameOf(t));t.file=name;list.push({start:t.sec0,end:t.sec1,path:t.dir+'/'+name,tag:b64(t.id3)})}
     for(const f of job.folders)try{await writeNative(f.dir+'/folder.jpg',new Blob([f.cover],{type:f.coverMime}))}catch(e){}
-    const r=await NATIVE.encodeAlbum({id:job.file.id,rate:job.file.rate,tracks:list,gain:job.gain,label:'Conversion en MP3 · '+(job.meta.album||'')});
+    const r=await NATIVE.encodeAlbum({id:src.id,rate:src.rate,tracks:list,gain:job.gain,label:'Conversion en MP3 · '+(job.meta.album||'')});
     const errs=[];(r.tracks||[]).forEach((x,i)=>{const t=job.tracks[i];if(x.uri){t.uri=x.uri;t.done=true;t.size=x.size}else errs.push(t.title+' : '+x.error)});
     job.tracks=job.tracks.filter(t=>t.done);job.done=job.tracks.length;job.p=1;
     if(!job.tracks.length)throw new Error(errs[0]||'aucun morceau converti');
     if(errs.length)job.msg=errs.length+' morceau'+(errs.length>1?'x':'')+' non converti'+(errs.length>1?'s':'')+' : '+errs.join(' ; ');
-    await saveJobToLib(job);await NATIVE.freeAlbum({id:job.file.id}).catch(()=>{});job.status='fini';
+    await saveJobToLib(job);await NATIVE.freeAlbum({id:src.id}).catch(()=>{});if(job.nat)recovDrop(src.id);job.status='fini';
   }catch(e){job.status='erreur';job.msg=e.message||String(e)}
-  finally{off();T.end();if(job.status!=='fini')NATIVE.freeAlbum({id:job.file.id}).catch(()=>{});jobRunning=false;renderJobs();renderSides();runJobs()}
+  /* un enregistrement en échec garde son son : on peut réessayer, même après avoir fermé l'appli */
+  finally{off();T.end();if(job.status!=='fini'&&!job.nat)NATIVE.freeAlbum({id:src.id}).catch(()=>{});jobRunning=false;renderJobs();renderSides();runJobs()}
 }
 /* événements de progression envoyés par Android */
 const AUDIOP={fns:new Set(),on(f){this.fns.add(f);return()=>this.fns.delete(f)}};
@@ -3623,17 +3706,23 @@ async function validateSide(){
   if(NPENR&&freeMode()){$('#validate').disabled=true;$('#validate').textContent='Recherche des pochettes…';
     await Promise.race([NPENR,wait(10000)]);$('#validate').disabled=false;updSideTags()}
   if(NATIVE&&!FOLDER.uri&&!(await chooseFolder()))return;
-  stopPlay();
+  stopPlay();if(RF.open){rfHide();rfEndHide()}
   const m=meta(),side=S.sides[S.side],label=sideLabel(),tr=sideTracks(),total=totalNo();
   const a0=Math.round(S.bounds[0]*SR),a1=Math.round(S.bounds[N]*SR),len=a1-a0,FILE=S.file;
-  const pcm=FILE?new Int16Array(0):new Int16Array(len*2);
+  /* enregistrement déjà écrit sur le téléphone : Android le découpe et l'encode lui-même, sans recopie */
+  const NAT=!FILE&&S.recId&&REC.nat&&!REC.nat.fail?REC.nat:null;
+  if(NAT){$('#validate').disabled=true;await natFlush();$('#validate').disabled=false;if(NAT.fail)return validateSide()}
+  const pcm=FILE||NAT?new Int16Array(0):new Int16Array(len*2);
   /* copie des morceaux d'enregistrement, libérés au fur et à mesure pour limiter la mémoire */
-  let o=0;for(let c=0;!FILE&&c<S.chunks.length&&o<len;c++){const ch=S.chunks[c],st=S.starts[c],cl=ch.length/2;
+  let peak=FILE?FILE.peak:0;
+  if(NAT)for(let c=0;c<S.chunks.length;c++){const ch=S.chunks[c],st=S.starts[c],cl=ch.length/2;if(!ch||st+cl<=a0||st>=a1)continue;
+    const from=Math.max(0,a0-st),to=Math.min(cl,a1-st);for(let k=from*2;k<to*2;k++){const v=ch[k]<0?-ch[k]:ch[k];if(v>peak)peak=v}}
+  let o=0;for(let c=0;!FILE&&!NAT&&c<S.chunks.length&&o<len;c++){const ch=S.chunks[c],st=S.starts[c],cl=ch.length/2;
     if(st+cl<=a0){S.chunks[c]=null;continue}
     const from=Math.max(0,a0-st),to=Math.min(cl,a1-st);if(to>from){pcm.set(ch.subarray(from*2,to*2),o*2);o+=to-from}
     S.chunks[c]=null}
   /* remontée du volume si l'enregistrement est faible (crête visée : −1 dB, +18 dB au plus) */
-  let peak=FILE?FILE.peak:0;for(let k=0;k<pcm.length;k+=2){const a=Math.abs(pcm[k]),b=Math.abs(pcm[k+1]);if(a>peak)peak=a;if(b>peak)peak=b}
+  for(let k=0;k<pcm.length;k+=2){const a=Math.abs(pcm[k]),b=Math.abs(pcm[k+1]);if(a>peak)peak=a;if(b>peak)peak=b}
   const gain=$('#normOpt').checked&&peak>0&&peak<0.7*32767?Math.min(8,0.89*32767/peak):1;
   try{localStorage.setItem('sillon.norm',$('#normOpt').checked?'1':'0')}catch(e){}
   const cover=S.cover,coverMime=S.coverMime;
@@ -3663,6 +3752,7 @@ async function validateSide(){
   const job={id:++jobSeq,gain,source:S.mode,kind:other?'autre':'vinyle',folders,label,meta:other?{artist:tracks.length+' morceau'+(tracks.length>1?'x':''),album:S.mode==='tel'?'Son du téléphone':'Autre source',year:''}:m,dir:folder(),cover,coverMime,src:S.src,sides:JSON.parse(JSON.stringify(S.sides)),
     key:albumKey(m.artist,m.album),tracks,pcm,status:'attente',done:0,p:0,outputs:[],msg:'',file:FILE?{id:FILE.id,rate:FILE.rate,name:FILE.name}:null};
   if(FILE){job.label='Album complet';S.file=null;/* le son décodé reste à Android jusqu'à la fin de la conversion */}
+  if(NAT){job.nat={id:NAT.id,rate:SR};recovSnap(NAT.id,'job')}
   JOBS.push(job);
   clearAudio();hideEdit();$('#clock').textContent='0:00';
   /* face suivante */
@@ -3680,7 +3770,7 @@ async function validateSide(){
 function runJobs(){
   if(jobRunning)return;const job=JOBS.find(j=>j.status==='attente');if(!job)return;
   jobRunning=true;job.status='conversion';renderJobs();
-  if(job.file){runFileJob(job);return}
+  if(job.file||job.nat){runFileJob(job);return}
   let w;try{w=new Worker(workerURL)}catch(e){job.status='erreur';job.msg='conversion impossible sur cet appareil';jobRunning=false;renderJobs();return}
   let writing=Promise.resolve();
   if(NATIVE)for(const f of job.folders)writing=writing.then(()=>writeNative(f.dir+'/folder.jpg',new Blob([f.cover],{type:f.coverMime}))).catch(()=>{});
@@ -3719,6 +3809,8 @@ function renderJobs(){syncConv();
     el.innerHTML=`<div class="row" style="justify-content:space-between"><b>${esc(j.meta.album)} · ${esc(j.label)}</b><span class="tag ${j.status==='fini'?'ok':j.status==='erreur'?'bad':''}">${j.status==='fini'?'Terminé':j.status==='erreur'?'Erreur':j.status==='conversion'?'En cours':'En attente'}</span></div>
       <small>${esc(j.meta.artist)} · ${j.tracks.length} titres${j.gain>1.05?` · volume remonté de +${Math.round(20*Math.log10(j.gain))} dB`:''}</small>
       <div class="bar"><i style="width:${Math.round((j.status==='fini'?1:j.p)*100)}%"></i></div><small class="st">${esc(jobText(j))}</small>`;
+    if(j.status==='erreur'&&j.nat){const rb=document.createElement('button');rb.textContent='Réessayer';
+      rb.onclick=()=>{j.status='attente';j.msg='';j.p=0;j.done=0;j.tracks.forEach(t=>{delete t.done;delete t.uri});renderJobs();runJobs()};el.append(rb)}
     if(j.status==='fini'&&!NATIVE&&j.outputs.length){
       const r=document.createElement('div');r.className='row';
       const bz=document.createElement('button');bz.className='main';bz.textContent='Télécharger en ZIP';bz.onclick=()=>dlJobZip(j);

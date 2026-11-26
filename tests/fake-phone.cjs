@@ -1,6 +1,7 @@
 /* Faux téléphone pour les tests : stockage en mémoire qui imite le module natif de Sillon */
 module.exports=()=>{
-  const F=new Map();let n=0;window.__FS=F;const b64d=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
+  const F=new Map();let n=0;window.__FS=F;const PCM=new Map();window.__PCM=PCM;const b64d=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
+  for(const [k,v] of Object.entries(window.__PCMINIT||{}))PCM.set(k,b64d(v));
   const b64e=u=>{let s='';for(let i=0;i<u.length;i+=8192)s+=String.fromCharCode(...u.subarray(i,i+8192));return btoa(s)};
   const byUri=u=>[...F.entries()].find(([k,v])=>v.uri===u);
   window.__L={};const emit=(ev,d)=>(window.__L[ev]||[]).forEach(f=>f(d));window.__CALLS=[];
@@ -10,10 +11,14 @@ module.exports=()=>{
     audioInfo:async({uri})=>{const e=byUri(uri);return e?.[1].info||{duration:120,title:'',artist:''}},
     decodeAlbum:async({uri,id})=>{__CALLS.push(['decode',id]);const L=window.__ALB||[60,60,60],env=[];for(const d of L){for(let i=0;i<d*20;i++)env.push(-20+Math.sin(i)*3);for(let i=0;i<40;i++)env.push(-120)}
       for(const p of [.25,.5,1])emit('audioProgress',{op:'decode',track:0,p});const f=new Float32Array(env);return {rate:48000,frames:env.length*2400,duration:env.length*.05,peak:16000,env:b64e(new Uint8Array(f.buffer))}},
-    readAlbumPcm:async o=>{__CALLS.push(['read',o.id,o.rate,o.mono]);return {data:b64e(new Uint8Array(o.mono?11025*2*Math.max(1,Math.round(o.end-o.start)):4800*4)),rate:o.mono?11025:o.rate,channels:o.mono?1:2}},
+    readAlbumPcm:async o=>{__CALLS.push(['read',o.id,o.rate,o.mono]);if(PCM.has(o.id)&&!o.mono){const u=PCM.get(o.id),a=Math.round(o.start*o.rate)*4,b=Math.min(u.length,Math.round(o.end*o.rate)*4);return {data:b64e(u.subarray(a,b)),rate:o.rate,channels:2}}return {data:b64e(new Uint8Array(o.mono?11025*2*Math.max(1,Math.round(o.end-o.start)):4800*4)),rate:o.mono?11025:o.rate,channels:o.mono?1:2}},
     encodeAlbum:async({id,rate,tracks,gain})=>{__CALLS.push(['encode',id,rate,gain,tracks.map(t=>t.path+'@'+t.start.toFixed(1)+'-'+t.end.toFixed(1))]);
       const out=[];tracks.forEach((t,i)=>{emit('audioProgress',{op:'encode',track:i,p:(i+1)/tracks.length});if(F.has(t.path)){out.push({error:'existe déjà'});return}const uri='fs://'+(++n);F.set(t.path,{uri,b:new Uint8Array([...b64d(t.tag),...new Uint8Array(1000)])});out.push({uri,size:1000})});return {tracks:out}},
-    freeAlbum:async({id})=>{__CALLS.push(['free',id])},
+    freeAlbum:async({id})=>{__CALLS.push(['free',id]);PCM.delete(id)},
+    appendAlbumPcm:async({id,data,reset})=>{if(window.__FAILAPPEND)throw new Error('disque plein');const d=b64d(data),o=reset?new Uint8Array(0):(PCM.get(id)||new Uint8Array(0));const u=new Uint8Array(o.length+d.length);u.set(o);u.set(d,o.length);PCM.set(id,u);return {size:u.length}},
+    albumInfo:async({id})=>({exists:PCM.has(id),size:PCM.get(id)?.length||0,modified:Date.now()}),
+    captureToAlbum:async({id})=>{const c=window.__CAPTURE;if(!c||!c.length)throw new Error('Aucun son capturé');PCM.set(id,c);window.__CAPTURE=null;return {size:c.length}},
+    albumList:async()=>({albums:[...PCM].map(([id,u])=>({id,size:u.length,modified:Date.now()})),capture:window.__CAPTURE?.length||0}),
     convertAudio:async({uri,path,tag})=>{const e=byUri(uri);if(!e)throw new Error('introuvable');if(/\.wma$/i.test(e[0])||e[1].b.length<50)throw new Error('format non pris en charge');if(F.has(path))throw new Error('existe déjà');emit('audioProgress',{op:'convert',track:0,p:.5});
       const u='fs://'+(++n);F.set(path,{uri:u,b:new Uint8Array([...b64d(tag),...new Uint8Array(2000)])});__CALLS.push(['convert',path]);return {uri:u,size:2000,duration:e[1].info?.duration||100}}};
   /* window.__NOAUDIO : téléphone sans moteur audio Android (conversion faite dans la page) */
