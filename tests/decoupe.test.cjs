@@ -1,0 +1,43 @@
+/* Éditeur de coupures : glisser, aimanter, couper, supprimer, agrandir, écouter */
+const { chromium } = require(require('child_process').execSync('npm root -g').toString().trim()+'/playwright');
+let fails=0;const ok=(c,m)=>{console.log((c?'  ok  ':'  ÉCHEC ')+m);if(!c)fails++};
+(async()=>{const b=await chromium.launch();const p=await b.newPage({viewport:{width:360,height:800},hasTouch:true});
+await p.route(/fonts\.g|deezer|itunes|musicbrainz|discogs|acoustid|api\.github|coverartarchive/,r=>r.abort());
+const errs=[];p.on('pageerror',e=>errs.push(e.message));
+await p.goto('http://localhost:8765/index.html');await p.waitForTimeout(400);
+/* une face de 4 morceaux de 50 s séparés de 2 s de silence (volume toutes les 50 ms) */
+await p.evaluate(()=>{setMode('vinyle');const env=[];const seg=[50,50,50,50];seg.forEach((d,k)=>{for(let i=0;i<d*20;i++)env.push(-18+Math.sin(i/3)*4);if(k<3)for(let i=0;i<40;i++)env.push(-75)});
+  S.env=env;S.frames=Math.round(env.length*HS*SR);S.chunks=[];S.starts=[];$('#s3').hidden=false;analyze();window.__PLAY=[];window.play=(a,b)=>{__PLAY.push([a,b])}});
+const st=()=>p.evaluate(()=>({b:S.bounds.map(x=>+x.toFixed(2)),sel:S.sel,cur:S.cursor,t0:ED.t0,t1:ED.t1,titles:S.titles.slice()}));
+let s=await st();ok(s.b.length===5,'4 morceaux détectés : '+s.b.join(' | '));
+let box;const geo=async()=>{await p.evaluate(()=>{const r=$('#wave').getBoundingClientRect();scrollBy(0,r.top-120)});await p.waitForTimeout(80);box=await p.locator('#wave').boundingBox();s=await st()};
+await geo();const X=t=>box.x+(t-s.t0)/(s.t1-s.t0)*box.width,Yh=()=>box.y+box.height-24;
+console.log('1. Glisser une coupure');
+const c1=s.b[1];await p.mouse.move(X(c1),Yh());await p.mouse.down();await p.mouse.move(X(c1+9),Yh(),{steps:8});await p.mouse.up();await p.waitForTimeout(100);
+s=await st();ok(s.sel===1&&Math.abs(s.b[1]-(c1+9))<.8,'coupure déplacée de 9 s au doigt ('+c1+' → '+s.b[1]+')');
+ok(!(await p.isHidden('#nudge'))&&/Coupure entre 1 et 2/.test(await p.textContent('#nTitle')),'barre d\'outils : « Coupure entre 1 et 2 »');
+await p.click('#edSnapNow');s=await st();ok(Math.abs(s.b[1]-c1)<1.2,'« Silence » la recale dans le blanc entre les morceaux ('+s.b[1]+')');
+await p.click('#nudge [data-n="0.1"]');ok(Math.abs((await st()).b[1]-s.b[1]-.1)<.01,'+0,1 s');
+console.log('2. Aimant');
+await geo();const c2=s.b[2];await p.mouse.move(X(c2),Yh());await p.mouse.down();await p.mouse.move(X(c2+.5),Yh(),{steps:5});await p.mouse.up();await p.waitForTimeout(100);
+s=await st();ok(Math.abs(s.b[2]-c2)<1.1,'lâchée près d\'un silence : elle s\'y colle ('+s.b[2]+')');
+console.log('3. Couper un morceau en deux');
+await geo();const tCut=120;await p.mouse.click(X(tCut),box.y+60);await p.waitForTimeout(400);
+s=await st();ok(s.sel===-1&&Math.abs(s.cur-tCut)<1.5,'toucher place le curseur ('+(s.cur||0).toFixed(1)+' s)');
+ok(!(await p.isHidden('#addCut'))&&await p.isHidden('#delCut'),'bouton « Couper ici »');
+await p.click('#addCut');s=await st();ok(s.b.length===6,'5 morceaux après la coupe');
+await p.click('#listen');ok(await p.evaluate(()=>{const l=__PLAY.at(-1),c=S.bounds[S.sel];return Math.abs(l[0]-(c-3))<.01&&Math.abs(l[1]-(c+3))<.01}),'« Écouter la coupure » : 3 s avant, 3 s après');
+await p.click('#delCut');s=await st();ok(s.b.length===5,'« Supprimer la coupure » réunit les deux morceaux');
+console.log('4. Agrandir, se déplacer, vue d\'ensemble');
+await p.click('#edIn');s=await st();ok(s.t1-s.t0<edDurOK(s),'« + » agrandit');function edDurOK(x){return 200}
+await geo();const span=s.t1-s.t0;await p.mouse.move(box.x+box.width*.7,box.y+60);await p.mouse.down();await p.mouse.move(box.x+box.width*.2,box.y+60,{steps:6});await p.mouse.up();
+const s2=await st();ok(s2.t0>s.t0+span*.3&&Math.abs((s2.t1-s2.t0)-span)<.01,'glisser sur la forme d\'onde fait défiler la vue');
+await p.click('#edAll');s=await st();ok(s.t0===0&&s.t1>205,'« Tout » : vue entière');
+await p.locator('#tracks .trk').nth(2).locator('.no').click();s=await st();ok(s.t0>95&&s.t1<165&&(await p.evaluate(()=>S.selSeg))===2,'toucher le numéro d\'un morceau le cadre à l\'écran');
+const ov=await p.locator('#ovw').boundingBox();await p.mouse.click(ov.x+ov.width*.9,ov.y+10);s=await st();ok(s.t1>205&&s.t0>120,'toucher la vue d\'ensemble s\'y rend');
+const tz=await p.evaluate(()=>{const c=$('#wave'),r=c.getBoundingClientRect();edFit();drawWave();const ev=(t,x)=>c.dispatchEvent(new PointerEvent(t,{pointerId:1,clientX:r.left+x,clientY:r.top+60,bubbles:true}));
+  ev('pointerdown',100);ev('pointerup',100);ev('pointerdown',102);ev('pointerup',102);return ED.t1-ED.t0});ok(tz<100,'double toucher agrandit ('+tz.toFixed(0)+' s visibles)');
+await p.screenshot({path:'/tmp/claude-0/s/decoupe.png'});
+const W=await p.evaluate(()=>{const W=document.documentElement.clientWidth;return [...document.querySelectorAll('#s3 *')].filter(e=>{const r=e.getBoundingClientRect();return r.width&&r.right>W+1}).map(e=>e.id||e.className).slice(0,4)});ok(!W.length,'rien ne déborde à 360 px '+W);
+ok(!errs.length,'aucune erreur JavaScript '+errs.join(' | '));
+await b.close();console.log(fails?`\n${fails} ÉCHEC(S)`:'\nTout est bon');process.exit(fails?1:0)})();

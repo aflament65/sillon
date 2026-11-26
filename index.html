@@ -89,7 +89,14 @@ button.rec{background:var(--bad);border-color:var(--bad);color:#fff;font-weight:
 #lvlHelpBody p{margin:0;font-size:.88rem}
 .clock{font-size:1.9rem;font-weight:500}
 canvas{width:100%;display:block;border-radius:6px;background:var(--bg);touch-action:manipulation}
-#wave{height:120px}#detail{height:90px}
+#wave{height:190px;touch-action:none;cursor:crosshair}#ovw{height:34px;touch-action:none;cursor:pointer;opacity:.9}
+.edBar{display:flex;align-items:center;gap:6px}.edBar button.icon{width:40px;height:40px;border:1px solid var(--line);border-radius:10px;font:600 1.2rem var(--f-body);background:var(--bg)}
+#edSnap[aria-pressed=true]{border-color:var(--accent);color:var(--accent)}
+.edSel{position:sticky;bottom:calc(var(--tabH) + env(safe-area-inset-bottom,0px) + 8px);z-index:6;display:grid;gap:10px;padding:12px;border-radius:12px;background:var(--surface);border:1px solid var(--accent);box-shadow:0 8px 24px rgba(0,0,0,.22)}
+body.withMini .edSel{bottom:calc(var(--tabH) + 70px + env(safe-area-inset-bottom,0px))}
+.edHead{display:flex;gap:10px;align-items:flex-start}.edHead .grow{display:grid;min-width:0}.edHead small{color:var(--muted);font-size:.8rem;overflow-wrap:anywhere}
+.edTime{font-size:1.1rem;font-weight:600}
+.edMove{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}.edMove button{padding:10px 2px;font-variant-numeric:tabular-nums}
 .tracks{display:grid;gap:6px}
 .trk{display:grid;grid-template-columns:auto 1fr auto auto;gap:8px;align-items:center;padding:6px;border-radius:7px;border:1px solid transparent}
 .trk.sel{border-color:var(--accent)}
@@ -396,21 +403,20 @@ label.check{display:flex;flex-direction:row;gap:8px;align-items:center;font-size
 <!-- 3. DÉCOUPAGE -->
 <section id="s3" hidden>
   <h2><span class="n">03</span>Découpage <span id="cutSide" class="tag" hidden></span></h2>
-  <canvas id="wave" aria-label="Forme d'onde de la face, touche pour placer le curseur"></canvas>
+  <p class="hint help">Glisse une coupure par sa poignée ronde pour la déplacer ; elle se cale sur le silence le plus proche. Touche un endroit pour y couper. Pince ou touche deux fois pour agrandir, fais glisser pour te déplacer. La bande du haut montre tout l'enregistrement.</p>
+  <canvas id="ovw" aria-label="Vue d'ensemble : touche pour t'y déplacer"></canvas>
+  <canvas id="wave" aria-label="Forme d'onde : glisse une coupure pour la déplacer, touche pour placer le curseur"></canvas>
+  <div class="edBar"><button id="edOut" class="icon" aria-label="Réduire">−</button><button id="edIn" class="icon" aria-label="Agrandir">+</button><button id="edAll">Tout</button><span class="hint grow" id="edZoomTxt"></span><button id="edSnap" aria-pressed="true" title="Caler les coupures sur les silences">Aimanter</button></div>
+  <div class="edSel" id="nudge" hidden>
+    <div class="edHead"><div class="grow"><b id="nTitle">Coupure</b><small id="nSub"></small></div><span class="mono edTime" id="nTime"></span></div>
+    <div class="edMove" id="nMove"><button data-n="-1">−1 s</button><button data-n="-0.1">−0,1</button><button id="edSnapNow" title="Caler sur le silence le plus proche">Silence</button><button data-n="0.1">+0,1</button><button data-n="1">+1 s</button></div>
+    <div class="row"><button id="listen" class="main grow">Écouter la coupure</button><button id="addCut" hidden>Couper ici</button><button id="delCut">Supprimer la coupure</button></div>
+  </div>
+  <details class="manage" id="detSet"><summary>Réglages de détection</summary>
   <div class="sliders">
     <label>Sensibilité aux silences <input id="sens" type="range" min="0.1" max="0.6" step="0.02" value="0.3"></label>
     <label>Durée mini d'un silence : <span id="minsilV" class="mono">1,0 s</span><input id="minsil" type="range" min="0.4" max="3" step="0.1" value="1"></label>
-  </div>
-  <div class="nudge" id="nudge" hidden>
-    <div class="row" style="justify-content:space-between"><b id="nTitle">Coupure</b><span class="mono" id="nTime"></span></div>
-    <canvas id="detail" aria-label="Zoom autour de la coupure, touche pour la déplacer"></canvas>
-    <div class="row">
-      <button data-n="-1">−1 s</button><button data-n="-0.2">−0,2</button><button data-n="0.2">+0,2</button><button data-n="1">+1 s</button>
-      <button id="listen" class="main">Écouter</button>
-      <button id="delCut">Supprimer la coupure</button>
-      <button id="addCut" hidden>Couper ici</button>
-    </div>
-  </div>
+  </div></details>
   <div class="row"><button id="identify">Reconnaître l'album</button><button id="fixNames" hidden>Corriger artistes et titres</button></div>
   <p class="hint" id="idMsg" hidden></p>
   <div id="sortBar" class="nudge sortBar" hidden></div>
@@ -1178,7 +1184,7 @@ async function listDevices(){
     sel.value=cur;}catch(e){}
 }
 navigator.mediaDevices?.addEventListener?.('devicechange',listDevices);
-function clearAudio(){if(S.file){const id=S.file.id;S.file=null;if(!JOBS.some(j=>j.file?.id===id&&(j.status==='attente'||j.status==='conversion')))NATIVE?.freeAlbum?.({id}).catch(()=>{})}const sb=document.getElementById('sortBar');if(sb){sb.dataset.built='';sb.innerHTML='';sb.hidden=true}IDRUN++;NPRUN++;S.np=[];Object.assign(S,{chunks:[],starts:[],frames:0,env:[],acc:0,cnt:0,bounds:[],bounds0:[],titles:[],labels:[],segMeta:[],sel:-1,cursor:null})}
+function clearAudio(){ED.t0=ED.t1=0;if(S.file){const id=S.file.id;S.file=null;if(!JOBS.some(j=>j.file?.id===id&&(j.status==='attente'||j.status==='conversion')))NATIVE?.freeAlbum?.({id}).catch(()=>{})}const sb=document.getElementById('sortBar');if(sb){sb.dataset.built='';sb.innerHTML='';sb.hidden=true}IDRUN++;NPRUN++;S.np=[];Object.assign(S,{chunks:[],starts:[],frames:0,env:[],acc:0,cnt:0,bounds:[],bounds0:[],titles:[],labels:[],segMeta:[],sel:-1,cursor:null})}
 function pushAudio(L,R){
   const n=L.length,a=new Int16Array(n*2);let pk=0;
   for(let k=0;k<n;k++){const l=L[k],r=R[k];a[2*k]=l<-1?-32768:l>1?32767:l*32767;a[2*k+1]=r<-1?-32768:r>1?32767:r*32767;
@@ -1426,7 +1432,7 @@ function analyze(){
   S.bounds0=S.bounds.slice();
   npApply();
   S.labels=Array.from({length:segs},(_,i)=>tr[i]?.number||String(i+1));
-  S.sel=-1;S.cursor=null;
+  S.sel=-1;S.cursor=null;S.selSeg=-1;
   $('#s3').hidden=false; $('#nudge').hidden=true;S.edited=false;updSideTags();
   renderTracks();drawWave();pathHint();
 }
@@ -1454,55 +1460,119 @@ $('#minsil').oninput=()=>{$('#minsilV').textContent=(+$('#minsil').value).toFixe
 function css(v){return getComputedStyle(document.documentElement).getPropertyValue(v).trim()}
 function sizeCanvas(c){const d=devicePixelRatio||1,w=c.clientWidth,h=c.clientHeight;if(c.width!==w*d||c.height!==h*d){c.width=w*d;c.height=h*d}const g=c.getContext('2d');g.setTransform(d,0,0,d,0,0);return [g,w,h]}
 function yOf(v,h){const r=Math.max(0,Math.min(1,(v-S.floor)/Math.max(6,S.peak-S.floor)));return r*h*.46}
+/* ---------- Éditeur de coupures ----------
+   Une grande forme d'onde qu'on agrandit (pincer, boutons, double toucher), une vue d'ensemble au-dessus,
+   des coupures qu'on fait glisser au doigt et qui s'aimantent au silence le plus proche. */
+const ED={t0:0,t1:0,snap:true,drag:null,pts:new Map(),pinch:null,raf:0};
+const edDur=()=>S.frames/SR||0;
+function edFit(){ED.t0=0;ED.t1=edDur()}
+function edClamp(){const d=edDur(),w=Math.max(4,Math.min(d,ED.t1-ED.t0));if(ED.t0<0)ED.t0=0;ED.t1=ED.t0+w;if(ED.t1>d){ED.t1=d;ED.t0=Math.max(0,d-w)}}
+function edZoom(f,at){const d=edDur();if(!d)return;if(ED.t1<=ED.t0)edFit();const c=at??(ED.t0+ED.t1)/2,w=Math.max(4,Math.min(d,(ED.t1-ED.t0)/f));
+  const r=(c-ED.t0)/(ED.t1-ED.t0||1);ED.t0=c-w*r;ED.t1=ED.t0+w;edClamp();drawWave()}
+function edShow(t,w){const d=edDur();w=Math.min(d,w||Math.max(12,ED.t1-ED.t0));ED.t0=t-w/2;ED.t1=ED.t0+w;edClamp()}
+const tToX=(t,w)=>(t-ED.t0)/(ED.t1-ED.t0)*w,xToT=(x,w)=>ED.t0+x/w*(ED.t1-ED.t0);
+/* silence le plus proche (creux du volume) autour d'un instant */
+function snapT(t,win=.8){const a=Math.max(0,Math.floor((t-win)/HS)),b=Math.min(S.env.length-1,Math.ceil((t+win)/HS));let m=-1;
+  for(let i=a;i<=b;i++)if(m<0||S.env[i]<S.env[m]-.5||(Math.abs(S.env[i]-S.env[m])<=.5&&Math.abs(i*HS-t)<Math.abs(m*HS-t)))m=i;return m<0?t:m*HS}
 function drawWave(){
-  const c=$('#wave');if(!S.env.length||$('#s3').hidden)return;const [g,w,h]=sizeCanvas(c);const env=S.env,dur=S.frames/SR;
-  g.clearRect(0,0,w,h);g.fillStyle=css('--wave');
-  for(let x=0;x<w;x++){const a=Math.floor(x/w*env.length),b=Math.max(a+1,Math.floor((x+1)/w*env.length));let m=-200;for(let i=a;i<b;i++)if(env[i]>m)m=env[i];const y=yOf(m,h);g.fillRect(x,h/2-y,1,Math.max(1,y*2))}
-  g.strokeStyle=css('--muted');g.setLineDash([3,4]);const ty=yOf(S.thr,h);g.beginPath();g.moveTo(0,h/2-ty);g.lineTo(w,h/2-ty);g.stroke();g.setLineDash([]);
-  S.bounds.forEach((t,i)=>{const x=t/dur*w,edge=i===0||i===S.bounds.length-1;g.fillStyle=edge?css('--muted'):css('--accent');g.fillRect(x-(i===S.sel?1.5:.75),0,i===S.sel?3:1.5,h);
-    if(!edge){g.font='600 10px '+css('--f-mono');g.fillText(S.labels[i]||'',Math.min(x+3,w-22),11)}});
-  if(S.cursor!=null){const x=S.cursor/dur*w;g.strokeStyle=css('--ink');g.setLineDash([4,3]);g.beginPath();g.moveTo(x,0);g.lineTo(x,h);g.stroke();g.setLineDash([])}
-  drawDetail();
+  const c=$('#wave');if(!S.env.length||$('#s3').hidden)return;if(ED.t1<=ED.t0||ED.t1>edDur()+.01)edFit();
+  const [g,w,h]=sizeCanvas(c),env=S.env,span=ED.t1-ED.t0,top=18,bot=h-22,mid=(top+bot)/2,hh=(bot-top);
+  g.clearRect(0,0,w,h);
+  /* bandes alternées : un morceau sur deux, numéro en haut */
+  for(let i=0;i<S.bounds.length-1;i++){const x0=tToX(S.bounds[i],w),x1=tToX(S.bounds[i+1],w);if(x1<0||x0>w)continue;
+    g.fillStyle=i%2?css('--bg'):css('--surface');g.globalAlpha=1;g.fillRect(Math.max(0,x0),top,Math.min(w,x1)-Math.max(0,x0),hh);
+    if(i===S.selSeg){g.fillStyle=css('--accent');g.globalAlpha=.12;g.fillRect(Math.max(0,x0),top,Math.min(w,x1)-Math.max(0,x0),hh);g.globalAlpha=1}
+    const lx=Math.max(4,x0+4);if(lx<x1-14){g.fillStyle=css('--muted');g.font='600 11px '+css('--f-body');g.fillText(String(S.labels[i]||i+1),lx,13)}}
+  /* forme d'onde */
+  g.fillStyle=css('--wave');
+  for(let x=0;x<w;x++){const a=Math.floor((ED.t0+x/w*span)/HS),b=Math.max(a+1,Math.floor((ED.t0+(x+1)/w*span)/HS));let m=-200;
+    for(let i=Math.max(0,a);i<Math.min(env.length,b);i++)if(env[i]>m)m=env[i];if(m<=-200)continue;const y=yOf(m,hh);g.fillRect(x,mid-y,1,Math.max(1,y*2))}
+  /* graduation */
+  const step=[1,2,5,10,15,30,60,120,300,600].find(s=>w/(span/s)>=54)||600;g.fillStyle=css('--muted');g.font='10px '+css('--f-mono');
+  for(let s=Math.ceil(ED.t0/step)*step;s<=ED.t1;s+=step){const x=tToX(s,w);g.fillRect(x,bot,1,5);if(x<w-26)g.fillText(fmtI(s),x+2,h-6)}
+  /* coupures : trait et poignée à saisir */
+  S.bounds.forEach((t,i)=>{const x=tToX(t,w);if(x<-12||x>w+12)return;const edge=i===0||i===S.bounds.length-1,sel=i===S.sel;
+    g.fillStyle=sel?css('--accent'):edge?css('--muted'):css('--ink');g.fillRect(x-(sel?1.5:1),top,sel?3:2,hh);
+    g.beginPath();g.arc(x,bot-1,sel?9:7,0,Math.PI*2);g.fill();
+    if(sel){g.fillStyle=css('--accent-ink');g.fillRect(x-3,bot-2,6,2)}});
+  /* curseur et tête de lecture */
+  if(S.cursor!=null&&S.sel<0){const x=tToX(S.cursor,w);g.strokeStyle=css('--accent');g.lineWidth=2;g.setLineDash([5,4]);g.beginPath();g.moveTo(x,top);g.lineTo(x,bot);g.stroke();g.setLineDash([]);g.lineWidth=1}
+  if(PLAYAT){const t=playT();if(t!=null){const x=tToX(t,w);g.fillStyle=css('--bad');g.fillRect(x-1,top,2,hh)}}
+  drawOvw();edBar();
 }
+function drawOvw(){const c=$('#ovw');if(!c)return;const [g,w,h]=sizeCanvas(c),env=S.env,d=edDur();g.clearRect(0,0,w,h);g.fillStyle=css('--muted');
+  for(let x=0;x<w;x++){const a=Math.floor(x/w*env.length),b=Math.max(a+1,Math.floor((x+1)/w*env.length));let m=-200;for(let i=a;i<b;i++)if(env[i]>m)m=env[i];const y=yOf(m,h)*.9;g.fillRect(x,h/2-y,1,Math.max(1,y*2))}
+  g.fillStyle=css('--ink');S.bounds.forEach((t,i)=>{if(i&&i<S.bounds.length-1)g.fillRect(t/d*w-.5,0,1,h)});
+  const x0=ED.t0/d*w,x1=ED.t1/d*w;if(x1-x0<w-1){g.strokeStyle=css('--accent');g.lineWidth=2;g.strokeRect(x0+1,1,Math.max(4,x1-x0-2),h-2);g.lineWidth=1}
+  if(PLAYAT){const t=playT();if(t!=null){g.fillStyle=css('--bad');g.fillRect(t/d*w-1,0,2,h)}}}
+function edBar(){const z=$('#edZoomTxt');if(z){const span=ED.t1-ED.t0;z.textContent=span>=edDur()-.5?'Vue entière':`Vue : ${fmtI(span)}`}$('#edSnap')?.setAttribute('aria-pressed',ED.snap)}
 const center=()=>S.sel>=0?S.bounds[S.sel]:S.cursor;
-function drawDetail(){
-  if($('#nudge').hidden)return;const c=$('#detail'),[g,w,h]=sizeCanvas(c),ct=center();if(ct==null)return;
-  const span=8,t0=ct-span;g.clearRect(0,0,w,h);g.fillStyle=css('--wave');
-  for(let x=0;x<w;x++){const i=Math.floor((t0+x/w*2*span)/HS);if(i<0||i>=S.env.length)continue;const y=yOf(S.env[i],h);g.fillRect(x,h/2-y,1,Math.max(1,y*2))}
-  for(let s=Math.ceil(t0);s<ct+span;s++){const x=(s-t0)/(2*span)*w;g.fillStyle=css('--line');g.fillRect(x,h-6,1,6)}
-  S.bounds.forEach((t,i)=>{if(t<t0||t>ct+span)return;const x=(t-t0)/(2*span)*w;g.fillStyle=i===S.sel?css('--accent'):css('--muted');g.fillRect(x-1,0,2,h)});
-  if(S.sel<0){const x=w/2;g.strokeStyle=css('--ink');g.setLineDash([4,3]);g.beginPath();g.moveTo(x,0);g.lineTo(x,h);g.stroke();g.setLineDash([])}
-  $('#nTime').textContent=fmt(ct);
+function drawDetail(){}
+/* tête de lecture pendant l'écoute */
+var PLAYAT=null;
+function playT(){if(!PLAYAT||!ctx)return null;const t=PLAYAT.a+(ctx.currentTime-PLAYAT.start);return t>PLAYAT.b?null:t}
+function animPlay(){cancelAnimationFrame(ED.raf);const f=()=>{if(!PLAYAT)return;if(playT()==null){PLAYAT=null;drawWave();return}drawWave();ED.raf=requestAnimationFrame(f)};ED.raf=requestAnimationFrame(f)}
+/* gestes sur la forme d'onde */
+{const c=$('#wave');
+  const hit=(x,w)=>{let best=-1,bd=24;S.bounds.forEach((t,i)=>{const d=Math.abs(tToX(t,w)-x);if(d<bd){bd=d;best=i}});return best};
+  c.addEventListener('pointerdown',e=>{c.setPointerCapture(e.pointerId);const r=c.getBoundingClientRect(),x=e.clientX-r.left;ED.pts.set(e.pointerId,{x,y:e.clientY-r.top,x0:x,t0:ED.t0,t1:ED.t1});
+    if(ED.pts.size===2){const [p1,p2]=[...ED.pts.values()];ED.pinch={d:Math.abs(p1.x-p2.x)||1,t0:ED.t0,t1:ED.t1,mid:xToT((p1.x+p2.x)/2,r.width)};ED.drag=null;return}
+    const i=hit(x,r.width);ED.drag={i,moved:false,x0:x,startT:ED.t0,endT:ED.t1,time:Date.now()};if(i>=0){S.sel=i;S.cursor=null;S.selSeg=-1;drawWave()}});
+  c.addEventListener('pointermove',e=>{const p=ED.pts.get(e.pointerId);if(!p)return;const r=c.getBoundingClientRect(),x=e.clientX-r.left;p.x=x;
+    if(ED.pinch&&ED.pts.size===2){const [p1,p2]=[...ED.pts.values()],d=Math.abs(p1.x-p2.x)||1,f=d/ED.pinch.d,w=Math.max(4,Math.min(edDur(),(ED.pinch.t1-ED.pinch.t0)/f)),
+      rr=(ED.pinch.mid-ED.pinch.t0)/(ED.pinch.t1-ED.pinch.t0);ED.t0=ED.pinch.mid-w*rr;ED.t1=ED.t0+w;edClamp();drawWave();return}
+    const D=ED.drag;if(!D)return;if(Math.abs(x-D.x0)>5)D.moved=true;if(!D.moved)return;
+    if(D.i>0&&D.i<S.bounds.length-1){moveB(D.i,xToT(x,r.width),true)}
+    else{const dt=(D.x0-x)/r.width*(D.endT-D.startT);ED.t0=D.startT+dt;ED.t1=D.endT+dt;edClamp();drawWave()}});
+  const up=e=>{const p=ED.pts.get(e.pointerId);ED.pts.delete(e.pointerId);if(ED.pinch){if(ED.pts.size<2)ED.pinch=null;ED.drag=null;return}
+    const D=ED.drag;ED.drag=null;if(!D||!p)return;const r=c.getBoundingClientRect();
+    if(D.moved&&D.i>0&&D.i<S.bounds.length-1){if(ED.snap)moveB(D.i,snapT(S.bounds[D.i],.6));showEdit();return}
+    if(D.moved)return;
+    const t=xToT(p.x,r.width),now=Date.now();
+    if(ED.lastTap&&now-ED.lastTap.at<320&&Math.abs(ED.lastTap.x-p.x)<24){ED.lastTap=null;edZoom(3,t);return}
+    ED.lastTap={at:now,x:p.x};
+    if(D.i>=0){selectB(D.i);return}
+    S.sel=-1;S.cursor=Math.max(0,Math.min(edDur(),t));S.selSeg=S.bounds.findIndex((b,k)=>k<S.bounds.length-1&&t>=b&&t<S.bounds[k+1]);showEdit()};
+  c.addEventListener('pointerup',up);c.addEventListener('pointercancel',up);
+  c.addEventListener('wheel',e=>{e.preventDefault();const r=c.getBoundingClientRect();edZoom(e.deltaY<0?1.4:1/1.4,xToT(e.clientX-r.left,r.width))},{passive:false});
+  const o=$('#ovw');const jump=e=>{const r=o.getBoundingClientRect();edShow((e.clientX-r.left)/r.width*edDur(),Math.min(edDur(),Math.max(20,ED.t1-ED.t0)));drawWave()};
+  o.addEventListener('pointerdown',e=>{o.setPointerCapture(e.pointerId);jump(e)});o.addEventListener('pointermove',e=>{if(e.buttons)jump(e)});
 }
-$('#wave').onclick=e=>{
-  const r=e.currentTarget.getBoundingClientRect(),t=(e.clientX-r.left)/r.width*S.frames/SR,tol=S.frames/SR*.025;
-  let best=-1;S.bounds.forEach((b,i)=>{if(Math.abs(b-t)<tol&&(best<0||Math.abs(b-t)<Math.abs(S.bounds[best]-t)))best=i});
-  if(best>=0)selectB(best);else{S.sel=-1;S.cursor=t;showEdit()}
-};
-$('#detail').onclick=e=>{
-  const r=e.currentTarget.getBoundingClientRect(),t=center()-8+(e.clientX-r.left)/r.width*16;
-  if(S.sel>=0)moveB(S.sel,t);else{S.cursor=Math.max(0,Math.min(S.frames/SR,t));drawWave()}
-};
-function selectB(i){S.sel=i;S.cursor=null;showEdit()}
+$('#edIn').onclick=()=>edZoom(2.5,center()??undefined);$('#edOut').onclick=()=>edZoom(1/2.5,center()??undefined);$('#edAll').onclick=()=>{edFit();drawWave()};
+$('#edSnap').onclick=()=>{ED.snap=!ED.snap;edBar()};
+function selectB(i){S.sel=i;S.cursor=null;S.selSeg=-1;const t=S.bounds[i];if(t<ED.t0||t>ED.t1||ED.t1-ED.t0>90)edShow(t,Math.min(40,edDur()));showEdit()}
+function selectSeg(i){S.sel=-1;S.cursor=null;S.selSeg=i;const a=S.bounds[i],b=S.bounds[i+1];ED.t0=a-(b-a)*.08;ED.t1=b+(b-a)*.08;edClamp();showEdit()}
 function showEdit(){
-  const b=S.sel;$('#nudge').hidden=false;
-  $('#nTitle').textContent=b<0?'Curseur':b===0?'Début de la face':b===S.bounds.length-1?'Fin de la face':'Début de « '+S.titles[b]+' »';
-  $('#delCut').hidden=!(b>0&&b<S.bounds.length-1);$('#addCut').hidden=b>=0;
+  const b=S.sel,box=$('#nudge');box.hidden=b<0&&S.cursor==null;
+  const n=S.bounds.length-1,mid=b>0&&b<n;
+  $('#nTitle').textContent=b<0?'Endroit choisi':b===0?'Début de l\'enregistrement':b===n?'Fin de l\'enregistrement':`Coupure entre ${S.labels[b-1]||b} et ${S.labels[b]||b+1}`;
+  $('#nSub').textContent=mid?`« ${S.titles[b-1]} » → « ${S.titles[b]} »`:b<0&&S.selSeg>=0?`Dans « ${S.titles[S.selSeg]} »`:'';
+  $('#nTime').textContent=fmt(center()??0);
+  $('#delCut').hidden=!mid;$('#addCut').hidden=b>=0;$('#nMove').hidden=b<0&&S.cursor==null;
+  $('#listen').textContent=b>=0?'Écouter la coupure':'Écouter d\'ici';
   renderTracks();drawWave();
 }
 function hideEdit(){$('#nudge').hidden=true;$('#s3').hidden=true}
-function moveB(i,t){S.edited=true;const lo=i>0?S.bounds[i-1]+.5:0,hi=i<S.bounds.length-1?S.bounds[i+1]-.5:S.frames/SR;S.bounds[i]=Math.max(lo,Math.min(hi,t));renderTracks();drawWave()}
-document.querySelectorAll('[data-n]').forEach(b=>b.onclick=()=>{const d=+b.dataset.n;if(S.sel>=0)moveB(S.sel,S.bounds[S.sel]+d);else if(S.cursor!=null){S.cursor+=d;drawWave()}});
-$('#listen').onclick=()=>{const c=center();if(c!=null)play(c-4,c+4)};
-$('#delCut').onclick=()=>{S.edited=true;const i=S.sel;if(i<=0||i>=S.bounds.length-1)return;S.bounds.splice(i,1);S.titles.splice(i,1);S.labels.splice(i,1);S.segMeta.splice(i,1);S.bounds0=S.bounds.slice();S.sel=-1;$('#nudge').hidden=true;renderTracks();drawWave()};
-$('#addCut').onclick=()=>{const t=S.cursor;if(t==null)return;let i=S.bounds.findIndex(b=>b>t);if(i<=0)return;
-  S.bounds.splice(i,0,t);S.titles.splice(i,0,'Piste '+(i+1));S.labels.splice(i,0,String(i+1));S.segMeta.splice(i,0,{});S.bounds0=S.bounds.slice();S.edited=true;selectB(i)};
+function moveB(i,t,live){S.edited=true;const lo=i>0?S.bounds[i-1]+.5:0,hi=i<S.bounds.length-1?S.bounds[i+1]-.5:edDur();S.bounds[i]=Math.max(lo,Math.min(hi,t));
+  if(live){drawWave();$('#nTime').textContent=fmt(S.bounds[i]);return}renderTracks();drawWave();$('#nTime').textContent=fmt(S.bounds[i])}
+document.querySelectorAll('[data-n]').forEach(b=>b.onclick=()=>{const d=+b.dataset.n;if(S.sel>=0)moveB(S.sel,S.bounds[S.sel]+d);else if(S.cursor!=null){S.cursor=Math.max(0,Math.min(edDur(),S.cursor+d));drawWave();$('#nTime').textContent=fmt(S.cursor)}});
+/* le vrai blanc le plus proche (passage sous le seuil de silence), jusqu'à 15 s de chaque côté */
+function nearestGap(t,win=15){const n=S.env.length,i0=Math.round(t/HS),thr=Math.min(S.thr??-40,(S.floor0??S.floor??-60)+9),minLen=Math.round(.4/HS);let best=null;
+  for(let d=0;d*HS<=win;d++)for(const i of d?[i0-d,i0+d]:[i0]){if(i<0||i>=n||S.env[i]>=thr)continue;
+    let a=i,b=i;while(a>0&&S.env[a-1]<thr)a--;while(b<n-1&&S.env[b+1]<thr)b++;if(b-a+1<minLen)continue;
+    let m=a;for(let k=a;k<=b;k++)if(S.env[k]<S.env[m])m=k;best=(a+b)/2*HS;return best}
+  return snapT(t,2)}
+$('#edSnapNow').onclick=()=>{if(S.sel>0&&S.sel<S.bounds.length-1)moveB(S.sel,nearestGap(S.bounds[S.sel]));else if(S.cursor!=null){S.cursor=nearestGap(S.cursor);showEdit()}};
+$('#listen').onclick=()=>{const c=center();if(c==null)return;S.sel>=0?play(Math.max(0,c-3),c+3):play(c,Math.min(edDur(),c+10))};
+$('#delCut').onclick=()=>{S.edited=true;const i=S.sel;if(i<=0||i>=S.bounds.length-1)return;S.bounds.splice(i,1);S.titles.splice(i,1);S.labels.splice(i,1);S.segMeta.splice(i,1);S.bounds0=S.bounds.slice();S.sel=-1;S.cursor=null;$('#nudge').hidden=true;renderTracks();drawWave();toast('Coupure supprimée : les deux morceaux sont réunis')};
+$('#addCut').onclick=()=>{let t=S.cursor;if(t==null)return;if(ED.snap)t=snapT(t,.6);let i=S.bounds.findIndex(b=>b>t);if(i<=0)return;
+  S.bounds.splice(i,0,t);S.titles.splice(i,0,'Piste '+(i+1));S.labels.splice(i,0,String(i+1));S.segMeta.splice(i,0,{});S.bounds0=S.bounds.slice();S.edited=true;selectB(i);toast('Morceau coupé en deux')};
 function renderTracks(){
   const box=$('#tracks');box.innerHTML='';
   for(let i=0;i<S.bounds.length-1;i++){
-    const row=document.createElement('div');row.className='trk'+(S.sel===i?' sel':'');
+    const row=document.createElement('div');row.className='trk'+(S.sel===i||S.selSeg===i?' sel':'');
     row.innerHTML=`<button class="no" title="Régler le début">${esc(S.labels[i])}</button><input type="text" id="t${i}" value="${esc(S.titles[i])}" aria-label="Titre de la piste ${i+1}"><span class="d mono">${fmtI(S.bounds[i+1]-S.bounds[i])}</span><button aria-label="Écouter le début">▶</button>${i<S.bounds.length-2?`<button class="merge" title="Fusionner avec le morceau suivant">Fusionner avec le suivant ↓</button>`:''}`;
-    row.querySelector('.no').onclick=()=>selectB(i);
+    row.querySelector('.no').onclick=()=>selectSeg(i);
     row.querySelector('input').oninput=e=>{S.titles[i]=e.target.value;S.edited=true;if(S.segMeta[i]){S.segMeta[i].title=e.target.value;S.segMeta[i].titleSet=true}};
     row.querySelector('button[aria-label="Écouter le début"]').onclick=()=>play(S.bounds[i],S.bounds[i]+10);
     row.querySelector('.merge')?.addEventListener('click',()=>mergeNext(i));
@@ -1524,8 +1594,9 @@ function play(a,b){
   stopPlay();const {L,R}=getFrames(Math.round(a*SR),Math.round(b*SR));if(!L.length)return;
   const c=getCtx();c.resume();const buf=c.createBuffer(2,L.length,SR);buf.copyToChannel(L,0);buf.copyToChannel(R,1);
   player=c.createBufferSource();player.buffer=buf;player.connect(c.destination);player.start();
+  PLAYAT={a,b:a+L.length/SR,start:c.currentTime};animPlay();
 }
-function stopPlay(){try{player?.stop()}catch(e){}player=null}
+function stopPlay(){try{player?.stop()}catch(e){}player=null;PLAYAT=null}
 $('#stopPlay').onclick=stopPlay;
 $('#reset').onclick=()=>{stopPlay();clearAudio();hideEdit();$('#clock').textContent='0:00';
   $('#recHint').textContent='Face effacée. Relance l\'enregistrement quand tu es prêt.';$('#s2').scrollIntoView({behavior:'smooth'})};
@@ -3178,7 +3249,7 @@ async function fileRange(a,b,mono){const r=await NATIVE.readAlbumPcm({id:S.file.
 async function filePlay(a,b){stopPlay();const {pcm,rate}=await fileRange(a,Math.min(b,a+30));const n=pcm.length>>1;if(!n)return;
   const c=getCtx();c.resume();const buf=c.createBuffer(2,n,rate),L=buf.getChannelData(0),R=buf.getChannelData(1);
   for(let k=0;k<n;k++){L[k]=pcm[2*k]/32768;R[k]=pcm[2*k+1]/32768}
-  player=c.createBufferSource();player.buffer=buf;player.connect(c.destination);player.start()}
+  player=c.createBufferSource();player.buffer=buf;player.connect(c.destination);player.start();PLAYAT={a,b:a+n/rate,start:c.currentTime};animPlay()}
 /* conversion des morceaux d'un album-fichier, entièrement par Android */
 async function runFileJob(job){
   const T=task('Conversion en MP3 · '+(job.meta.album||'album'));
