@@ -184,7 +184,7 @@ button.big{padding:13px 16px;font-size:1rem}
 .miniBar{height:5px;background:var(--line);cursor:pointer;margin:0 calc(-1*max(12px,env(safe-area-inset-left,0px)))}.miniBar i{display:block;height:100%;width:0;background:var(--accent)}
 .miniRow{display:flex;gap:8px;align-items:center;padding-block:8px}
 .miniRow img{width:42px;height:42px;border-radius:4px;object-fit:cover;flex:none}
-.miniInfo{flex:1;min-width:0;text-align:left;background:none;border:none;padding:2px 4px;display:grid}
+.miniInfo{cursor:pointer;flex:1;min-width:0;text-align:left;background:none;border:none;padding:2px 4px;display:grid}
 .miniInfo b,.miniInfo small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.miniInfo small{color:var(--muted);font-size:.78rem}
 .miniRow>button:not(.miniInfo){padding:8px 11px;flex:none}
 .mini svg,.qBox svg{width:18px;height:18px;fill:currentColor;display:inline-block;vertical-align:-3px}
@@ -212,6 +212,63 @@ body{padding-bottom:calc(var(--tabH) + env(safe-area-inset-bottom,0px))}
 .mini{bottom:calc(var(--tabH) + env(safe-area-inset-bottom,0px))!important;padding-bottom:0!important;border-bottom:1px solid var(--line)}
 .toast{bottom:calc(var(--tabH) + 80px + env(safe-area-inset-bottom,0px))!important}
 header{padding-block:2px}header h1{font-size:1.5rem}.logo{width:38px;height:38px}
+/* discothèque : grille de pochettes */
+.libHead{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 12px}.libHead h2{font-size:1.4rem}
+.libQuick{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;margin-inline:-4px;padding:2px 4px}.libQuick::-webkit-scrollbar{display:none}.libQuick button{flex:none;border-radius:99px;padding:8px 14px}
+.libFilters{display:grid;gap:8px}.libFilters .chips{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}.libFilters .chips::-webkit-scrollbar{display:none}.libFilters .chip{flex:none}
+.sortL{display:flex;flex-direction:row;gap:8px;align-items:center;font-size:.85rem}.sortL select{width:auto;padding:6px 8px}
+.libGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(136px,1fr));gap:18px 14px}
+#libListSec,#libDetail,#toolSec{background:none;border:none;padding:4px 0 0}
+.libGrid .libItem{all:unset;display:grid;gap:6px;align-content:start;cursor:pointer;min-width:0;border-radius:8px}
+.libGrid .libItem:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.cv{position:relative;aspect-ratio:1;border-radius:6px;overflow:hidden;background:var(--line);box-shadow:0 1px 0 var(--line)}
+.cv img{width:100%;height:100%;object-fit:cover;display:block}
+.cv .ph,.vinylPh{position:absolute;inset:0;background:radial-gradient(circle at 50% 50%,var(--accent) 0 13%,#0d0f12 14% 16%,transparent 17%),repeating-radial-gradient(circle at 50% 50%,#16191e 0 2px,#22262d 2px 4px);border-radius:inherit}
+.cv .bdg{position:absolute;left:6px;bottom:6px;display:flex;gap:4px}
+.cv .bdg i{font:600 .62rem var(--f-body);font-style:normal;padding:2px 6px;border-radius:99px;background:rgba(0,0,0,.66);color:#fff}
+.cv .fav{position:absolute;right:6px;top:4px;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.6);font-size:1rem}
+.libItem .ti{font-weight:600;font-size:.92rem;line-height:1.25;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow-wrap:anywhere}
+.libItem .ar{color:var(--muted);font-size:.8rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.libGrid .libItem.loose{grid-column:1/-1;grid-template-columns:52px minmax(0,1fr);grid-template-rows:auto auto;column-gap:12px;align-items:center;padding:8px;border:1px dashed var(--accent);border-radius:10px}
+.libItem.loose .cv{grid-row:1/3;aspect-ratio:1;background:color-mix(in srgb,var(--accent) 22%,var(--surface));display:grid;place-items:center;font:700 1.2rem var(--f-display);color:var(--accent)}
+.artLink{all:unset;cursor:pointer;color:var(--accent);font-weight:500}.artLink:focus-visible{outline:2px solid var(--accent)}
+.albFav{justify-self:start;font-size:1.15rem;line-height:1;padding:6px 10px;border-radius:99px;color:var(--muted)}.albFav[aria-pressed=true]{color:#e0457b;border-color:#e0457b}
+.albHead img,.albHead .ph{width:132px!important;height:132px!important;box-shadow:0 8px 22px rgba(0,0,0,.25)}
+.albActs button{flex:1 1 auto}
+details.manage>summary{cursor:pointer;list-style:none;display:inline-flex;align-items:center;gap:6px;padding:8px 13px;border:1px solid var(--line);border-radius:99px;font-size:.9rem;color:var(--muted)}
+details.manage>summary::-webkit-details-marker{display:none}details.manage>summary::after{content:"▾"}details.manage[open]>summary::after{content:"▴"}
+details.manage[open]>summary{margin-bottom:8px}
+/* lignes de morceaux : toucher pour lire, « ⋯ » pour le reste */
+.atrk{grid-template-columns:2.2em minmax(0,1fr) auto auto!important}
+.atrk.canPlay .tt{cursor:pointer}.atrk.now .tt b{color:var(--accent);font-weight:600}
+.atrk .more{padding:2px 8px;font-size:1.2rem;line-height:1;color:var(--muted)}
+.atrk .acts{display:none!important}.atrk.open .acts{display:flex!important}
+/* lecteur plein écran */
+.fp{position:fixed;inset:0;z-index:58;display:grid;grid-template-rows:auto minmax(0,1fr) auto auto auto auto;gap:14px;
+  padding:calc(10px + env(safe-area-inset-top,0px)) max(22px,env(safe-area-inset-right,0px)) calc(22px + env(safe-area-inset-bottom,0px)) max(22px,env(safe-area-inset-left,0px));
+  background:linear-gradient(180deg,color-mix(in srgb,var(--fpc,var(--accent)) 55%,var(--bg)) 0%,var(--bg) 78%);color:var(--ink);touch-action:pan-x}
+.fpTop{display:flex;align-items:center;gap:8px}.fpFrom{flex:1;text-align:center;font-size:.8rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+button.icon{background:none;border:none;padding:8px;border-radius:50%;color:var(--ink);display:inline-grid;place-items:center;position:relative}
+button.icon svg{width:26px;height:26px;fill:currentColor}
+button.icon[aria-pressed=true]{color:var(--accent)}
+#fpRepOne{position:absolute;font:700 .6rem var(--f-body);font-style:normal;right:4px;bottom:4px;background:var(--accent);color:var(--accent-ink);border-radius:99px;padding:0 4px}
+.fpArt{position:relative;align-self:center;justify-self:center;width:min(100%,46vh,420px);aspect-ratio:1;border-radius:10px;overflow:hidden;box-shadow:0 18px 40px rgba(0,0,0,.35);touch-action:none;transition:transform .2s}
+.fpArt img{width:100%;height:100%;object-fit:cover;display:block}.fpArt .fpPh{position:absolute;inset:0;background:radial-gradient(circle at 50% 50%,var(--accent) 0 13%,#0d0f12 14% 16%,transparent 17%),repeating-radial-gradient(circle at 50% 50%,#16191e 0 2px,#22262d 2px 4px)}
+.fpEmpty{align-self:center;text-align:center;display:grid;gap:10px;justify-items:center}
+.fpInfo{display:flex;align-items:center;gap:10px}.fpTxt{flex:1;min-width:0;display:grid}
+.fpTxt b{font:700 1.35rem/1.2 var(--f-display);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fpSub{all:unset;cursor:pointer;color:var(--muted);font-size:.95rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+button.fav{font-size:1.5rem;color:var(--muted)}button.fav[aria-pressed=true]{color:#e0457b}
+.fpSeek input{width:100%;margin:0}.fpTimes{display:flex;justify-content:space-between;font-size:.78rem;color:var(--muted)}
+.fpCtl{display:flex;justify-content:space-between;align-items:center}
+.fpCtl #fpPrev svg,.fpCtl #fpNext svg{width:34px;height:34px}
+.fpBig{width:74px;height:74px;border-radius:50%;border:none;background:var(--ink);color:var(--bg);display:grid;place-items:center;padding:0}
+.fpBig svg{width:34px;height:34px;fill:currentColor}
+.fpMore{display:flex;justify-content:center;gap:10px}.fpMore button{border-radius:99px;background:color-mix(in srgb,var(--surface) 70%,transparent)}
+@media (max-height:620px){.fp{gap:8px}.fpArt{width:min(100%,36vh)}}
+/* file d'attente : poignée pour réordonner */
+.qRow .qGrip{touch-action:none;cursor:grab;padding:6px 8px;color:var(--muted);background:none;border:none;font-size:1.1rem}
+.qRow.drag{opacity:.6;background:color-mix(in srgb,var(--accent) 14%,transparent);border-radius:8px}
 /* aides repliables */
 .help{display:none!important}.showHelp .help{display:block!important}
 .helpBtn{margin-left:auto;width:28px;height:28px;padding:0;border-radius:50%;font:600 .85rem var(--f-body);color:var(--muted)}
@@ -377,12 +434,19 @@ label.check{display:flex;flex-direction:row;gap:8px;align-items:center;font-size
 
 <div id="viewLib" class="view" hidden>
 <section id="libListSec">
-  <h2>Ma discothèque</h2>
-  <p class="hint" id="libStats"></p>
+  <div class="libHead"><h2 id="libTitle">Ma discothèque</h2><p class="hint" id="libStats"></p></div>
+  <div class="row" id="artistBar" hidden><button id="artistBack">← Tous les albums</button></div>
+  <input id="libQ" type="search" placeholder="Chercher un artiste, un album, un titre" autocomplete="off">
+  <div class="libQuick" id="libQuick">
+    <button id="libShuffle" class="main" hidden>Tout au hasard</button><button id="libRandAlb" hidden>Un album au hasard</button><button id="libTop" hidden>Les plus écoutés</button><button id="libFavT" hidden>Morceaux favoris</button>
+  </div>
+  <div class="libFilters">
+    <div class="chips" id="libFilter" role="group" aria-label="Filtrer"><button class="chip" data-f="all" aria-pressed="true">Tout</button><button class="chip" data-f="vinyle" aria-pressed="false">Vinyles</button><button class="chip" data-f="autre" aria-pressed="false">Autres sources</button><button class="chip" data-f="tel" aria-pressed="false">Téléphone</button><button class="chip" data-f="fav" aria-pressed="false">♥ Favoris</button></div>
+    <label class="sortL">Trier<select id="libSort"><option value="recent">Ajoutés récemment</option><option value="artist">Artiste</option><option value="album">Album</option><option value="year">Année</option><option value="plays">Les plus écoutés</option></select></label>
+  </div>
   <div class="row" id="libTools" hidden><button id="toolChk">À vérifier</button><button id="toolDup">Doublons</button><button id="toolAlb" hidden>Albums à découper</button></div>
-  <div class="row"><input id="libQ" class="grow" type="search" placeholder="Chercher un artiste, un album, un titre" autocomplete="off"><button id="libShuffle" class="main" hidden>Tout lire au hasard</button></div>
   <p class="hint" id="libEmpty">Aucun disque pour l'instant. Chaque morceau converti s'ajoute ici automatiquement, rangé dans son album, avec sa pochette et sa source.</p>
-  <div id="libList" class="libList"></div>
+  <div id="libList" class="libGrid"></div>
 </section>
 <section id="toolSec" hidden>
   <div class="row"><button id="toolBack">← Discothèque</button></div>
@@ -392,16 +456,18 @@ label.check{display:flex;flex-direction:row;gap:8px;align-items:center;font-size
 <section id="libDetail" hidden>
   <div class="row"><button id="albBack">← Discothèque</button></div>
   <div class="albHead" id="albHead"></div>
-  <div class="row"><button id="albPlay" class="main">▶ Lire l'album</button><button id="albShuffle">Aléatoire</button><button id="albQueue">+ File de lecture</button></div>
+  <div class="row albActs"><button id="albPlay" class="main">▶ Lire</button><button id="albShuffle">Aléatoire</button><button id="albQueue">+ À la file</button></div>
   <p class="hint" id="albNoPlay" hidden></p>
   <div id="albComplete" class="albComplete" hidden></div>
-  <div class="row" id="albTools"><button id="albSelBtn">Sélectionner plusieurs</button><button id="albEditBtn">Modifier l'album</button><button id="albOrderBtn">Changer l'ordre</button></div>
+  <details id="albManage" class="manage"><summary>Gérer l'album</summary>
+  <div class="row" id="albTools"><button id="albSelBtn">Sélectionner plusieurs</button><button id="albEditBtn">Modifier l'album</button><button id="albOrderBtn">Changer l'ordre</button><button id="albCover">Changer la pochette</button><button id="albDel">Supprimer l'album</button></div>
+  <input id="albCoverFile" type="file" accept="image/*" hidden>
+  <div class="row" id="albDelConfirm" hidden><span class="hint grow" id="albDelTxt">Supprimer cet album de la discothèque et effacer son dossier et ses MP3 du téléphone ?</span><button id="albDelYes" class="danger">Supprimer</button><button id="albDelNo">Annuler</button></div>
+  </details>
   <div id="albSel" class="selBar" hidden></div>
   <div id="albEdit" class="nudge" hidden></div>
   <div id="albOrder" class="nudge" hidden></div>
   <div id="albTracks" class="albTracks"></div>
-  <div class="row"><button id="albCover">Changer la pochette</button><input id="albCoverFile" type="file" accept="image/*" hidden><button id="albDel">Supprimer l'album</button></div>
-  <div class="row" id="albDelConfirm" hidden><span class="hint grow" id="albDelTxt">Supprimer cet album de la discothèque et effacer son dossier et ses MP3 du téléphone ?</span><button id="albDelYes" class="danger">Supprimer</button><button id="albDelNo">Annuler</button></div>
 </section>
 </div>
 <div id="viewSet" class="view" hidden>
@@ -482,6 +548,22 @@ label.check{display:flex;flex-direction:row;gap:8px;align-items:center;font-size
     <button id="miniInfo" class="miniInfo" aria-label="Ouvrir la file de lecture"><b id="miniTitle"></b><small id="miniSub"></small></button>
     <button id="plPrev" aria-label="Précédent">⏮</button><button id="plToggle" class="main" aria-label="Lecture">▶</button><button id="plNext" aria-label="Suivant">⏭</button>
   </div>
+</div>
+<div id="fp" class="fp" role="dialog" aria-label="Lecture en cours" hidden>
+  <div class="fpTop"><button id="fpClose" class="icon" aria-label="Réduire le lecteur"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 9l7 7 7-7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    <span class="fpFrom" id="fpFrom"></span><button id="fpQueue" class="icon" aria-label="File de lecture"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h12M4 12h12M4 18h8M18 14v6l4-3z" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg></button></div>
+  <div class="fpArt" id="fpArt"><img id="fpImg" alt=""><div class="fpPh" id="fpPh"></div></div>
+  <div class="fpEmpty" id="fpEmpty" hidden><b>Rien en lecture</b><p class="hint">Choisis un album dans la discothèque, ou laisse Sillon choisir.</p><div class="row"><button id="fpShuffleAll" class="main">Tout au hasard</button><button id="fpRandAlb">Un album au hasard</button></div></div>
+  <div class="fpInfo" id="fpInfo"><div class="fpTxt"><b id="fpTitle"></b><button id="fpSub" class="fpSub"></button></div><button id="fpFav" class="icon fav" aria-pressed="false" aria-label="Ajouter aux favoris">♥</button></div>
+  <div class="fpSeek" id="fpSeekBox"><input id="fpSeek" type="range" min="0" max="1" value="0" step="1" aria-label="Position dans le morceau"><div class="fpTimes mono"><span id="fpT">0:00</span><span id="fpD">0:00</span></div></div>
+  <div class="fpCtl" id="fpCtl">
+    <button id="fpShuf" class="icon" aria-pressed="false" aria-label="Lecture aléatoire"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h3c4 0 6 10 10 10h4M3 17h3c1.6 0 2.8-1.6 3.9-3.6M13.1 9.6C14.2 7.6 15 7 16 7h4M17 4l3 3-3 3M17 14l3 3-3 3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    <button id="fpPrev" class="icon" aria-label="Précédent"></button>
+    <button id="fpPlay" class="fpBig" aria-label="Lecture"></button>
+    <button id="fpNext" class="icon" aria-label="Suivant"></button>
+    <button id="fpRep" class="icon" aria-pressed="false" aria-label="Répéter"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12V9a3 3 0 0 1 3-3h12M16 3l3 3-3 3M20 12v3a3 3 0 0 1-3 3H5M8 21l-3-3 3-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><i id="fpRepOne" hidden>1</i></button>
+  </div>
+  <div class="fpMore"><button id="fpSleep">Minuterie</button><button id="fpAlbum">Voir l'album</button></div>
 </div>
 <div id="qPanel" class="qPanel" role="dialog" aria-label="File de lecture" hidden>
   <div class="qBox">
@@ -1566,26 +1648,6 @@ document.querySelectorAll('section').forEach(sec=>{if(!sec.querySelector('.help'
   const s2=$('#s2');if(oh)s2.insertBefore(oh,s2.querySelector('h2').nextSibling)}
 $('#libQ').oninput=()=>renderLib();
 const srcTags=r=>Object.keys(r.sources||(r.done?{vinyle:1}:{})).map(k=>`<span class="tag src-${k}">${SRC_LABEL[k]||k}</span>`).join(' ');
-function renderLib(){
-  const q=norm($('#libQ').value),box=$('#libList');box.innerHTML='';
-  if(LIBVIEW.tool)return;
-  $('#libListSec').hidden=!!LIBVIEW.key;$('#libDetail').hidden=!LIBVIEW.key;renderLibTools();
-  const list=LIB.filter(r=>!q||norm(r.artist+' '+r.album+' '+(r.tracks||[]).map(t=>t.title).join(' ')).includes(q))
-    .sort((a,b)=>(b.unsorted?1:0)-(a.unsorted?1:0));
-  const nt=LIB.reduce((a,r)=>a+(r.tracks||[]).length,0);
-  $('#libStats').textContent=LIB.length?`${LIB.filter(r=>!r.unsorted).length} album${LIB.length>1?'s':''} · ${nt} morceau${nt>1?'x':''}`:'';
-  $('#libEmpty').hidden=LIB.length>0;$('#libShuffle').hidden=!nt;
-  for(const r of list){
-    const el=document.createElement('button');el.className='libItem libBtn';
-    const c=albumCount(r),doneK=Object.keys(r.done||{});
-    const sides=(r.sides||[]).map(s=>{const d=doneK.some(k=>k===s.name||k.startsWith(s.name+' ('));return `<span class="tag ${d?'ok':'todo'}">${esc(s.name.replace('Face ',''))} ${d?'✓':'·'}</span>`}).join(' ');
-    el.innerHTML=`${r.thumb?`<img alt="" src="${r.thumb}">`:'<span class="ph"></span>'}
-      <span class="txt"><b>${esc(r.unsorted?'Morceaux non classés':r.album)}</b><small>${esc(r.unsorted?'Morceaux non reconnus, à ranger dans leur album':r.artist)}${r.year?' · '+esc(r.year):''}</small>
-      <span class="chips">${srcTags(r)}${c.total?` <span class="tag ${c.have===c.total?'ok':'todo'}">${c.have}/${c.total} titres</span>`:''}${sides?' '+sides:''}</span></span>`;
-    el.onclick=()=>openAlbum(r.key);
-    box.append(el);
-  }
-}
 async function openAlbum(key){LIBVIEW.key=key;const r=LIB.find(x=>x.key===key);
   if(r&&NATIVE&&!(r.tracks||[]).length&&Object.keys(r.done||{}).length)await recoverFiles(r);
   renderAlbum();scrollTo(0,0)}
@@ -1598,11 +1660,14 @@ function renderAlbum(){
   const rows=albumRows(r),have=rows.filter(x=>x.t),miss=rows.filter(x=>!x.t);
   const doneK=Object.keys(r.done||{}),missSides=(r.sides||[]).map(s=>s.name).filter(n=>!doneK.some(k=>k===n||k.startsWith(n+' (')));
   const head=$('#albHead');
-  head.innerHTML=`${r.thumb?`<img alt="" src="${r.thumb}">`:'<span class="ph"></span>'}<div class="txt"><b>${esc(r.unsorted?'Morceaux non classés':r.album)}</b><small>${esc(r.unsorted?'Touche « Classer… » pour ranger un morceau dans son album.':r.artist)}${r.year?' · '+esc(r.year):''}${r.genre?' · '+esc(r.genre):''}${r.label?' · '+esc(r.label):''}</small>
+  head.innerHTML=`${r.thumb?`<img alt="" src="${r.thumb}">`:'<span class="ph"></span>'}<div class="txt"><b>${esc(r.unsorted?'Morceaux non classés':r.album)}</b><small>${r.unsorted?'Touche « Classer… » pour ranger un morceau dans son album.':`<button class="artLink" data-artist="${esc(r.artist)}">${esc(r.artist)}</button>`}${r.year?' · '+esc(r.year):''}${r.genre?' · '+esc(r.genre):''}${r.label?' · '+esc(r.label):''}</small>
     <span class="chips">${srcTags(r)}${rows.length?` <span class="tag ${miss.length?'todo':'ok'}">${have.length}/${rows.length} titres</span>`:''}</span></div>`;
+  head.querySelector('.artLink')?.addEventListener('click',e=>openArtist(e.currentTarget.dataset.artist));
+  if(!r.unsorted){const fb=document.createElement('button');fb.className='albFav';fb.setAttribute('aria-pressed',isFavA(r.key));fb.setAttribute('aria-label',isFavA(r.key)?'Retirer des favoris':'Ajouter aux favoris');fb.textContent=isFavA(r.key)?'♥':'♡';
+    fb.onclick=()=>{toggleFavA(r.key);renderAlbum()};head.querySelector('.txt').append(fb)}
   const pl=have.filter(x=>playable(x.t)).map(x=>qItem(r,x.t));
   $('#albPlay').disabled=!pl.length;$('#albShuffle').disabled=!pl.length;$('#albQueue').disabled=!pl.length;
-  $('#albPlay').onclick=()=>playItems(pl,0,false);$('#albShuffle').onclick=()=>playItems(pl,0,true);$('#albQueue').onclick=()=>{addItems(pl);toast(pl.length+' morceau'+(pl.length>1?'x':'')+' ajouté'+(pl.length>1?'s':'')+' à la file')};
+  $('#albPlay').onclick=()=>{playItems(pl,0,false);openFP()};$('#albShuffle').onclick=()=>{playItems(pl,0,true);openFP()};$('#albQueue').onclick=()=>{addItems(pl);toast(pl.length+' morceau'+(pl.length>1?'x':'')+' ajouté'+(pl.length>1?'s':'')+' à la file')};
   $('#albNoPlay').hidden=!!pl.length||!have.length;
   $('#albNoPlay').textContent=NATIVE?'Fichiers introuvables : choisis le dossier de sauvegarde (étape Conversion) puis rouvre l\'album.':'La lecture se fait dans l\'application Android, qui retrouve les MP3 dans ton téléphone. Ici, seuls les morceaux convertis pendant cette visite peuvent être écoutés.';
   /* compléter l'album */
@@ -1615,19 +1680,22 @@ function renderAlbum(){
   /* titres */
   const box=$('#albTracks');box.innerHTML='';
   rows.forEach(({exp,t},i)=>{
-    const row=document.createElement('div');row.className='atrk'+(t?'':' miss');
+    const row=document.createElement('div');row.className='atrk'+(t?'':' miss');if(t)row.dataset.tid=t.id;
     const no=t?.no?(exp&&exp.no===t.no&&exp.number?exp.number:t.no):(exp?.number||exp?.no||'');const title=t?.title||exp?.title||'';
     const d=t?.dur||(exp?.length?Math.round(exp.length/1000):0);
-    row.innerHTML=`<span class="no mono">${esc(no)}</span><span class="tt"><b>${esc(title)}</b>${t?`<small>${t.artist&&t.artist!==r.artist&&t.artist!=='Artiste inconnu'?esc(t.artist)+' · ':''}<span class="tag src-${t.source}">${SRC_LABEL[t.source]||''}</span></small>`:'<small>manquant</small>'}</span>
+    row.innerHTML=`<span class="no mono">${esc(no)}</span><span class="tt"><b>${esc(title)}</b>${t?`<small>${t.artist&&t.artist!==r.artist&&t.artist!=='Artiste inconnu'?esc(t.artist)+' · ':''}${Object.keys(r.sources||{}).length>1?`<span class="tag src-${t.source}">${SRC_LABEL[t.source]||''}</span>`:''}</small>`:'<small>manquant</small>'}</span>
       <span class="d mono">${d?fmtI(d):''}</span>`;
     if(t&&LSEL.key===r.key){row.classList.add('pick');const on=LSEL.ids.has(t.id);row.classList.toggle('on',on);
       row.querySelector('.no').innerHTML=`<input type="checkbox" ${on?'checked':''} aria-label="Sélectionner ${esc(title)}">`;
       row.onclick=()=>{on?LSEL.ids.delete(t.id):LSEL.ids.add(t.id);renderAlbum()};box.append(row);return}
     if(t){const acts=document.createElement('span');acts.className='acts';
-      if(playable(t)){const bp=document.createElement('button');bp.textContent='▶';bp.setAttribute('aria-label','Écouter '+title);bp.onclick=()=>{const idx=pl.findIndex(x=>x.id===t.id);playItems(pl,Math.max(0,idx),false)};
-        const bq=document.createElement('button');bq.textContent='+';bq.setAttribute('aria-label','Ajouter à la file');bq.onclick=()=>{addItems([qItem(r,t)]);toast('Ajouté à la file')};acts.append(bp,bq)}
+      const cur=curItem()?.id===t.id;if(cur)row.classList.add('now');
+      if(playable(t)){row.classList.add('canPlay');row.querySelector('.tt').onclick=()=>{const idx=pl.findIndex(x=>x.id===t.id);playItems(pl,Math.max(0,idx),false);openFP()};
+        const bq=document.createElement('button');bq.textContent='+ À la file';bq.onclick=()=>{addItems([qItem(r,t)]);toast('Ajouté à la file');row.classList.remove('open')};acts.append(bq)}
+      const more=document.createElement('button');more.className='more icon';more.textContent='⋯';more.setAttribute('aria-label','Actions pour '+title);more.setAttribute('aria-expanded','false');
+      more.onclick=()=>{const o=row.classList.toggle('open');more.setAttribute('aria-expanded',o)};row.insertBefore(more,row.querySelector('.d').nextSibling);
       {const bc=document.createElement('button');bc.textContent=r.unsorted?'Classer…':'Modifier…';bc.onclick=()=>trackForm(row,r,t);acts.append(bc)}
-      const bd=document.createElement('button');bd.textContent='✕';bd.setAttribute('aria-label','Supprimer '+title);
+      const bd=document.createElement('button');bd.textContent='Supprimer';bd.setAttribute('aria-label','Supprimer '+title);
       bd.onclick=()=>{if(row.querySelector('.delc'))return;const c=document.createElement('div');c.className='delc row';
         c.innerHTML='<span class="hint grow">Supprimer ce titre et effacer son fichier ?</span><button class="danger">Supprimer</button><button>Annuler</button>';
         const [y,nb]=c.querySelectorAll('button');y.onclick=()=>deleteTrack(r,t);nb.onclick=()=>c.remove();row.append(c)};
@@ -1635,7 +1703,7 @@ function renderAlbum(){
       row.append(acts)}
     box.append(row);
   });
-  $('#albDelConfirm').hidden=true;$('#albDel').hidden=false;$('#albCover').hidden=!!r.unsorted;
+  $('#albDelConfirm').hidden=true;$('#albDel').hidden=false;$('#albCover').hidden=!!r.unsorted;if(LIBVIEW.lastKey!==r.key){$('#albManage').open=false;LIBVIEW.lastKey=r.key}
   $('#albEdit').hidden=true;$('#albOrder').hidden=true;$('#albEditBtn').hidden=!!r.unsorted;$('#albOrderBtn').hidden=!!r.unsorted||(r.tracks||[]).length<2;
   if(LSEL.key&&LSEL.key!==r.key){LSEL.key=null;LSEL.ids.clear()}
   $('#albSelBtn').hidden=(r.tracks||[]).length<2||LSEL.key===r.key;$('#albSelBtn').onclick=()=>{LSEL.key=r.key;LSEL.ids.clear();renderAlbum()};selBar(r);
@@ -1664,7 +1732,7 @@ async function cropSquare(file,size){
   const b=await new Promise(res=>c.toBlob(res,'image/jpeg',.88));return new Uint8Array(await b.arrayBuffer());
 }
 if(NATIVE){$('#repairRow').hidden=false;$('#repairHint').hidden=false;$('#libRepair').onclick=repairLib}
-$('#libShuffle').onclick=()=>{const all=LIB.flatMap(r=>(r.tracks||[]).filter(playable).map(t=>qItem(r,t)));if(!all.length)return toast(NATIVE?'Aucun fichier lisible.':'La lecture se fait dans l\'application Android.');playItems(all,0,true)};
+$('#libShuffle').onclick=()=>{const all=allPlayable();if(!all.length)return noPlayMsg();playItems(all,0,true);openFP()};
 function stripId3(u8){
   if(u8[0]===73&&u8[1]===68&&u8[2]===51){const sz=(u8[6]&127)<<21|(u8[7]&127)<<14|(u8[8]&127)<<7|(u8[9]&127);return u8.subarray(10+sz+((u8[5]&16)?10:0))}
   return u8;
@@ -2379,7 +2447,7 @@ function renderLibTools(){
   $('#toolAlb').hidden=!af;$('#toolAlb').textContent=`Albums à découper (${af})`;
   $('#toolChk').hidden=!c;$('#toolChk').textContent=`À vérifier (${c})`;$('#toolDup').hidden=!d;$('#toolDup').textContent=`Doublons (${d})`;
 }
-function openTool(kind){LIBVIEW.tool=kind;$('#libListSec').hidden=true;$('#libDetail').hidden=true;$('#toolSec').hidden=false;window.scrollTo(0,0);kind==='dups'?renderDups():renderCheck()}
+function openTool(kind){LIBVIEW.tool=kind;$('#libListSec').hidden=true;$('#libDetail').hidden=true;$('#toolSec').hidden=false;window.scrollTo(0,0);kind==='dups'?renderDups():kind==='top'||kind==='favs'?renderTrackList(kind):renderCheck()}
 function closeTool(){LIBVIEW.tool=null;CHKRUN++;$('#toolSec').hidden=true;renderLib()}
 function scanReport(){const L=LASTSCAN;if(!L)return '';
   return 'Dossiers analysés : '+L.roots.map(r=>`${r.name} (${r.files} fichier${r.files>1?'s':''} audio${r.errors?', '+r.errors+' dossier'+(r.errors>1?'s':'')+' illisible'+(r.errors>1?'s':''):''})`).join(', ')+'.'+(L.unreadable?` ${L.unreadable} fichier${L.unreadable>1?'s':''} sans étiquettes lisibles, ajouté${L.unreadable>1?'s':''} d'après son chemin.`:'')}
@@ -2539,6 +2607,7 @@ function updProgress(){
   if(!$('#qPanel').hidden){const s=$('#plSeek');if(!s.matches(':active')){s.max=Math.max(1,Math.round(PL.dur));s.value=Math.round(PL.t)}$('#plTime').textContent=fmtI(PL.t)+' / '+fmtI(PL.dur)}
   $('#plToggle').innerHTML=PL.playing?ICO.pause:ICO.play;$('#plToggle').setAttribute('aria-label',PL.playing?'Pause':'Lecture');
   $('#qToggle').innerHTML=(PL.playing?ICO.pause+' Pause':ICO.play+' Lecture');
+  updFPProgress();
 }
 function updPlayer(){
   const it=curItem();$('#mini').hidden=!it;document.body.classList.toggle('withMini',!!it);
@@ -2548,24 +2617,161 @@ function updPlayer(){
   $('#plRepeat').setAttribute('aria-pressed',PL.repeat!=='off');$('#plRepeat').textContent={off:'Répéter : non',all:'Répéter : tout',one:'Répéter : ce morceau'}[PL.repeat];
   updProgress();
   if(!$('#qPanel').hidden)renderQueue();
+  if(it&&PL.playing)countPlay(it);sleepOnTrackChange(it);updFP();
+  document.querySelectorAll('#albTracks .atrk[data-tid]').forEach(r=>r.classList.toggle('now',!!it&&r.dataset.tid===it.id));
 }
 function renderQueue(){
   const box=$('#qList');box.innerHTML='';
   PL.order.forEach((qi,op)=>{const it=PL.q[qi],row=document.createElement('div');row.className='qRow'+(op===PL.pos?' cur':'')+(op<PL.pos?' past':'');
-    row.innerHTML=`<button class="qPlay"><b>${esc(it.title)}</b><small>${esc([it.artist,it.album].filter(Boolean).join(' · '))}</small></button>${op>PL.pos?`<button class="qUp" aria-label="Monter">↑</button>`:''}<button class="qDel" aria-label="Retirer de la file">✕</button>`;
+    row.innerHTML=`${op>PL.pos?'<button class="qGrip" aria-label="Glisser pour déplacer">≡</button>':''}<button class="qPlay"><b>${esc(it.title)}</b><small>${esc([it.artist,it.album].filter(Boolean).join(' · '))}</small></button>${op>PL.pos?`<button class="qUp" aria-label="Monter">↑</button>`:''}<button class="qDel" aria-label="Retirer de la file">✕</button>`;
+    queueDrag(row,op);
     row.querySelector('.qPlay').onclick=()=>playPos(op);row.querySelector('.qUp')?.addEventListener('click',()=>moveQ(op,-1));row.querySelector('.qDel').onclick=()=>removeQ(op);
     box.append(row)});
   $('#qCount').textContent=PL.order.length?`${PL.pos+1} / ${PL.order.length}`:'';
 }
 $('#plPrev').onclick=prev;$('#plNext').onclick=()=>next(false);$('#plToggle').onclick=togglePlay;
 $('#qPrev').onclick=prev;$('#qNext').onclick=()=>next(false);$('#qToggle').onclick=togglePlay;
-$('#miniInfo').onclick=()=>{$('#qPanel').hidden=false;renderQueue();updProgress()};
+$('#miniInfo').onclick=openFP;$('#miniImg').onclick=openFP;$('#tabPlay').onclick=()=>$('#fp').hidden?openFP():closeFP();
 $('#qClose').onclick=()=>{$('#qPanel').hidden=true};
 $('#plShuffle').onclick=()=>setShuffle(!PL.shuffle);$('#plRepeat').onclick=cycleRepeat;$('#plClear').onclick=clearQ;
 $('#plSeek').oninput=e=>{PL.t=+e.target.value;$('#plTime').textContent=fmtI(PL.t)+' / '+fmtI(PL.dur)};
 $('#plSeek').onchange=e=>engSeek(+e.target.value);
 $('#miniBar').onclick=e=>{if(!PL.dur)return;const r=e.currentTarget.getBoundingClientRect();engSeek((e.clientX-r.left)/r.width*PL.dur)};
 
+/* ---------- Favoris et écoutes (gardés sur l'appareil, sans toucher aux fichiers) ---------- */
+const FAVK='sillon.favs',PLAYK='sillon.plays';
+const jget=(k,d)=>{try{return JSON.parse(localStorage.getItem(k)||'')||d}catch(e){return d}};
+const jset=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}};
+const FAV=jget(FAVK,{a:{},t:{}});FAV.a=FAV.a||{};FAV.t=FAV.t||{};
+const PLAYS=jget(PLAYK,{});
+const isFavA=k=>!!FAV.a[k],isFavT=id=>!!FAV.t[id];
+function toggleFavA(k){FAV.a[k]?delete FAV.a[k]:FAV.a[k]=Date.now();jset(FAVK,FAV)}
+function toggleFavT(id){FAV.t[id]?delete FAV.t[id]:FAV.t[id]=Date.now();jset(FAVK,FAV)}
+const plays=id=>PLAYS[id]?.n||0;
+const albumPlays=r=>(r.tracks||[]).reduce((a,t)=>a+plays(t.id),0);
+let LASTPLAYED=null;
+function countPlay(it){if(!it||it.id===LASTPLAYED)return;LASTPLAYED=it.id;const p=PLAYS[it.id]||(PLAYS[it.id]={n:0});p.n++;p.at=Date.now();jset(PLAYK,PLAYS)}
+/* ---------- Discothèque : grille, filtres, tri, pages artiste ---------- */
+LIBVIEW.filter='all';LIBVIEW.sort='recent';LIBVIEW.artist=null;
+try{LIBVIEW.sort=localStorage.getItem('sillon.libSort')||'recent'}catch(e){}
+$('#libSort').value=LIBVIEW.sort;
+$('#libSort').onchange=e=>{LIBVIEW.sort=e.target.value;try{localStorage.setItem('sillon.libSort',LIBVIEW.sort)}catch(x){}renderLib()};
+document.querySelectorAll('#libFilter [data-f]').forEach(b=>b.onclick=()=>{LIBVIEW.filter=b.dataset.f;renderLib()});
+$('#artistBack').onclick=()=>{LIBVIEW.artist=null;renderLib();scrollTo(0,0)};
+function openArtist(a){LIBVIEW.artist=a;LIBVIEW.key=null;$('#libQ').value='';showView('lib');renderLib();scrollTo(0,0)}
+const allPlayable=()=>LIB.flatMap(r=>(r.tracks||[]).filter(playable).map(t=>qItem(r,t)));
+const noPlayMsg=()=>toast(NATIVE?'Aucun fichier lisible.':'La lecture se fait dans l\'application Android.');
+function randomAlbum(){const l=LIB.filter(r=>!r.unsorted&&(r.tracks||[]).some(playable));if(!l.length)return noPlayMsg();
+  const r=l[Math.floor(Math.random()*l.length)];playItems(albumRows(r).filter(x=>x.t&&playable(x.t)).map(x=>qItem(r,x.t)),0,false);openFP()}
+$('#libRandAlb').onclick=randomAlbum;
+function renderLib(){
+  const q=norm($('#libQ').value),box=$('#libList');box.innerHTML='';
+  if(LIBVIEW.tool)return;
+  $('#libListSec').hidden=!!LIBVIEW.key;$('#libDetail').hidden=!LIBVIEW.key;renderLibTools();
+  const nt=LIB.reduce((a,r)=>a+(r.tracks||[]).length,0),na=LIB.filter(r=>!r.unsorted).length,f=LIBVIEW.filter,ar=LIBVIEW.artist;
+  document.querySelectorAll('#libFilter [data-f]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.f===f));
+  $('#libTitle').textContent=ar||'Ma discothèque';$('#artistBar').hidden=!ar;$('#libQuick').hidden=!!ar;
+  $('#libStats').textContent=LIB.length?`${na} album${na>1?'s':''}, ${nt} morceau${nt>1?'x':''}`:'';
+  $('#libEmpty').hidden=LIB.length>0;$('#libShuffle').hidden=!nt;$('#libRandAlb').hidden=na<2;
+  $('#libTop').hidden=!Object.keys(PLAYS).length;$('#libFavT').hidden=!Object.keys(FAV.t).length;
+  let list=LIB.filter(r=>(!q||norm(r.artist+' '+r.album+' '+(r.tracks||[]).map(t=>t.title+' '+(t.artist||'')).join(' ')).includes(q))
+    &&(!ar||norm(r.artist)===norm(ar)||(r.tracks||[]).some(t=>norm(t.artist||'')===norm(ar)))
+    &&(f==='all'||(f==='fav'?isFavA(r.key)||(r.tracks||[]).some(t=>isFavT(t.id)):!!(r.sources||{})[f]||(f==='vinyle'&&!r.sources&&r.done))));
+  const by={recent:(a,b)=>(b.updated||b.created||0)-(a.updated||a.created||0),artist:(a,b)=>(a.artist||'').localeCompare(b.artist||'','fr')||(a.year||'').localeCompare(b.year||''),
+    album:(a,b)=>(a.album||'').localeCompare(b.album||'','fr'),year:(a,b)=>(b.year||'0').localeCompare(a.year||'0')||(a.artist||'').localeCompare(b.artist||'','fr'),plays:(a,b)=>albumPlays(b)-albumPlays(a)}[ar?'year':LIBVIEW.sort]||(()=>0);
+  list.sort((a,b)=>(b.unsorted?1:0)-(a.unsorted?1:0)||by(a,b));
+  for(const r of list){
+    const el=document.createElement('button');el.className='libItem'+(r.unsorted?' loose':'');
+    const c=albumCount(r),srcs=Object.keys(r.sources||(r.done?{vinyle:1}:{}));
+    const bdg=[c.total&&c.have<c.total?`${c.have}/${c.total}`:'',...srcs.map(k=>({vinyle:'Vinyle',autre:'Autre',tel:'Tél.'}[k]||k))].filter(Boolean);
+    el.innerHTML=r.unsorted?`<span class="cv">${(r.tracks||[]).length}</span><span class="ti">Morceaux non classés</span><span class="ar">À ranger dans leur album</span>`
+      :`<span class="cv">${r.thumb?`<img alt="" src="${r.thumb}" loading="lazy">`:'<span class="ph"></span>'}${bdg.length?`<span class="bdg">${bdg.map(x=>`<i>${esc(x)}</i>`).join('')}</span>`:''}${isFavA(r.key)?'<span class="fav" aria-label="Favori">♥</span>':''}</span>
+      <span class="ti">${esc(r.album)}</span><span class="ar">${esc(r.artist)}${r.year?' · '+esc(r.year):''}</span>`;
+    el.setAttribute('aria-label',r.unsorted?'Morceaux non classés':`${r.album}, ${r.artist}`);
+    el.onclick=()=>openAlbum(r.key);
+    box.append(el);
+  }
+  if(LIB.length&&!list.length)box.innerHTML=`<p class="hint">Aucun album ne correspond${q?' à « '+esc($('#libQ').value)+' »':''}.</p>`;
+}
+/* listes de morceaux : les plus écoutés, favoris */
+function trackRows(items,box){for(const [i,x] of items.entries()){const row=document.createElement('div');row.className='atrk';
+  row.innerHTML=`<span class="no">${i+1}</span><span class="tt"><b>${esc(x.t.title)}</b><small>${esc([x.t.artist&&x.t.artist!=='Artiste inconnu'?x.t.artist:x.r.artist,x.r.unsorted?'':x.r.album].filter(Boolean).join(' · '))}${x.n?' · '+x.n+' écoute'+(x.n>1?'s':''):''}</small></span><span class="d mono">${x.t.dur?fmtI(x.t.dur):''}</span>`;
+  row.onclick=()=>{playItems(items.filter(y=>playable(y.t)).map(y=>qItem(y.r,y.t)),Math.max(0,items.filter(y=>playable(y.t)).indexOf(x)),false);openFP()};box.append(row)}}
+function renderTrackList(kind){
+  const box=$('#toolBody');box.innerHTML='';
+  const all=LIB.flatMap(r=>(r.tracks||[]).map(t=>({r,t,n:plays(t.id)})));
+  const items=kind==='top'?all.filter(x=>x.n).sort((a,b)=>b.n-a.n).slice(0,100):all.filter(x=>isFavT(x.t.id)).sort((a,b)=>FAV.t[b.t.id]-FAV.t[a.t.id]);
+  $('#toolTitle').textContent=kind==='top'?'Les plus écoutés':'Morceaux favoris';
+  if(!items.length){box.innerHTML=`<p class="hint">${kind==='top'?'Les morceaux que tu écoutes apparaîtront ici.':'Touche ♥ dans le lecteur pour ajouter un morceau à tes favoris.'}</p>`;return}
+  const b=document.createElement('div');b.className='row';b.innerHTML='<button class="main">▶ Tout lire</button><button>Aléatoire</button>';
+  const pl=()=>items.filter(y=>playable(y.t)).map(y=>qItem(y.r,y.t));
+  b.children[0].onclick=()=>{playItems(pl(),0,false);openFP()};b.children[1].onclick=()=>{playItems(pl(),0,true);openFP()};
+  box.append(b);const l=document.createElement('div');l.className='albTracks';box.append(l);trackRows(items,l);
+}
+$('#libTop').onclick=()=>openTool('top');$('#libFavT').onclick=()=>openTool('favs');
+/* ---------- Lecteur plein écran ---------- */
+const COVERURL=new Map();
+function coverUrl(key){const r=LIB.find(x=>x.key===key);if(!r?.cover)return r?.thumb||'';if(!COVERURL.has(key))COVERURL.set(key,URL.createObjectURL(new Blob([r.cover],{type:r.coverMime||'image/jpeg'})));return COVERURL.get(key)}
+/* couleur d'ambiance tirée de la pochette */
+const TINT=new Map();
+function tintOf(src,key){if(TINT.has(key))return Promise.resolve(TINT.get(key));return new Promise(res=>{const im=new Image();im.onload=()=>{try{const c=document.createElement('canvas');c.width=c.height=24;const g=c.getContext('2d');g.drawImage(im,0,0,24,24);
+  const d=g.getImageData(0,0,24,24).data;let r=0,gg=0,b=0,w=0;for(let i=0;i<d.length;i+=4){const mx=Math.max(d[i],d[i+1],d[i+2]),mn=Math.min(d[i],d[i+1],d[i+2]),sat=mx?(mx-mn)/mx:0,k=.15+sat;r+=d[i]*k;gg+=d[i+1]*k;b+=d[i+2]*k;w+=k}
+  const col=`rgb(${Math.round(r/w)},${Math.round(gg/w)},${Math.round(b/w)})`;TINT.set(key,col);res(col)}catch(e){res(null)}};im.onerror=()=>res(null);im.src=src})}
+let FPKEY=null;
+function openFP(){$('#fp').hidden=false;document.body.classList.add('fpOpen');updFP();$('#tabPlay').setAttribute('aria-pressed','true')}
+function closeFP(){$('#fp').hidden=true;document.body.classList.remove('fpOpen');$('#tabPlay').setAttribute('aria-pressed','false')}
+function updFP(){
+  if($('#fp').hidden)return;const it=curItem();
+  for(const id of ['#fpArt','#fpInfo','#fpSeekBox','#fpCtl'])$(id).hidden=!it;$('#fpEmpty').hidden=!!it;$('.fpMore').hidden=!it;
+  $('#fpShuffleAll').hidden=$('#fpRandAlb').hidden=!LIB.some(r=>(r.tracks||[]).some(playable));
+  if(!it){$('#fp').style.removeProperty('--fpc');$('#fpFrom').textContent='';return}
+  $('#fpTitle').textContent=it.title;$('#fpSub').textContent=[it.artist,it.album].filter(Boolean).join(' · ');
+  $('#fpFrom').textContent=PL.order.length>1?`${PL.pos+1} sur ${PL.order.length}`:'';
+  $('#fpFav').setAttribute('aria-pressed',isFavT(it.id));$('#fpFav').setAttribute('aria-label',isFavT(it.id)?'Retirer des favoris':'Ajouter aux favoris');
+  $('#fpShuf').setAttribute('aria-pressed',PL.shuffle);$('#fpRep').setAttribute('aria-pressed',PL.repeat!=='off');$('#fpRepOne').hidden=PL.repeat!=='one';
+  $('#fpRep').setAttribute('aria-label',{off:'Répéter : non',all:'Répéter : tout',one:'Répéter : ce morceau'}[PL.repeat]);
+  $('#fpAlbum').hidden=!it.key||!LIB.some(r=>r.key===it.key&&!r.unsorted);
+  if(FPKEY!==it.key+'|'+it.id){FPKEY=it.key+'|'+it.id;const u=it.key?coverUrl(it.key):it.thumb;const img=$('#fpImg');
+    if(u){img.src=u;img.hidden=false;$('#fpPh').hidden=true;tintOf(it.thumb||u,it.key||u).then(c=>{if(c)$('#fp').style.setProperty('--fpc',c)})}else{img.hidden=true;$('#fpPh').hidden=false;$('#fp').style.removeProperty('--fpc')}}
+  updFPProgress();
+}
+function updFPProgress(){if($('#fp').hidden)return;const s=$('#fpSeek');if(!s.matches(':active')&&!s.dragging){s.max=Math.max(1,Math.round(PL.dur));s.value=Math.round(PL.t)}
+  $('#fpT').textContent=fmtI(s.dragging?+s.value:PL.t);$('#fpD').textContent=PL.dur?'-'+fmtI(Math.max(0,PL.dur-(s.dragging?+s.value:PL.t))):'0:00';
+  $('#fpPlay').innerHTML=PL.playing?ICO.pause:ICO.play;$('#fpPlay').setAttribute('aria-label',PL.playing?'Pause':'Lecture')}
+$('#fpPrev').innerHTML=ICO.prev;$('#fpNext').innerHTML=ICO.next;
+$('#fpClose').onclick=closeFP;$('#fpPlay').onclick=togglePlay;$('#fpPrev').onclick=prev;$('#fpNext').onclick=()=>next(false);
+$('#fpShuf').onclick=()=>setShuffle(!PL.shuffle);$('#fpRep').onclick=cycleRepeat;
+$('#fpQueue').onclick=()=>{$('#qPanel').hidden=false;renderQueue();updProgress()};
+$('#fpFav').onclick=()=>{const it=curItem();if(!it)return;toggleFavT(it.id);toast(isFavT(it.id)?'Ajouté aux favoris':'Retiré des favoris');updFP()};
+$('#fpSub').onclick=()=>{const it=curItem();if(!it)return;closeFP();if(it.artist)openArtist(it.artist)};
+$('#fpAlbum').onclick=()=>{const it=curItem();if(!it?.key)return;closeFP();showView('lib');openAlbum(it.key)};
+$('#fpShuffleAll').onclick=()=>{const all=allPlayable();if(!all.length)return noPlayMsg();playItems(all,0,true)};$('#fpRandAlb').onclick=randomAlbum;
+{const s=$('#fpSeek');s.oninput=()=>{s.dragging=true;updFPProgress()};s.onchange=()=>{s.dragging=false;PL.t=+s.value;engSeek(+s.value);updFPProgress()}}
+/* gestes : balayer la pochette pour changer de morceau, tirer vers le bas pour réduire */
+{const art=$('#fpArt');let x0=null,y0=null;
+  art.addEventListener('pointerdown',e=>{x0=e.clientX;y0=e.clientY;art.setPointerCapture(e.pointerId)});
+  art.addEventListener('pointermove',e=>{if(x0==null)return;const dx=e.clientX-x0,dy=e.clientY-y0;art.style.transform=Math.abs(dx)>Math.abs(dy)?`translateX(${dx*.6}px) rotate(${dx/40}deg)`:dy>0?`translateY(${dy*.5}px)`:''});
+  art.addEventListener('pointerup',e=>{if(x0==null)return;const dx=e.clientX-x0,dy=e.clientY-y0;x0=null;art.style.transform='';
+    if(Math.abs(dx)>70&&Math.abs(dx)>Math.abs(dy))dx<0?next(false):prev();else if(dy>110&&dy>Math.abs(dx))closeFP();else if(Math.abs(dx)<8&&Math.abs(dy)<8)togglePlay()});
+  art.addEventListener('pointercancel',()=>{x0=null;art.style.transform=''})}
+/* minuterie de mise en veille */
+const SLEEP={until:0,endOfTrack:false,id:null,k:0};
+function setSleep(mode){SLEEP.k++;SLEEP.until=0;SLEEP.endOfTrack=false;
+  if(mode==='track'){SLEEP.endOfTrack=true;SLEEP.id=curItem()?.id}else if(mode>0){SLEEP.until=Date.now()+mode*60000;const k=SLEEP.k;
+    (async()=>{while(k===SLEEP.k&&Date.now()<SLEEP.until){await wait(Math.min(20000,SLEEP.until-Date.now()));updSleep()}if(k===SLEEP.k&&SLEEP.until){SLEEP.until=0;if(PL.playing)togglePlay();toast('Minuterie : lecture arrêtée');updSleep()}})()}
+  updSleep()}
+function updSleep(){const b=$('#fpSleep');b.setAttribute('aria-pressed',!!(SLEEP.until||SLEEP.endOfTrack));
+  b.textContent=SLEEP.endOfTrack?'Arrêt à la fin du morceau':SLEEP.until?`Arrêt dans ${Math.max(1,Math.ceil((SLEEP.until-Date.now())/60000))} min`:'Minuterie'}
+$('#fpSleep').onclick=()=>{const seq=[0,15,30,60,'track'],cur=SLEEP.endOfTrack?'track':SLEEP.until?(seq.find(m=>m>0&&m*60000>=SLEEP.until-Date.now()-1000)||60):0;
+  const nxt=seq[(seq.indexOf(cur)+1)%seq.length];setSleep(nxt);toast(nxt==='track'?'La lecture s\'arrêtera à la fin du morceau':nxt?`La lecture s'arrêtera dans ${nxt} min`:'Minuterie désactivée')};
+function sleepOnTrackChange(it){if(SLEEP.endOfTrack&&it&&SLEEP.id&&it.id!==SLEEP.id){SLEEP.endOfTrack=false;SLEEP.id=null;if(PL.playing)togglePlay();toast('Minuterie : lecture arrêtée');updSleep()}}
+/* file d'attente : glisser la poignée pour réordonner */
+function moveQTo(op,np){if(op<=PL.pos||np<=PL.pos||np>=PL.order.length||op===np)return;const [x]=PL.order.splice(op,1);PL.order.splice(np,0,x);if(NATQ)syncNative(PL.playing,true);updPlayer()}
+function queueDrag(row,op){const g=row.querySelector('.qGrip');if(!g)return;let y0=0,h=0;
+  g.addEventListener('pointerdown',e=>{e.preventDefault();y0=e.clientY;h=row.getBoundingClientRect().height+4;g.setPointerCapture(e.pointerId);row.classList.add('drag')});
+  g.addEventListener('pointermove',e=>{if(!row.classList.contains('drag'))return;row.style.transform=`translateY(${e.clientY-y0}px)`});
+  g.addEventListener('pointerup',e=>{if(!row.classList.contains('drag'))return;row.classList.remove('drag');row.style.transform='';const d=Math.round((e.clientY-y0)/h);
+    if(d)moveQTo(op,Math.max(PL.pos+1,Math.min(PL.order.length-1,op+d)))})}
 function openFromLib(r,want){
   S.rel=null;S.src=r.src;S.sides=JSON.parse(JSON.stringify(r.sides||[]));S.all=S.sides.flatMap(s=>s.tracks);S.range=null;
   const doneK=Object.keys(r.done||{});let i=want?S.sides.findIndex(s=>s.name===want):S.sides.findIndex(s=>!doneK.some(k=>k===s.name||k.startsWith(s.name+' (')));S.side=i<0?0:i;

@@ -58,6 +58,9 @@ public class PlayerService extends Service {
     private int index = -1;
     private String repeat = "off";
     private MediaPlayer mp;
+    /* morceau suivant préparé d'avance et enchaîné par Android : pas de blanc entre deux morceaux */
+    private MediaPlayer nextMp;
+    private int nextIdx = -1;
     private MediaSessionCompat session;
     private AudioManager am;
     private AudioFocusRequest focusReq;
@@ -140,6 +143,7 @@ public class PlayerService extends Service {
         if (keep && cur != null && cur.equals(items.get(idx).uri) && mp != null) {
             index = idx;
             updateMeta();
+            prepareNext();
             emitState(true);
             return;
         }
@@ -152,6 +156,67 @@ public class PlayerService extends Service {
 
     void setRepeat(String r) {
         repeat = r == null ? "off" : r;
+        prepareNext();
+    }
+
+    private MediaPlayer create(Item it) throws Exception {
+        MediaPlayer p = new MediaPlayer();
+        p.setAudioAttributes(new AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_MEDIA)
+                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build());
+        p.setWakeMode(getApplicationContext(), android.os.PowerManager.PARTIAL_WAKE_LOCK);
+        p.setDataSource(this, Uri.parse(it.uri));
+        p.setOnCompletionListener(this::onDone);
+        p.setOnErrorListener((m, w, e) -> {
+            if (m != mp) return true;
+            emitError("Lecture impossible de « " + it.title + " »");
+            main.postDelayed(() -> next(true), 300);
+            return true;
+        });
+        p.prepare();
+        return p;
+    }
+
+    /* fin d'un morceau : si le suivant était prêt, Android l'a déjà lancé ; on le reprend comme morceau courant */
+    private void onDone(MediaPlayer m) {
+        if (m != mp) return;
+        if (nextMp != null) {
+            MediaPlayer old = mp;
+            mp = nextMp;
+            index = nextIdx;
+            nextMp = null;
+            nextIdx = -1;
+            try { old.release(); } catch (Exception ignored) { }
+            updateMeta();
+            updateState();
+            emitState(true);
+            prepareNext();
+        } else next(true);
+    }
+
+    private void releaseNext() {
+        if (nextMp != null) {
+            try { if (mp != null) mp.setNextMediaPlayer(null); } catch (Exception ignored) { }
+            try { nextMp.release(); } catch (Exception ignored) { }
+            nextMp = null;
+        }
+        nextIdx = -1;
+    }
+
+    private void prepareNext() {
+        releaseNext();
+        if (mp == null || items.isEmpty()) return;
+        int n = "one".equals(repeat) ? index : index + 1 < items.size() ? index + 1 : "all".equals(repeat) ? 0 : -1;
+        if (n < 0) return;
+        try {
+            MediaPlayer p = create(items.get(n));
+            mp.setNextMediaPlayer(p);
+            nextMp = p;
+            nextIdx = n;
+        } catch (Exception e) {
+            nextMp = null;
+            nextIdx = -1;
+        }
     }
 
     private void load(int idx, boolean play) {
@@ -159,23 +224,11 @@ public class PlayerService extends Service {
         index = idx;
         Item it = items.get(idx);
         try {
-            MediaPlayer p = new MediaPlayer();
-            p.setAudioAttributes(new AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_MEDIA)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build());
-            p.setWakeMode(getApplicationContext(), android.os.PowerManager.PARTIAL_WAKE_LOCK);
-            p.setDataSource(this, Uri.parse(it.uri));
-            p.setOnCompletionListener(m -> next(true));
-            p.setOnErrorListener((m, w, e) -> {
-                emitError("Lecture impossible de « " + it.title + " »");
-                main.postDelayed(() -> next(true), 300);
-                return true;
-            });
-            p.prepare();
-            mp = p;
+            mp = create(it);
             updateMeta();
             if (play) start();
             else updateState();
+            prepareNext();
         } catch (Exception e) {
             emitError("Fichier illisible : « " + it.title + " »");
             main.postDelayed(() -> next(true), 300);
@@ -250,6 +303,7 @@ public class PlayerService extends Service {
     }
 
     private void releaseMp() {
+        releaseNext();
         if (mp != null) {
             try {
                 mp.release();

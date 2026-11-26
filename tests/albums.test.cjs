@@ -39,7 +39,8 @@ await p.evaluate(async()=>{const r={key:albumKey('Wolfmother',"Rock'n'Roll Baby"
     r.tracks.push({id:'t'+no,no,title,artist:r.artist,dur:200,dir:r.dir,file,uri,source:'vinyle'})}
   await libPut(r);await libLoad()});
 const openA=async t=>{await p.evaluate(()=>{LIBVIEW.key=null;showView(true)});await p.locator('.libItem',{hasText:t}).first().click();await p.waitForTimeout(150)};
-const formFor=async title=>{const row=p.locator('.atrk',{hasText:title}).first();await row.locator('button',{hasText:/Modifier|Classer/}).click();return row.locator('.cls')};
+const formFor=async title=>{const row=p.locator('.atrk',{hasText:title}).first();await row.locator('.more').click();await row.locator('button',{hasText:/Modifier|Classer/}).click();return row.locator('.cls')};
+const manage=()=>p.evaluate(()=>{$('#albManage').open=true});
 const done=()=>p.waitForFunction(()=>!document.querySelector('.cls'),null,{timeout:8000}).catch(()=>{});
 
 console.log('1. Changer le numéro d\'un morceau (cas signalé)');
@@ -70,7 +71,7 @@ await p.evaluate(async()=>{const r={key:albumKey('Wolfmother','Autre'),artist:'W
 s=await st();ok(s.albums.length===1&&s.albums[0].tracks.length===4,'un seul album de 4 morceaux');ok(consistent(s),'cohérent');
 
 console.log('6. Changer l\'ordre');
-await openA('Rock n Roll Baby');await p.click('#albOrderBtn');await p.locator('.ordRow').last().locator('button[aria-label=Monter]').click();
+await openA('Rock n Roll Baby');await manage();await p.click('#albOrderBtn');await p.locator('.ordRow').last().locator('button[aria-label=Monter]').click();
 await p.locator('#albOrder button',{hasText:'Enregistrer l\'ordre'}).click();await p.waitForFunction(()=>document.querySelector('#albOrder').hidden,null,{timeout:8000});
 s=await st();ok(s.albums[0].tracks.map(t=>t.no).join()==='1,2,3,4','numéros 1 à 4');ok(s.albums[0].tracks[2].title==='Pretty Peggy','le dernier est monté d\'un cran');ok(consistent(s),'cohérent');
 ok(s.files.filter(x=>x.endsWith('.mp3')).length===4,'toujours 4 fichiers');
@@ -113,7 +114,7 @@ await p.evaluate(async()=>{const r={key:UNSORTED_KEY,artist:'',album:'Morceaux n
     r.tracks.push({id:'u'+i,no:0,title,artist:'Wolfmother',dur:100,dir:'Divers',file,uri,source:'tel'})}
   await libPut(r);await libPut({key:albumKey('Wolfmother','Wolfmother'),artist:'Wolfmother',album:'Wolfmother',year:'2005',dir:'Wolfmother/Wolfmother (2005)',sources:{vinyle:1},
     tracklist:[{no:1,title:'Dimension'},{no:2,title:'White Unicorn'},{no:3,title:'Woman'},{no:4,title:'Where Eagles Have Been'},{no:5,title:'Apple Tree'},{no:6,title:'Joker and the Thief'},{no:7,title:'Colossal'},{no:8,title:'Mind\'s Eye'}],tracks:[]});await libLoad()});
-await openA('Morceaux non classés');await p.click('#albSelBtn');
+await openA('Morceaux non classés');await manage();await p.click('#albSelBtn');
 for(const t of ['Joker','Woman','Mind'])await p.locator('.atrk',{hasText:t}).first().click();
 ok((await p.locator('#albSel b').innerText()).startsWith('3 sélectionnés'),'3 sélectionnés');
 await p.click('#albSel .sm');await p.fill('#albSel .db','wolfmother');await p.locator('#albSel .db').dispatchEvent('change');
