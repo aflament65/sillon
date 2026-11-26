@@ -1885,7 +1885,14 @@ async function libTx(mode,fn){const db=await idb();return new Promise((res,rej)=
   let out;const q=fn(st);if(q)q.onsuccess=()=>{out=q.result};t.oncomplete=()=>res(out);t.onerror=()=>rej(t.error)})}
 async function libLoad(){try{LIB=(await libTx('readonly',st=>st.getAll()))||[]}catch(e){LIB=[]}
   LIB.sort((a,b)=>albumKey(a.artist,a.album).localeCompare(albumKey(b.artist,b.album)));
-  $('#libCount').textContent=LIB.length||'';$('#libCount').hidden=!LIB.length;}
+  $('#libCount').textContent=LIB.length||'';$('#libCount').hidden=!LIB.length;snapSoon();}
+/* résumé de la discothèque pour Android Auto, le widget et la recherche vocale (écrit sur le téléphone, 3 s après le dernier changement) */
+let SNAPT=null,SNAPLAST='';
+function snapSoon(){if(!NATIVE?.libSnapshot)return;clearTimeout(SNAPT);SNAPT=setTimeout(()=>{try{
+  const albums=LIB.filter(r=>(r.tracks||[]).some(t=>t.uri)).map(r=>({k:r.key,ar:r.unsorted?'Morceaux non classés':r.artist||'',al:r.unsorted?'Morceaux non classés':r.album||'',y:r.year||'',d:r.dir||'',
+    tr:(r.tracks||[]).filter(t=>t.uri).sort((a,b)=>(a.no||999)-(b.no||999)).map(t=>({i:t.id,t:t.title,...(t.artist&&t.artist!==r.artist?{a:t.artist}:{}),u:t.uri,...(t.dir&&t.dir!==r.dir?{d:t.dir}:{}),n:t.no||0,...(isFinite(t.loud)?{l:t.loud}:{})}))}));
+  const pls=(typeof PLS!=='undefined'?PLS:[]).map(p=>({i:p.id,n:p.name,it:p.items.map(x=>x.id)}));
+  const json=JSON.stringify({v:1,albums,pls});if(json===SNAPLAST)return;SNAPLAST=json;NATIVE.libSnapshot({json}).catch(()=>{SNAPLAST=''})}catch(e){}},3000)}
 const libPut=r=>libTx('readwrite',st=>st.put(r));
 const libDel=k=>libTx('readwrite',st=>st.delete(k));
 const libFind=(artist,album)=>LIB.find(r=>r.key===albumKey(artist,album));
@@ -2892,7 +2899,7 @@ function buildOrder(keepCur){
 /* Moteur : sur Android, la file est confiée au service de lecture (arrière-plan, Bluetooth, voiture) ;
    sur le web, un simple élément audio. */
 const NATQ=!!NATIVE?.playerSetQueue;
-const qPayload=()=>PL.order.map(i=>{const it=PL.q[i];const lh=isFinite(it.loud)?it.loud:LOUDIDX().get(it.id);return {uri:it.uri,title:it.title,artist:it.artist||'',album:it.album||'',dir:it.dir||'',...(isFinite(lh)?{loud:lh}:{})}});
+const qPayload=()=>PL.order.map(i=>{const it=PL.q[i];const lh=isFinite(it.loud)?it.loud:LOUDIDX().get(it.id);return {id:it.id||'',uri:it.uri,title:it.title,artist:it.artist||'',album:it.album||'',dir:it.dir||'',...(isFinite(lh)?{loud:lh}:{})}});
 function syncNative(play,keep){return NATIVE.playerSetQueue({items:qPayload(),index:Math.max(0,PL.pos),play,keep}).catch(e=>toast(e.message||'Lecteur indisponible'))}
 async function webPlay(it){webAudio.src=WEBBLOB.get(it.id);await webAudio.play()}
 async function playPos(p){
@@ -2950,6 +2957,10 @@ if(NATIVE?.addListener){
     const changed=e.index!==PL.pos;PL.pos=e.index;PL.t=(e.pos||0)/1000;PL.dur=(e.dur||0)/1000;PL.playing=!!e.playing;
     if(changed)updPlayer();else updProgress()});
   NATIVE.addListener('playerError',e=>toast(e.message||'Lecture impossible'));
+  /* file lancée hors de l'appli (Android Auto, widget, reprise) : on la reprend telle quelle */
+  NATIVE.addListener('playerQueue',e=>{const idx=new Map();for(const r of LIB)for(const t of r.tracks||[])idx.set(t.id,{r,t});
+    PL.q=(e.items||[]).map(x=>{const h=idx.get(x.id);return h?qItem(h.r,h.t):{id:x.id||x.uri,title:x.title,artist:x.artist,album:x.album,uri:x.uri,dir:x.dir,thumb:'',key:''}});
+    PL.order=PL.q.map((_,i)=>i);PL.pos=Math.max(0,e.index|0);PL.shuffle=false;updPlayer()});
 }
 webAudio.addEventListener('timeupdate',()=>{PL.t=webAudio.currentTime;PL.dur=webAudio.duration||0;updProgress()});
 webAudio.addEventListener('ended',()=>next(true));
@@ -3129,7 +3140,7 @@ $('#libTop').onclick=()=>openTool('top');$('#libFavT').onclick=()=>openTool('fav
    sous un autre identifiant, la liste le retrouve par son nom au lieu de le perdre. */
 const PLSK='sillon.playlists';
 const PLS=(()=>{const l=jget(PLSK,[]);return Array.isArray(l)?l.filter(p=>p&&p.id&&Array.isArray(p.items)):[]})();
-const plsSave=()=>jset(PLSK,PLS);
+const plsSave=()=>{jset(PLSK,PLS);snapSoon()};
 const plGet=id=>PLS.find(p=>p.id===id);
 const plRef=(r,t)=>({id:t.id,ti:t.title||'',ar:(t.artist&&t.artist!=='Artiste inconnu'?t.artist:r.unsorted?'':r.artist)||'',al:r.unsorted?'':r.album||''});
 function plIndex(){const m=new Map();for(const r of LIB)for(const t of r.tracks||[])m.set(t.id,{r,t});return m}

@@ -23,13 +23,16 @@ grep -q "const APP_BUILD=${RUN};" www/index.html
 npx cap add android
 JAVA_DIR=android/app/src/main/java/fr/aflament/sillon
 test -d "$JAVA_DIR"
-cp android-src/MainActivity.java android-src/SillonPlugin.java android-src/CaptureService.java android-src/PlayerService.java android-src/NowPlayingListener.java android-src/WorkService.java android-src/Lame.java android-src/PcmTools.java android-src/Declick.java android-src/Flac.java android-src/AudioDecoder.java "$JAVA_DIR/"
+cp android-src/MainActivity.java android-src/SillonPlugin.java android-src/CaptureService.java android-src/PlayerService.java android-src/NowPlayingListener.java android-src/WorkService.java android-src/Lame.java android-src/PcmTools.java android-src/Declick.java android-src/Flac.java android-src/Catalog.java android-src/SillonWidget.java android-src/AudioDecoder.java "$JAVA_DIR/"
 
 # Icône et écran de démarrage Sillon (remplacent ceux de Capacitor)
 RES=android/app/src/main/res
 find "$RES" -name 'splash.png' -delete
 rm -f "$RES"/mipmap-anydpi-v26/ic_launcher*.xml
 cp -r android-src/icon/res/. "$RES/"
+# Widget d'écran d'accueil et déclaration Android Auto
+cp -r android-src/res/. "$RES/"
+test -f "$RES/layout/sillon_widget.xml"
 test -f "$RES/mipmap-xxxhdpi/ic_launcher_foreground.png"
 test -z "$(find "$RES" -name 'splash.png')"
 
@@ -37,8 +40,11 @@ test -z "$(find "$RES" -name 'splash.png')"
 MAN=android/app/src/main/AndroidManifest.xml
 sed -i 's#<application#<uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />\n    <uses-permission android:name="android.permission.CAMERA" />\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />\n    <uses-permission android:name="android.permission.WAKE_LOCK" />\n    <uses-permission android:name="android.permission.VIBRATE" />\n    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />\n    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />\n\n    <application#' "$MAN"
 # Service de capture du son du téléphone
-sed -i 's#</application>#    <service android:name=".CaptureService" android:exported="false" android:foregroundServiceType="mediaProjection" />\n        <service android:name=".PlayerService" android:exported="false" android:foregroundServiceType="mediaPlayback" />\n        <service android:name=".WorkService" android:exported="false" android:foregroundServiceType="dataSync" />\n        <service android:name=".NowPlayingListener" android:exported="true" android:label="Sillon : infos de lecture" android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"><intent-filter><action android:name="android.service.notification.NotificationListenerService" /></intent-filter></service>\n    </application>#' "$MAN"
+sed -i 's#</application>#    <service android:name=".CaptureService" android:exported="false" android:foregroundServiceType="mediaProjection" />\n        <service android:name=".PlayerService" android:exported="true" android:foregroundServiceType="mediaPlayback"><intent-filter><action android:name="android.media.browse.MediaBrowserService" /></intent-filter></service>\n        <receiver android:name=".SillonWidget" android:exported="false" android:label="Sillon"><intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter><meta-data android:name="android.appwidget.provider" android:resource="@xml/sillon_widget_info" /></receiver>\n        <meta-data android:name="com.google.android.gms.car.application" android:resource="@xml/automotive_app_desc" />\n        <service android:name=".WorkService" android:exported="false" android:foregroundServiceType="dataSync" />\n        <service android:name=".NowPlayingListener" android:exported="true" android:label="Sillon : infos de lecture" android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"><intent-filter><action android:name="android.service.notification.NotificationListenerService" /></intent-filter></service>\n    </application>#' "$MAN"
 grep -q 'android:name=".PlayerService"' "$MAN"
+grep -q 'android.media.browse.MediaBrowserService' "$MAN"
+grep -q 'android:name=".SillonWidget"' "$MAN"
+grep -q 'com.google.android.gms.car.application' "$MAN"
 grep -q 'android:name=".WorkService"' "$MAN"
 grep -q FOREGROUND_SERVICE_DATA_SYNC "$MAN"
 grep -q REQUEST_IGNORE_BATTERY_OPTIMIZATIONS "$MAN"

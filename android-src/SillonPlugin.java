@@ -1203,6 +1203,7 @@ public class SillonPlugin extends Plugin {
             try {
                 org.json.JSONObject o = arr.getJSONObject(i);
                 PlayerService.Item it = new PlayerService.Item();
+                it.id = o.optString("id", "");
                 it.uri = o.optString("uri");
                 it.title = o.optString("title");
                 it.artist = o.optString("artist");
@@ -1275,6 +1276,8 @@ public class SillonPlugin extends Plugin {
                 }
                 return;
             }
+            /* le lecteur peut exister sans être « démarré » (Android Auto connecté) : on le démarre pour qu'il reste au premier plan */
+            if (play && !l.isEmpty()) try { ContextCompat.startForegroundService(getContext(), new Intent(getContext(), PlayerService.class)); } catch (Exception ignored) { }
             s.setQueue(l, idx, play, keep);
             call.resolve();
         });
@@ -1338,6 +1341,30 @@ public class SillonPlugin extends Plugin {
         o.put("playing", playing);
         o.put("size", size);
         notifyListeners("playerState", o);
+    }
+
+    /* file lancée hors de l'appli (Android Auto, widget, reprise) : la page reconstruit sa file à partir des identifiants */
+    void emitPlayerQueue(List<PlayerService.Item> items, int index) {
+        JSObject o = new JSObject();
+        JSArray a = new JSArray();
+        for (PlayerService.Item it : items) {
+            JSObject j = new JSObject();
+            j.put("id", it.id); j.put("uri", it.uri); j.put("title", it.title); j.put("artist", it.artist); j.put("album", it.album); j.put("dir", it.dir);
+            a.put(j);
+        }
+        o.put("items", a);
+        o.put("index", index);
+        notifyListeners("playerQueue", o);
+    }
+
+    /* résumé de la discothèque pour Android Auto et la recherche vocale */
+    @PluginMethod
+    public void libSnapshot(PluginCall call) {
+        final String json = call.getString("json", "");
+        new Thread(() -> {
+            try { Catalog.write(getContext(), json); call.resolve(); }
+            catch (Exception e) { call.reject(e.getMessage() != null ? e.getMessage() : "Écriture impossible"); }
+        }).start();
     }
 
     void emitPlayerError(String m) {

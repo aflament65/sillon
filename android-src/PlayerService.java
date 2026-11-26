@@ -38,10 +38,10 @@ import java.util.List;
  * La file (déjà mise dans l'ordre par l'app) est gérée ici pour que le passage au morceau suivant
  * fonctionne même quand l'app n'est pas à l'écran.
  */
-public class PlayerService extends Service {
+public class PlayerService extends androidx.media.MediaBrowserServiceCompat {
 
     static class Item {
-        String uri, title, artist, album, dir;
+        String id = "", uri, title, artist, album, dir;
         double loud = Double.NaN; /* volume mesuré (dB, 95e centile des fenêtres de 50 ms) ; inconnu = NaN */
     }
 
@@ -113,7 +113,7 @@ public class PlayerService extends Service {
 
     private static final String CH = "lecture";
     private static final int NOTIF = 2;
-    private static final String A_PREV = "fr.aflament.sillon.PREV", A_TOGGLE = "fr.aflament.sillon.TOGGLE",
+    static final String A_PREV = "fr.aflament.sillon.PREV", A_TOGGLE = "fr.aflament.sillon.TOGGLE",
             A_NEXT = "fr.aflament.sillon.NEXT", A_STOP = "fr.aflament.sillon.STOP";
 
     private final List<Item> items = new ArrayList<>();
@@ -159,8 +159,11 @@ public class PlayerService extends Service {
             @Override public void onSkipToPrevious() { prev(); }
             @Override public void onSeekTo(long pos) { seek((int) pos); }
             @Override public void onStop() { stopAll(); }
+            @Override public void onPlayFromMediaId(String mediaId, android.os.Bundle extras) { playFromId(mediaId); }
+            @Override public void onPlayFromSearch(String query, android.os.Bundle extras) { playFromSearch(query); }
         });
         session.setActive(true);
+        setSessionToken(session.getSessionToken());
         if (Build.VERSION.SDK_INT >= 26) {
             ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).createNotificationChannel(
                     new NotificationChannel(CH, "Lecture", NotificationManager.IMPORTANCE_LOW));
@@ -174,6 +177,11 @@ public class PlayerService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         goForeground();
         String a = intent != null ? intent.getAction() : null;
+        /* widget ou bouton du casque, lecteur arrêté : on reprend la dernière file */
+        if (items.isEmpty() && pendingItems == null && (A_PREV.equals(a) || A_TOGGLE.equals(a) || A_NEXT.equals(a))) {
+            if (!restoreQueue()) stopAll();
+            return START_NOT_STICKY;
+        }
         if (A_PREV.equals(a)) prev();
         else if (A_TOGGLE.equals(a)) toggle();
         else if (A_NEXT.equals(a)) next(false);
@@ -188,7 +196,138 @@ public class PlayerService extends Service {
 
     @Override
     public IBinder onBind(Intent intent) {
-        return null;
+        return super.onBind(intent); /* Android Auto et les autres lecteurs se connectent ici pour parcourir la discothèque */
+    }
+
+    /* ---------- parcours de la discothèque (Android Auto) ---------- */
+
+    @Override
+    public BrowserRoot onGetRoot(String clientPackageName, int clientUid, android.os.Bundle rootHints) {
+        android.os.Bundle ex = new android.os.Bundle();
+        ex.putBoolean("android.media.browse.SEARCH_SUPPORTED", true);
+        ex.putInt("android.media.browse.CONTENT_STYLE_BROWSABLE_HINT", 1);
+        ex.putInt("android.media.browse.CONTENT_STYLE_PLAYABLE_HINT", 1);
+        return new BrowserRoot("root", ex);
+    }
+
+    private static android.support.v4.media.MediaBrowserCompat.MediaItem node(String id, String title, String sub, boolean playable) {
+        android.support.v4.media.MediaDescriptionCompat d = new android.support.v4.media.MediaDescriptionCompat.Builder()
+                .setMediaId(id).setTitle(title).setSubtitle(sub).build();
+        return new android.support.v4.media.MediaBrowserCompat.MediaItem(d, playable
+                ? android.support.v4.media.MediaBrowserCompat.MediaItem.FLAG_PLAYABLE
+                : android.support.v4.media.MediaBrowserCompat.MediaItem.FLAG_BROWSABLE);
+    }
+
+    @Override
+    public void onLoadChildren(String parentId, Result<List<android.support.v4.media.MediaBrowserCompat.MediaItem>> result) {
+        List<android.support.v4.media.MediaBrowserCompat.MediaItem> l = new ArrayList<>();
+        Catalog k = Catalog.get(this);
+        try {
+            if ("root".equals(parentId)) {
+                if (!k.byId.isEmpty()) l.add(node("shuffle", "Tout au hasard", k.byId.size() + " morceaux", true));
+                l.add(node("albums", "Albums", k.albums.size() + " albums", false));
+                l.add(node("artists", "Artistes", null, false));
+                if (!k.playlists.isEmpty()) l.add(node("pls", "Listes de lecture", null, false));
+            } else if ("albums".equals(parentId)) {
+                List<Catalog.Album> al = new ArrayList<>(k.albums);
+                java.util.Collections.sort(al, (x, y) -> Catalog.norm(x.artist + " " + x.year).compareTo(Catalog.norm(y.artist + " " + y.year)));
+                for (Catalog.Album a : al) l.add(node("alb:" + a.key, a.album, a.artist + (a.year.isEmpty() ? "" : " · " + a.year), false));
+            } else if ("artists".equals(parentId)) {
+                for (String ar : k.artists()) l.add(node("art:" + ar, ar, null, false));
+            } else if ("pls".equals(parentId)) {
+                for (Catalog.Playlist p : k.playlists) l.add(node("pl:" + p.id, p.name, p.ids.size() + " morceaux", false));
+            } else if (parentId.startsWith("art:")) {
+                String ar = parentId.substring(4);
+                l.add(node("artshuf:" + ar, "Tout au hasard", ar, true));
+                for (Catalog.Album a : k.albumsOf(ar)) l.add(node("alb:" + a.key, a.album, a.year, false));
+            } else if (parentId.startsWith("alb:")) {
+                Catalog.Album a = k.album(parentId.substring(4));
+                if (a != null) for (int i = 0; i < a.tracks.size(); i++) l.add(node("tr:" + a.key + "|" + i, a.tracks.get(i).title, a.tracks.get(i).artist, true));
+            } else if (parentId.startsWith("pl:")) {
+                Catalog.Playlist p = k.playlist(parentId.substring(3));
+                if (p != null) { List<Catalog.Track> t = k.playlistTracks(p); for (int i = 0; i < t.size(); i++) l.add(node("pt:" + p.id + "|" + i, t.get(i).title, t.get(i).artist, true)); }
+            }
+        } catch (Exception ignored) { }
+        result.sendResult(l);
+    }
+
+    private void playList(List<Catalog.Track> tracks, int start, boolean shuffle) {
+        if (tracks == null || tracks.isEmpty()) return;
+        Catalog k = Catalog.get(this);
+        List<Item> l = new ArrayList<>();
+        for (Catalog.Track t : tracks) l.add(k.item(t));
+        if (shuffle) { java.util.Collections.shuffle(l); start = 0; }
+        try { androidx.core.content.ContextCompat.startForegroundService(this, new Intent(this, PlayerService.class)); } catch (Exception ignored) { }
+        setQueue(l, start, true, false);
+        SillonPlugin p = SillonPlugin.instance;
+        if (p != null) p.emitPlayerQueue(items, index);
+    }
+
+    void playFromId(String id) {
+        Catalog k = Catalog.get(this);
+        try {
+            if ("shuffle".equals(id)) playList(k.all(), 0, true);
+            else if (id.startsWith("artshuf:")) { List<Catalog.Track> t = new ArrayList<>(); for (Catalog.Album a : k.albumsOf(id.substring(8))) t.addAll(a.tracks); playList(t, 0, true); }
+            else if (id.startsWith("tr:")) { int bar = id.lastIndexOf('|'); Catalog.Album a = k.album(id.substring(3, bar)); if (a != null) playList(a.tracks, Integer.parseInt(id.substring(bar + 1)), false); }
+            else if (id.startsWith("pt:")) { int bar = id.lastIndexOf('|'); Catalog.Playlist p = k.playlist(id.substring(3, bar)); if (p != null) playList(k.playlistTracks(p), Integer.parseInt(id.substring(bar + 1)), false); }
+            else if (id.startsWith("alb:")) { Catalog.Album a = k.album(id.substring(4)); if (a != null) playList(a.tracks, 0, false); }
+        } catch (Exception e) { emitError("Lecture impossible"); }
+    }
+
+    void playFromSearch(String q) {
+        Catalog k = Catalog.get(this);
+        if (q == null || q.trim().isEmpty()) { if (items.isEmpty() && !restoreQueue()) playList(k.all(), 0, true); else resume(); return; }
+        Catalog.Hit h = k.search(q);
+        if (h != null) playList(h.tracks, h.start, h.shuffle);
+        else session.setPlaybackState(new PlaybackStateCompat.Builder()
+                .setState(PlaybackStateCompat.STATE_ERROR, 0, 0f)
+                .setErrorMessage(PlaybackStateCompat.ERROR_CODE_NOT_SUPPORTED, "« " + q + " » n'est pas dans la discothèque").build());
+    }
+
+    /* ---------- dernière file de lecture, gardée pour reprendre appli fermée (widget, voiture) ---------- */
+    private void saveQueue() {
+        try {
+            org.json.JSONObject o = new org.json.JSONObject();
+            org.json.JSONArray a = new org.json.JSONArray();
+            for (Item it : items) {
+                org.json.JSONObject j = new org.json.JSONObject();
+                j.put("id", it.id); j.put("uri", it.uri); j.put("title", it.title); j.put("artist", it.artist); j.put("album", it.album); j.put("dir", it.dir);
+                if (!Double.isNaN(it.loud)) j.put("loud", it.loud);
+                a.put(j);
+            }
+            o.put("items", a);
+            o.put("index", index);
+            o.put("pos", mp != null ? mp.getCurrentPosition() : 0);
+            try (java.io.FileOutputStream f = new java.io.FileOutputStream(new java.io.File(getCacheDir(), "queue.json"))) { f.write(o.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8)); }
+        } catch (Exception ignored) { }
+    }
+
+    private boolean restoreQueue() {
+        try {
+            java.io.File f = new java.io.File(getCacheDir(), "queue.json");
+            if (!f.exists()) return false;
+            byte[] b = new byte[(int) f.length()];
+            try (java.io.FileInputStream in = new java.io.FileInputStream(f)) { int o = 0, n; while (o < b.length && (n = in.read(b, o, b.length - o)) > 0) o += n; }
+            org.json.JSONObject o = new org.json.JSONObject(new String(b, java.nio.charset.StandardCharsets.UTF_8));
+            org.json.JSONArray a = o.getJSONArray("items");
+            List<Item> l = new ArrayList<>();
+            for (int i = 0; i < a.length(); i++) {
+                org.json.JSONObject j = a.getJSONObject(i);
+                Item it = new Item();
+                it.id = j.optString("id"); it.uri = j.optString("uri"); it.title = j.optString("title"); it.artist = j.optString("artist"); it.album = j.optString("album"); it.dir = j.optString("dir");
+                it.loud = j.has("loud") ? j.optDouble("loud", Double.NaN) : Double.NaN;
+                l.add(it);
+            }
+            if (l.isEmpty()) return false;
+            int idx = Math.max(0, Math.min(o.optInt("index", 0), l.size() - 1)), pos = o.optInt("pos", 0);
+            setQueue(l, idx, true, false);
+            if (mp != null && pos > 3000) mp.seekTo(pos);
+            SillonPlugin p = SillonPlugin.instance;
+            if (p != null) p.emitPlayerQueue(items, index);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     /* ---------- file et commandes ---------- */
@@ -251,6 +390,7 @@ public class PlayerService extends Service {
             MediaPlayer old = mp;
             mp = nextMp;
             index = nextIdx;
+            saveQueue();
             nextMp = null;
             nextIdx = -1;
             detachFx(old);
@@ -291,6 +431,7 @@ public class PlayerService extends Service {
     private void load(int idx, boolean play) {
         releaseMp();
         index = idx;
+        saveQueue();
         Item it = items.get(idx);
         try {
             mp = create(it);
@@ -313,6 +454,7 @@ public class PlayerService extends Service {
     }
 
     void resume() {
+        if (items.isEmpty()) { if (!restoreQueue()) stopAll(); return; }
         if (mp == null && index >= 0 && index < items.size()) {
             load(index, true);
             return;
@@ -323,6 +465,7 @@ public class PlayerService extends Service {
     void pause() {
         resumeOnFocus = false;
         if (mp != null && mp.isPlaying()) mp.pause();
+        saveQueue();
         updateState();
         emitState(true);
     }
@@ -362,9 +505,11 @@ public class PlayerService extends Service {
     }
 
     void stopAll() {
+        if (!items.isEmpty()) saveQueue();
         releaseMp();
         items.clear();
         index = -1;
+        SillonWidget.push(this, null, null, false, null);
         abandonFocus();
         emitState(true);
         stopForeground(STOP_FOREGROUND_REMOVE);
@@ -467,11 +612,14 @@ public class PlayerService extends Service {
         session.setPlaybackState(new PlaybackStateCompat.Builder()
                 .setActions(PlaybackStateCompat.ACTION_PLAY | PlaybackStateCompat.ACTION_PAUSE | PlaybackStateCompat.ACTION_PLAY_PAUSE
                         | PlaybackStateCompat.ACTION_SKIP_TO_NEXT | PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS
-                        | PlaybackStateCompat.ACTION_SEEK_TO | PlaybackStateCompat.ACTION_STOP)
+                        | PlaybackStateCompat.ACTION_SEEK_TO | PlaybackStateCompat.ACTION_STOP
+                        | PlaybackStateCompat.ACTION_PLAY_FROM_MEDIA_ID | PlaybackStateCompat.ACTION_PLAY_FROM_SEARCH)
                 .setState(playing ? PlaybackStateCompat.STATE_PLAYING : PlaybackStateCompat.STATE_PAUSED,
                         mp != null ? mp.getCurrentPosition() : 0, playing ? 1f : 0f)
                 .build());
         goForeground();
+        Item cur = (index >= 0 && index < items.size()) ? items.get(index) : null;
+        SillonWidget.push(this, cur != null ? cur.title : null, cur != null ? cur.artist : null, playing, cur != null ? loadArt(cur.dir) : null);
     }
 
     private PendingIntent action(String a, int code) {
